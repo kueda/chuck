@@ -8,7 +8,5 @@
   "windows": [
     "main"
   ],
-  "permissions": [
-    "cli:default"
-  ]
+  "permissions": []
 }
