@@ -27,3 +27,4 @@ duckdb = { version = "1.4.1", features = ["bundled"] }
 zip = "6.0.0"
 sha2 = "0.10.9"
 roxmltree = "0.20"
+thiserror = "2.0"
