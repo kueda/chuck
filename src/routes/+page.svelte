@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { getCurrentWindow } from '@tauri-apps/api/window';
   import { open } from '@tauri-apps/plugin-dialog';
   import { onMount } from "svelte";
 
@@ -18,15 +19,10 @@
   }
 
   let archive = $state<ArchiveInfo>();
-  let occurrences = $state<[Occurrence]>([]);
+  let occurrences = $state<Array<Occurrence>>([]);
 
   $effect(() => {
     if (archive) {
-      // try {
-      //   occurrences = await invoke('search');
-      // } catch (e) {
-      //   console.log('[+page.svelte] no occurrences, e', e);
-      // }
       invoke('search').then(results => {
         occurrences = results as [Occurrence];
       }).catch(e => {
@@ -34,6 +30,12 @@
       })
     }
   });
+
+  $effect(() => {
+    if (archive) {
+      getCurrentWindow().setTitle(`${archive.name} – ${archive.coreCount} records`);
+    }
+  })
 
   onMount(async () => {
     try {

@@ -8,6 +8,8 @@ use crate::error::{ChuckError, Result};
 #[derive(Debug, Serialize)]
 pub struct ArchiveInfo {
     pub name: String,
+
+    #[serde(rename = "coreCount")]
     pub core_count: usize,
 }
 

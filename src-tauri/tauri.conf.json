@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "chuck",
+  "productName": "Chuck",
   "version": "0.1.0",
   "identifier": "net.kueda.chuck",
   "build": {
@@ -12,9 +12,9 @@
   "app": {
     "windows": [
       {
-        "title": "chuck",
-        "width": 800,
-        "height": 600
+        "title": "Chuck",
+        "width": 1024,
+        "height": 680
       }
     ],
     "security": {
