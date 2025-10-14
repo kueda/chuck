@@ -27,3 +27,12 @@ pub fn open_archive(app: tauri::AppHandle, path: &str) -> Result<ArchiveInfo> {
 pub fn current_archive(app: tauri::AppHandle) -> Result<ArchiveInfo> {
     Archive::current(&get_local_data_dir(app)?)?.info()
 }
+
+#[tauri::command]
+pub fn search(app: tauri::AppHandle) -> Result<Vec<chuck_core::darwin_core::Occurrence>> {
+    let archive = Archive::current(&get_local_data_dir(app)?)?;
+    archive.search(100).map_err(|e| {
+        println!("caught search error: {}", e);
+        e
+    })
+}

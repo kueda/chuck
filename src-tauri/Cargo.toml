@@ -28,4 +28,5 @@ zip = "6.0.0"
 sha2 = "0.10.9"
 roxmltree = "0.20"
 thiserror = "2.0"
+chrono = "0.4"
 chuck-core = { path = "../chuck-core" }

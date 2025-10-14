@@ -8,7 +8,32 @@
     coreCount: number,
   }
 
+  interface Occurrence {
+    occurrenceID: string,
+    scientificName: string,
+    decimalLatitude: number,
+    decimalLongitude: number,
+    eventDate: Date,
+    eventTime: Date,
+  }
+
   let archive = $state<ArchiveInfo>();
+  let occurrences = $state<[Occurrence]>([]);
+
+  $effect(() => {
+    if (archive) {
+      // try {
+      //   occurrences = await invoke('search');
+      // } catch (e) {
+      //   console.log('[+page.svelte] no occurrences, e', e);
+      // }
+      invoke('search').then(results => {
+        occurrences = results as [Occurrence];
+      }).catch(e => {
+        console.log('[+page.svelte] no occurrences, e', e);
+      })
+    }
+  });
 
   onMount(async () => {
     try {
@@ -34,8 +59,33 @@
       Open Archive
     </button>
   </header>
-  <div class="grid grid-cols-2">
+  <div class="flex flex-row">
     <aside>side bar</aside>
-    <main>main stuff</main>
+    <main>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>occurrenceID</th>
+            <th>scientificName</th>
+            <th>lat</th>
+            <th>lng</th>
+            <th>eventDate</th>
+            <th>eventTime</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each occurrences as occ}
+            <tr>
+              <td>{occ.occurrenceID}</td>
+              <td>{occ.scientificName}</td>
+              <td>{occ.decimalLatitude}</td>
+              <td>{occ.decimalLongitude}</td>
+              <td>{occ.eventDate}</td>
+              <td>{occ.eventTime}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </main>
   </div>
 </div>

@@ -108,6 +108,11 @@ impl Archive {
             core_count: self.core_count()?,
         })
     }
+
+    /// Searches for occurrences in the archive
+    pub fn search(&self, limit: usize) -> Result<Vec<chuck_core::darwin_core::Occurrence>> {
+        self.db.search(limit)
+    }
 }
 
 fn create_storage_dir(archive_path: &Path, base_dir: &Path) -> Result<PathBuf> {

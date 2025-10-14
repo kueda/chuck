@@ -10,7 +10,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::archive::open_archive,
-            commands::archive::current_archive
+            commands::archive::current_archive,
+            commands::archive::search
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

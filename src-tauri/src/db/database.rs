@@ -88,6 +88,108 @@ impl Database {
     pub fn path(&self) -> &Path {
         &self.path
     }
+
+    /// Searches for occurrences, returning up to the specified limit
+    pub fn search(&self, limit: usize) -> Result<Vec<chuck_core::darwin_core::Occurrence>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT * FROM occurrences LIMIT ?"
+        )?;
+
+        let rows = stmt.query_map([limit], |row| {
+            // Helper to get column index
+            let col = |name: &str| -> std::result::Result<usize, duckdb::Error> {
+                row.as_ref().column_index(name)
+            };
+
+            // Helper to get a required string value, converting from i64 if necessary
+            let get_string = |name: &str| -> std::result::Result<String, duckdb::Error> {
+                let idx = col(name)?;
+                // Try as string first
+                if let Ok(s) = row.get::<_, Option<String>>(idx) {
+                    Ok(s.unwrap_or_default())
+                } else if let Ok(i) = row.get::<_, Option<i64>>(idx) {
+                    // Fall back to converting i64 to string
+                    Ok(i.map(|v| v.to_string()).unwrap_or_default())
+                } else {
+                    Ok(String::new())
+                }
+            };
+
+            // Helper to get an optional string value, handling various DuckDB types
+            let get_opt_string = |name: &str| -> std::result::Result<Option<String>, duckdb::Error> {
+                let idx = col(name)?;
+
+                // Check if this is a Date32 column
+                let col_type = row.as_ref().column_type(idx);
+                if col_type.to_string() == "Date32" {
+                    if let Ok(days) = row.get::<_, Option<i32>>(idx) {
+                        return Ok(days.map(|d| {
+                            let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
+                            let date = epoch + chrono::Duration::days(d as i64);
+                            date.format("%Y-%m-%d").to_string()
+                        }));
+                    }
+                }
+
+                // Try different types that DuckDB might infer
+                if let Ok(s) = row.get::<_, Option<String>>(idx) {
+                    Ok(s)
+                } else if let Ok(i) = row.get::<_, Option<i64>>(idx) {
+                    Ok(i.map(|v| v.to_string()))
+                } else if let Ok(d) = row.get::<_, Option<f64>>(idx) {
+                    Ok(d.map(|v| v.to_string()))
+                } else {
+                    // For types we still can't convert, return None
+                    Ok(None)
+                }
+            };
+
+            // Map DuckDB row to Occurrence struct
+            Ok(chuck_core::darwin_core::Occurrence {
+                occurrence_id: get_string("occurrenceID")?,
+                basis_of_record: get_string("basisOfRecord")?,
+                recorded_by: get_string("recordedBy")?,
+                event_date: get_opt_string("eventDate")?,
+                decimal_latitude: row.get(col("decimalLatitude")?)?,
+                decimal_longitude: row.get(col("decimalLongitude")?)?,
+                scientific_name: get_opt_string("scientificName")?,
+                taxon_rank: get_opt_string("taxonRank")?,
+                taxonomic_status: get_opt_string("taxonomicStatus")?,
+                vernacular_name: get_opt_string("vernacularName")?,
+                kingdom: get_opt_string("kingdom")?,
+                phylum: get_opt_string("phylum")?,
+                class: get_opt_string("class")?,
+                order: get_opt_string("order")?,
+                family: get_opt_string("family")?,
+                genus: get_opt_string("genus")?,
+                specific_epithet: get_opt_string("specificEpithet")?,
+                infraspecific_epithet: get_opt_string("infraspecificEpithet")?,
+                taxon_id: row.get(col("taxonID")?)?,
+                occurrence_remarks: get_opt_string("occurrenceRemarks")?,
+                establishment_means: get_opt_string("establishmentMeans")?,
+                georeferenced_date: get_opt_string("georeferencedDate")?,
+                georeference_protocol: get_opt_string("georeferenceProtocol")?,
+                coordinate_uncertainty_in_meters: row.get(col("coordinateUncertaintyInMeters")?)?,
+                coordinate_precision: row.get(col("coordinatePrecision")?)?,
+                geodetic_datum: get_opt_string("geodeticDatum")?,
+                access_rights: get_opt_string("accessRights")?,
+                license: get_opt_string("license")?,
+                information_withheld: get_opt_string("informationWithheld")?,
+                modified: get_opt_string("modified")?,
+                captive: row.get(col("captive")?)?,
+                event_time: get_opt_string("eventTime")?,
+                verbatim_event_date: get_opt_string("verbatimEventDate")?,
+                verbatim_locality: get_opt_string("verbatimLocality")?,
+            })
+        })?;
+
+        let mut occurrences = Vec::new();
+        for row in rows {
+            occurrences.push(row?);
+        }
+
+        Ok(occurrences)
+    }
 }
 
 #[cfg(test)]
@@ -183,6 +285,51 @@ mod tests {
         assert_eq!(db.count_records().unwrap(), 4);
 
         // Cleanup happens automatically via Drop
+    }
+
+    #[test]
+    fn test_search_returns_occurrence_records() {
+        // Create a CSV with Darwin Core occurrence fields
+        let csv_data = br#"occurrenceID,basisOfRecord,recordedBy,eventDate,decimalLatitude,decimalLongitude,scientificName,taxonRank,taxonomicStatus,vernacularName,kingdom,phylum,class,order,family,genus,specificEpithet,infraspecificEpithet,taxonID,occurrenceRemarks,establishmentMeans,georeferencedDate,georeferenceProtocol,coordinateUncertaintyInMeters,coordinatePrecision,geodeticDatum,accessRights,license,informationWithheld,modified,captive,eventTime,verbatimEventDate,verbatimLocality
+123456,HumanObservation,John Doe,2024-01-15,34.0522,-118.2437,Quercus agrifolia,species,accepted,Coast Live Oak,Plantae,Tracheophyta,Magnoliopsida,Fagales,Fagaceae,Quercus,agrifolia,,12345,Observed in park,native,2024-01-15,GPS,10.0,0.0001,WGS84,public,CC-BY,,,false,14:30:00,January 15 2024,Golden Gate Park
+789012,HumanObservation,Jane Smith,2024-01-16,37.7749,-122.4194,Pinus radiata,species,accepted,Monterey Pine,Plantae,Tracheophyta,Pinopsida,Pinales,Pinaceae,Pinus,radiata,,67890,Tall specimen,native,2024-01-16,GPS,5.0,0.0001,WGS84,public,CC-BY-NC,,,false,09:15:00,January 16 2024,Presidio
+345678,HumanObservation,Bob Jones,2024-01-17,36.7783,-119.4179,Sequoiadendron giganteum,species,accepted,Giant Sequoia,Plantae,Tracheophyta,Pinopsida,Pinales,Cupressaceae,Sequoiadendron,giganteum,,11111,Ancient tree,native,2024-01-17,GPS,20.0,0.0001,WGS84,public,CC0,,,false,11:00:00,January 17 2024,Sequoia National Park
+"#;
+
+        let fixture = TestFixture::new(
+            "search_occurrences",
+            vec![csv_data]
+        );
+
+        let db = Database::create_from_core_files(
+            &fixture.csv_paths,
+            &fixture.db_path
+        ).unwrap();
+
+        // Test searching for all records
+        let results = db.search(10).unwrap();
+        assert_eq!(results.len(), 3);
+
+        // Verify first occurrence fields
+        let first = &results[0];
+        assert_eq!(first.occurrence_id, "123456");
+        assert_eq!(first.basis_of_record, "HumanObservation");
+        assert_eq!(first.recorded_by, "John Doe");
+        assert_eq!(first.event_date, Some("2024-01-15".to_string()));
+        assert_eq!(first.decimal_latitude, Some(34.0522));
+        assert_eq!(first.decimal_longitude, Some(-118.2437));
+        assert_eq!(first.scientific_name, Some("Quercus agrifolia".to_string()));
+        assert_eq!(first.taxon_rank, Some("species".to_string()));
+        assert_eq!(first.kingdom, Some("Plantae".to_string()));
+        assert_eq!(first.family, Some("Fagaceae".to_string()));
+
+        // Test limit parameter
+        let limited = db.search(2).unwrap();
+        assert_eq!(limited.len(), 2);
+
+        // Test limit larger than available records
+        let all = db.search(100).unwrap();
+        assert_eq!(all.len(), 3);
     }
 }
 
