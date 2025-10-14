@@ -1,4 +1,6 @@
 use std::path::{Path, PathBuf};
+use duckdb::Row;
+
 use crate::error::{ChuckError, Result};
 
 /// Represents a DuckDB database for Darwin Core Archive data
@@ -89,6 +91,53 @@ impl Database {
         &self.path
     }
 
+    /// Helper to get column index from a row given a name
+    fn col_index(row: &Row, name: &str) -> std::result::Result<usize, duckdb::Error> {
+        row.as_ref().column_index(name)
+    }
+
+    /// Helper to get a required string value, converting from i64 if necessary
+    fn col_string(row: &Row, name: &str) -> std::result::Result<String, duckdb::Error> {
+        let idx = Self::col_index(&row, name)?;
+        // Try as string first
+        if let Ok(s) = row.get::<_, Option<String>>(idx) {
+            Ok(s.unwrap_or_default())
+        } else if let Ok(i) = row.get::<_, Option<i64>>(idx) {
+            // Fall back to converting i64 to string
+            Ok(i.map(|v| v.to_string()).unwrap_or_default())
+        } else {
+            Ok(String::new())
+        }
+    }
+
+    fn col_opt_string(row: &Row, name: &str) -> std::result::Result<Option<String>, duckdb::Error> {
+        let idx = Self::col_index(&row, name)?;
+
+        // Check if this is a Date32 column
+        let col_type = row.as_ref().column_type(idx);
+        if col_type.to_string() == "Date32" {
+            if let Ok(days) = row.get::<_, Option<i32>>(idx) {
+                return Ok(days.map(|d| {
+                    let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
+                    let date = epoch + chrono::Duration::days(d as i64);
+                    date.format("%Y-%m-%d").to_string()
+                }));
+            }
+        }
+
+        // Try different types that DuckDB might infer
+        if let Ok(s) = row.get::<_, Option<String>>(idx) {
+            Ok(s)
+        } else if let Ok(i) = row.get::<_, Option<i64>>(idx) {
+            Ok(i.map(|v| v.to_string()))
+        } else if let Ok(d) = row.get::<_, Option<f64>>(idx) {
+            Ok(d.map(|v| v.to_string()))
+        } else {
+            // For types we still can't convert, return None
+            Ok(None)
+        }
+    }
+
     /// Searches for occurrences, returning up to the specified limit
     pub fn search(&self, limit: usize) -> Result<Vec<chuck_core::darwin_core::Occurrence>> {
         let mut stmt = self.conn.prepare(
@@ -96,90 +145,42 @@ impl Database {
         )?;
 
         let rows = stmt.query_map([limit], |row| {
-            // Helper to get column index
-            let col = |name: &str| -> std::result::Result<usize, duckdb::Error> {
-                row.as_ref().column_index(name)
-            };
-
-            // Helper to get a required string value, converting from i64 if necessary
-            let get_string = |name: &str| -> std::result::Result<String, duckdb::Error> {
-                let idx = col(name)?;
-                // Try as string first
-                if let Ok(s) = row.get::<_, Option<String>>(idx) {
-                    Ok(s.unwrap_or_default())
-                } else if let Ok(i) = row.get::<_, Option<i64>>(idx) {
-                    // Fall back to converting i64 to string
-                    Ok(i.map(|v| v.to_string()).unwrap_or_default())
-                } else {
-                    Ok(String::new())
-                }
-            };
-
-            // Helper to get an optional string value, handling various DuckDB types
-            let get_opt_string = |name: &str| -> std::result::Result<Option<String>, duckdb::Error> {
-                let idx = col(name)?;
-
-                // Check if this is a Date32 column
-                let col_type = row.as_ref().column_type(idx);
-                if col_type.to_string() == "Date32" {
-                    if let Ok(days) = row.get::<_, Option<i32>>(idx) {
-                        return Ok(days.map(|d| {
-                            let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
-                            let date = epoch + chrono::Duration::days(d as i64);
-                            date.format("%Y-%m-%d").to_string()
-                        }));
-                    }
-                }
-
-                // Try different types that DuckDB might infer
-                if let Ok(s) = row.get::<_, Option<String>>(idx) {
-                    Ok(s)
-                } else if let Ok(i) = row.get::<_, Option<i64>>(idx) {
-                    Ok(i.map(|v| v.to_string()))
-                } else if let Ok(d) = row.get::<_, Option<f64>>(idx) {
-                    Ok(d.map(|v| v.to_string()))
-                } else {
-                    // For types we still can't convert, return None
-                    Ok(None)
-                }
-            };
-
             // Map DuckDB row to Occurrence struct
             Ok(chuck_core::darwin_core::Occurrence {
-                occurrence_id: get_string("occurrenceID")?,
-                basis_of_record: get_string("basisOfRecord")?,
-                recorded_by: get_string("recordedBy")?,
-                event_date: get_opt_string("eventDate")?,
-                decimal_latitude: row.get(col("decimalLatitude")?)?,
-                decimal_longitude: row.get(col("decimalLongitude")?)?,
-                scientific_name: get_opt_string("scientificName")?,
-                taxon_rank: get_opt_string("taxonRank")?,
-                taxonomic_status: get_opt_string("taxonomicStatus")?,
-                vernacular_name: get_opt_string("vernacularName")?,
-                kingdom: get_opt_string("kingdom")?,
-                phylum: get_opt_string("phylum")?,
-                class: get_opt_string("class")?,
-                order: get_opt_string("order")?,
-                family: get_opt_string("family")?,
-                genus: get_opt_string("genus")?,
-                specific_epithet: get_opt_string("specificEpithet")?,
-                infraspecific_epithet: get_opt_string("infraspecificEpithet")?,
-                taxon_id: row.get(col("taxonID")?)?,
-                occurrence_remarks: get_opt_string("occurrenceRemarks")?,
-                establishment_means: get_opt_string("establishmentMeans")?,
-                georeferenced_date: get_opt_string("georeferencedDate")?,
-                georeference_protocol: get_opt_string("georeferenceProtocol")?,
-                coordinate_uncertainty_in_meters: row.get(col("coordinateUncertaintyInMeters")?)?,
-                coordinate_precision: row.get(col("coordinatePrecision")?)?,
-                geodetic_datum: get_opt_string("geodeticDatum")?,
-                access_rights: get_opt_string("accessRights")?,
-                license: get_opt_string("license")?,
-                information_withheld: get_opt_string("informationWithheld")?,
-                modified: get_opt_string("modified")?,
-                captive: row.get(col("captive")?)?,
-                event_time: get_opt_string("eventTime")?,
-                verbatim_event_date: get_opt_string("verbatimEventDate")?,
-                verbatim_locality: get_opt_string("verbatimLocality")?,
+                occurrence_id: Self::col_string(&row, "occurrenceID")?,
+                basis_of_record: Self::col_string(&row, "basisOfRecord")?,
+                recorded_by: Self::col_string(&row, "recordedBy")?,
+                event_date: Self::col_opt_string(&row, "eventDate")?,
+                decimal_latitude: row.get(Self::col_index(&row, "decimalLatitude")?)?,
+                decimal_longitude: row.get(Self::col_index(&row, "decimalLongitude")?)?,
+                scientific_name: Self::col_opt_string(&row, "scientificName")?,
+                taxon_rank: Self::col_opt_string(&row, "taxonRank")?,
+                taxonomic_status: Self::col_opt_string(&row, "taxonomicStatus")?,
+                vernacular_name: Self::col_opt_string(&row, "vernacularName")?,
+                kingdom: Self::col_opt_string(&row, "kingdom")?,
+                phylum: Self::col_opt_string(&row, "phylum")?,
+                class: Self::col_opt_string(&row, "class")?,
+                order: Self::col_opt_string(&row, "order")?,
+                family: Self::col_opt_string(&row, "family")?,
+                genus: Self::col_opt_string(&row, "genus")?,
+                specific_epithet: Self::col_opt_string(&row, "specificEpithet")?,
+                infraspecific_epithet: Self::col_opt_string(&row, "infraspecificEpithet")?,
+                taxon_id: row.get(Self::col_index(&row, "taxonID")?)?,
+                occurrence_remarks: Self::col_opt_string(&row, "occurrenceRemarks")?,
+                establishment_means: Self::col_opt_string(&row, "establishmentMeans")?,
+                georeferenced_date: Self::col_opt_string(&row, "georeferencedDate")?,
+                georeference_protocol: Self::col_opt_string(&row, "georeferenceProtocol")?,
+                coordinate_uncertainty_in_meters: row.get(Self::col_index(&row, "coordinateUncertaintyInMeters")?)?,
+                coordinate_precision: row.get(Self::col_index(&row, "coordinatePrecision")?)?,
+                geodetic_datum: Self::col_opt_string(&row, "geodeticDatum")?,
+                access_rights: Self::col_opt_string(&row, "accessRights")?,
+                license: Self::col_opt_string(&row, "license")?,
+                information_withheld: Self::col_opt_string(&row, "informationWithheld")?,
+                modified: Self::col_opt_string(&row, "modified")?,
+                captive: row.get(Self::col_index(&row, "captive")?)?,
+                event_time: Self::col_opt_string(&row, "eventTime")?,
+                verbatim_event_date: Self::col_opt_string(&row, "verbatimEventDate")?,
+                verbatim_locality: Self::col_opt_string(&row, "verbatimLocality")?,
             })
         })?;
 
