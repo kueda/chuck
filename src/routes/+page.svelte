@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { getCurrentWindow } from '@tauri-apps/api/window';
+  import { listen } from '@tauri-apps/api/event';
   import { open } from '@tauri-apps/plugin-dialog';
   import { onMount } from "svelte";
 
@@ -37,6 +38,13 @@
     }
   })
 
+  async function openArchive() {
+    const path = await open();
+    if (path) {
+      archive = await invoke('open_archive', { path });
+    }
+  }
+
   onMount(async () => {
     try {
       archive = await invoke('current_archive');
@@ -44,25 +52,18 @@
     } catch (e) {
       console.log('[+page.svelte] no archive, e', e);
     }
+
+    // Listen for menu events
+    const unlisten = await listen('menu-open', openArchive);
+    return () => {
+      unlisten();
+    };
   });
 </script>
 
-<div class="flex flex-col p-4">
-  <header class="flex items-center justify-between">
-    <p>{archive?.name || "no archive open"}</p>
-    <button
-      type="button"
-      class="btn preset-filled"
-      onclick={async () => {
-        const path = await open();
-        archive = await invoke('open_archive', { path });
-      }}
-    >
-      Open Archive
-    </button>
-  </header>
-  <div class="flex flex-row">
-    <aside>side bar</aside>
+{#if archive}
+  <div class="flex flex-row p-4">
+    <aside class="mr-4">side bar</aside>
     <main>
       <table class="table">
         <thead>
@@ -90,4 +91,15 @@
       </table>
     </main>
   </div>
-</div>
+{:else}
+  <div class="w-full h-screen flex flex-col justify-center items-center p-4 text-center">
+    <p class="w-3/4 mb-5">Chuck is an application for viewing archives of biodiversity occurrences called DarwinCore Archives. Open an existing archive to get started</p>
+    <button
+      type="button"
+      class="btn preset-filled"
+      onclick={openArchive}
+    >
+      Open Archive
+    </button>
+  </div>
+{/if}
