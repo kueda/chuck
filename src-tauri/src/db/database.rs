@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 use crate::error::{ChuckError, Result};
 
 /// Represents a DuckDB database for Darwin Core Archive data
-#[derive(Debug)]
 pub struct Database {
     path: PathBuf,
     conn: duckdb::Connection,
@@ -157,9 +156,7 @@ mod tests {
             &fixture.csv_paths,
             &fixture.db_path
         );
-        if !result2.is_ok() {
-            println!("result2: {:?}", result2);
-        }
+
         assert!(result2.is_ok());
         let db2 = result2.unwrap();
         assert_eq!(db2.count_records().unwrap(), 2);

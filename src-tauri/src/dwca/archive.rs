@@ -1,38 +1,77 @@
 use std::path::{Path, PathBuf};
+use sha2::{Digest, Sha256};
 use crate::error::{ChuckError, Result};
+use crate::db::Database;
 
 /// Represents a Darwin Core Archive
-#[derive(Debug)]
 pub struct Archive {
-    /// Path to the original archive file
-    pub archive_path: PathBuf,
     /// Directory where archive contents are stored
     pub storage_dir: PathBuf,
-    /// Paths to core data files
-    pub core_files: Vec<PathBuf>,
+
+    /// Internal database for querying archive data
+    db: Database,
 }
 
 impl Archive {
     /// Opens and extracts a Darwin Core Archive
-    pub fn open(archive_path: &Path, storage_dir: &Path) -> Result<Self> {
-        // Remove all other archive directories in the base directory
-        if let Some(base_dir) = storage_dir.parent() {
-            remove_other_archives(base_dir, storage_dir)?;
-        }
+    pub fn open(archive_path: &Path, base_dir: &Path) -> Result<Self> {
+        // Create storage directory based on archive hash
+        let storage_dir = create_storage_dir(archive_path, base_dir)?;
 
-        extract_archive(archive_path, storage_dir)?;
-        let core_files = parse_meta_xml(storage_dir)?;
+        // Remove all other archive directories in the base directory
+        remove_other_archives(base_dir, &storage_dir)?;
+
+        extract_archive(archive_path, &storage_dir)?;
+        let core_files = parse_meta_xml(&storage_dir)?;
+
+        // Create database from core files
+        let db_name = archive_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("archive");
+        let db_path = storage_dir.join(format!("{}.db", db_name));
+        let db = Database::create_from_core_files(&core_files, &db_path)?;
 
         Ok(Self {
-            archive_path: archive_path.to_path_buf(),
-            storage_dir: storage_dir.to_path_buf(),
-            core_files,
+            // archive_path: archive_path.to_path_buf(),
+            storage_dir,
+            db,
         })
     }
 
-    pub fn core_files(&self) -> &[PathBuf] {
-        &self.core_files
+    /// Returns the number of core records in the archive
+    pub fn core_count(&self) -> Result<usize> {
+        self.db.count_records()
     }
+}
+
+fn create_storage_dir(archive_path: &Path, base_dir: &Path) -> Result<PathBuf> {
+    let mut file = std::fs::File::open(archive_path).map_err(|e| ChuckError::FileOpen {
+        path: archive_path.to_path_buf(),
+        source: e,
+    })?;
+
+    let fname = archive_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| ChuckError::InvalidFileName(archive_path.to_path_buf()))?;
+
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher).map_err(|e| ChuckError::FileRead {
+        path: archive_path.to_path_buf(),
+        source: e,
+    })?;
+
+    let file_hash = hasher.finalize();
+    let file_hash_string = format!("{}-{:x}", fname, file_hash);
+    let target_dir = base_dir.join(file_hash_string);
+
+    std::fs::create_dir_all(&target_dir).map_err(|e| ChuckError::DirectoryCreate {
+        path: target_dir.clone(),
+        source: e,
+    })?;
+
+    Ok(target_dir)
 }
 
 fn remove_other_archives(base_dir: &Path, current_storage_dir: &Path) -> Result<()> {
@@ -327,19 +366,13 @@ mod tests {
         let fixture2 = ZippedArchiveFixture::new("test_archive2", None);
 
         // Open first archive
-        let storage_dir1 = crate::dwca::create_storage_dir(
-            fixture1.archive_path(),
-            fixture1.base_dir()
-        ).unwrap();
-        let _archive1 = Archive::open(fixture1.archive_path(), &storage_dir1).unwrap();
+        let archive1 = Archive::open(fixture1.archive_path(), fixture1.base_dir()).unwrap();
+        let storage_dir1 = archive1.storage_dir.clone();
         assert!(storage_dir1.exists());
 
         // Open second archive using the same base directory
-        let storage_dir2 = crate::dwca::create_storage_dir(
-            fixture2.archive_path(),
-            fixture1.base_dir()
-        ).unwrap();
-        let _archive2 = Archive::open(fixture2.archive_path(), &storage_dir2).unwrap();
+        let archive2 = Archive::open(fixture2.archive_path(), fixture1.base_dir()).unwrap();
+        let storage_dir2 = archive2.storage_dir.clone();
 
         // After opening the second archive, the first archive's directory should be removed
         assert!(
@@ -350,6 +383,28 @@ mod tests {
             storage_dir2.exists(),
             "Second archive directory should exist"
         );
+    }
+
+    #[test]
+    fn test_create_storage_dir() {
+        let temp_dir = std::env::temp_dir();
+        let test_archive = temp_dir.join("test_archive.zip");
+        let base_dir = temp_dir.join("chuck_test_storage");
+
+        // Create a test file
+        let mut file = std::fs::File::create(&test_archive).unwrap();
+        file.write_all(b"test content").unwrap();
+
+        let result = create_storage_dir(&test_archive, &base_dir);
+        assert!(result.is_ok());
+
+        let storage_dir = result.unwrap();
+        assert!(storage_dir.exists());
+        assert!(storage_dir.starts_with(&base_dir));
+
+        // Cleanup
+        std::fs::remove_dir_all(&base_dir).ok();
+        std::fs::remove_file(&test_archive).ok();
     }
 }
 
