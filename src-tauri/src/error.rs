@@ -40,6 +40,9 @@ pub enum ChuckError {
     #[error("No core files found in meta.xml")]
     NoCoreFiles,
 
+    #[error("No archive found in directory: {0}")]
+    NoArchiveFound(PathBuf),
+
     #[error("Database error: {0}")]
     Database(#[from] duckdb::Error),
 
