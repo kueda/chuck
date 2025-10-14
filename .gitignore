@@ -9,6 +9,10 @@ node_modules
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
+# Rust
+/target
+Cargo.lock
+
 # Claude
 .claude*
 CLAUDE.md
