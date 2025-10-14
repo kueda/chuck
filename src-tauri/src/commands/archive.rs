@@ -1,5 +1,7 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use serde::Serialize;
+use tauri::Manager;
+
 use crate::dwca::Archive;
 use crate::error::{ChuckError, Result};
 
@@ -9,29 +11,19 @@ pub struct ArchiveInfo {
     pub core_count: usize,
 }
 
-#[tauri::command]
-pub fn open_archive(app: tauri::AppHandle, path: &str) -> Result<ArchiveInfo> {
-    use tauri::Manager;
-
-    let archive_path = Path::new(path);
-    let local_data_dir = app
+fn get_local_data_dir(app: tauri::AppHandle) -> Result<PathBuf> {
+    app
         .path()
         .app_local_data_dir()
-        .map_err(|e| ChuckError::Tauri(e.to_string()))?;
+        .map_err(|e| ChuckError::Tauri(e.to_string()))
+}
 
-    let archive = Archive::open(archive_path, &local_data_dir)?;
-    archive.info()
+#[tauri::command]
+pub fn open_archive(app: tauri::AppHandle, path: &str) -> Result<ArchiveInfo> {
+    Archive::open(Path::new(path), &get_local_data_dir(app)?)?.info()
 }
 
 #[tauri::command]
 pub fn current_archive(app: tauri::AppHandle) -> Result<ArchiveInfo> {
-    use tauri::Manager;
-
-    let local_data_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| ChuckError::Tauri(e.to_string()))?;
-
-    let archive = Archive::current(&local_data_dir)?;
-    archive.info()
+    Archive::current(&get_local_data_dir(app)?)?.info()
 }
