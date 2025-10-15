@@ -138,13 +138,17 @@ impl Database {
         }
     }
 
-    /// Searches for occurrences, returning up to the specified limit
-    pub fn search(&self, limit: usize) -> Result<Vec<chuck_core::darwin_core::Occurrence>> {
+    /// Searches for occurrences, returning up to the specified limit starting at offset
+    pub fn search(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<chuck_core::darwin_core::Occurrence>> {
         let mut stmt = self.conn.prepare(
-            "SELECT * FROM occurrences LIMIT ?"
+            "SELECT * FROM occurrences LIMIT ? OFFSET ?"
         )?;
 
-        let rows = stmt.query_map([limit], |row| {
+        let rows = stmt.query_map([limit, offset], |row| {
             // Map DuckDB row to Occurrence struct
             Ok(chuck_core::darwin_core::Occurrence {
                 occurrence_id: Self::col_string(&row, "occurrenceID")?,
@@ -308,7 +312,7 @@ mod tests {
         ).unwrap();
 
         // Test searching for all records
-        let results = db.search(10).unwrap();
+        let results = db.search(10, 0).unwrap();
         assert_eq!(results.len(), 3);
 
         // Verify first occurrence fields
@@ -325,11 +329,16 @@ mod tests {
         assert_eq!(first.family, Some("Fagaceae".to_string()));
 
         // Test limit parameter
-        let limited = db.search(2).unwrap();
+        let limited = db.search(2, 0).unwrap();
         assert_eq!(limited.len(), 2);
 
+        // Test offset parameter
+        let offset_results = db.search(2, 1).unwrap();
+        assert_eq!(offset_results.len(), 2);
+        assert_eq!(offset_results[0].occurrence_id, "789012");
+
         // Test limit larger than available records
-        let all = db.search(100).unwrap();
+        let all = db.search(100, 0).unwrap();
         assert_eq!(all.len(), 3);
     }
 }

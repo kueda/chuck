@@ -110,8 +110,12 @@ impl Archive {
     }
 
     /// Searches for occurrences in the archive
-    pub fn search(&self, limit: usize) -> Result<Vec<chuck_core::darwin_core::Occurrence>> {
-        self.db.search(limit)
+    pub fn search(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<chuck_core::darwin_core::Occurrence>> {
+        self.db.search(limit, offset)
     }
 }
 
