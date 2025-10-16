@@ -110,32 +110,60 @@ impl Database {
         }
     }
 
-    fn col_opt_string(row: &Row, name: &str) -> std::result::Result<Option<String>, duckdb::Error> {
-        let idx = Self::col_index(&row, name)?;
+    /// Gets an optional string value, returning None if the column doesn't exist.
+    /// Used for optional Darwin Core fields that may not be present in all archives.
+    fn col_opt_string(row: &Row, name: &str) -> Option<String> {
+        match row.as_ref().column_index(name) {
+            Ok(idx) => {
+                // Check if this is a Date32 column
+                let col_type = row.as_ref().column_type(idx);
+                if col_type.to_string() == "Date32" {
+                    if let Ok(days) = row.get::<_, Option<i32>>(idx) {
+                        return days.map(|d| {
+                            let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
+                            let date = epoch + chrono::Duration::days(d as i64);
+                            date.format("%Y-%m-%d").to_string()
+                        });
+                    }
+                }
 
-        // Check if this is a Date32 column
-        let col_type = row.as_ref().column_type(idx);
-        if col_type.to_string() == "Date32" {
-            if let Ok(days) = row.get::<_, Option<i32>>(idx) {
-                return Ok(days.map(|d| {
-                    let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
-                    let date = epoch + chrono::Duration::days(d as i64);
-                    date.format("%Y-%m-%d").to_string()
-                }));
+                // Try different types that DuckDB might infer
+                if let Ok(s) = row.get::<_, Option<String>>(idx) {
+                    s
+                } else if let Ok(i) = row.get::<_, Option<i64>>(idx) {
+                    i.map(|v| v.to_string())
+                } else if let Ok(d) = row.get::<_, Option<f64>>(idx) {
+                    d.map(|v| v.to_string())
+                } else {
+                    None
+                }
             }
+            Err(_) => None, // Column doesn't exist, return None
         }
+    }
 
-        // Try different types that DuckDB might infer
-        if let Ok(s) = row.get::<_, Option<String>>(idx) {
-            Ok(s)
-        } else if let Ok(i) = row.get::<_, Option<i64>>(idx) {
-            Ok(i.map(|v| v.to_string()))
-        } else if let Ok(d) = row.get::<_, Option<f64>>(idx) {
-            Ok(d.map(|v| v.to_string()))
-        } else {
-            // For types we still can't convert, return None
-            Ok(None)
-        }
+    /// Gets an optional f64 value, returning None if the column doesn't exist
+    fn col_opt_f64(row: &Row, name: &str) -> Option<f64> {
+        row.as_ref().column_index(name)
+            .ok()
+            .and_then(|idx| row.get::<_, Option<f64>>(idx).ok())
+            .flatten()
+    }
+
+    /// Gets an optional i32 value, returning None if the column doesn't exist
+    fn col_opt_i32(row: &Row, name: &str) -> Option<i32> {
+        row.as_ref().column_index(name)
+            .ok()
+            .and_then(|idx| row.get::<_, Option<i32>>(idx).ok())
+            .flatten()
+    }
+
+    /// Gets an optional bool value, returning None if the column doesn't exist
+    fn col_opt_bool(row: &Row, name: &str) -> Option<bool> {
+        row.as_ref().column_index(name)
+            .ok()
+            .and_then(|idx| row.get::<_, Option<bool>>(idx).ok())
+            .flatten()
     }
 
     /// Searches for occurrences, returning up to the specified limit starting at offset
@@ -183,41 +211,42 @@ impl Database {
 
         let rows = stmt.query_map(select_param_refs.as_slice(), |row| {
             // Map DuckDB row to Occurrence struct
+            // Use safe helpers for optional fields to handle archives with varying schemas
             Ok(chuck_core::darwin_core::Occurrence {
                 occurrence_id: Self::col_string(&row, "occurrenceID")?,
                 basis_of_record: Self::col_string(&row, "basisOfRecord")?,
                 recorded_by: Self::col_string(&row, "recordedBy")?,
-                event_date: Self::col_opt_string(&row, "eventDate")?,
-                decimal_latitude: row.get(Self::col_index(&row, "decimalLatitude")?)?,
-                decimal_longitude: row.get(Self::col_index(&row, "decimalLongitude")?)?,
-                scientific_name: Self::col_opt_string(&row, "scientificName")?,
-                taxon_rank: Self::col_opt_string(&row, "taxonRank")?,
-                taxonomic_status: Self::col_opt_string(&row, "taxonomicStatus")?,
-                vernacular_name: Self::col_opt_string(&row, "vernacularName")?,
-                kingdom: Self::col_opt_string(&row, "kingdom")?,
-                phylum: Self::col_opt_string(&row, "phylum")?,
-                class: Self::col_opt_string(&row, "class")?,
-                order: Self::col_opt_string(&row, "order")?,
-                family: Self::col_opt_string(&row, "family")?,
-                genus: Self::col_opt_string(&row, "genus")?,
-                specific_epithet: Self::col_opt_string(&row, "specificEpithet")?,
-                infraspecific_epithet: Self::col_opt_string(&row, "infraspecificEpithet")?,
-                taxon_id: row.get(Self::col_index(&row, "taxonID")?)?,
-                occurrence_remarks: Self::col_opt_string(&row, "occurrenceRemarks")?,
-                establishment_means: Self::col_opt_string(&row, "establishmentMeans")?,
-                georeferenced_date: Self::col_opt_string(&row, "georeferencedDate")?,
-                georeference_protocol: Self::col_opt_string(&row, "georeferenceProtocol")?,
-                coordinate_uncertainty_in_meters: row.get(Self::col_index(&row, "coordinateUncertaintyInMeters")?)?,
-                coordinate_precision: row.get(Self::col_index(&row, "coordinatePrecision")?)?,
-                geodetic_datum: Self::col_opt_string(&row, "geodeticDatum")?,
-                access_rights: Self::col_opt_string(&row, "accessRights")?,
-                license: Self::col_opt_string(&row, "license")?,
-                information_withheld: Self::col_opt_string(&row, "informationWithheld")?,
-                modified: Self::col_opt_string(&row, "modified")?,
-                captive: row.get(Self::col_index(&row, "captive")?)?,
-                event_time: Self::col_opt_string(&row, "eventTime")?,
-                verbatim_event_date: Self::col_opt_string(&row, "verbatimEventDate")?,
-                verbatim_locality: Self::col_opt_string(&row, "verbatimLocality")?,
+                event_date: Self::col_opt_string(&row, "eventDate"),
+                decimal_latitude: Self::col_opt_f64(&row, "decimalLatitude"),
+                decimal_longitude: Self::col_opt_f64(&row, "decimalLongitude"),
+                scientific_name: Self::col_opt_string(&row, "scientificName"),
+                taxon_rank: Self::col_opt_string(&row, "taxonRank"),
+                taxonomic_status: Self::col_opt_string(&row, "taxonomicStatus"),
+                vernacular_name: Self::col_opt_string(&row, "vernacularName"),
+                kingdom: Self::col_opt_string(&row, "kingdom"),
+                phylum: Self::col_opt_string(&row, "phylum"),
+                class: Self::col_opt_string(&row, "class"),
+                order: Self::col_opt_string(&row, "order"),
+                family: Self::col_opt_string(&row, "family"),
+                genus: Self::col_opt_string(&row, "genus"),
+                specific_epithet: Self::col_opt_string(&row, "specificEpithet"),
+                infraspecific_epithet: Self::col_opt_string(&row, "infraspecificEpithet"),
+                taxon_id: Self::col_opt_i32(&row, "taxonID"),
+                occurrence_remarks: Self::col_opt_string(&row, "occurrenceRemarks"),
+                establishment_means: Self::col_opt_string(&row, "establishmentMeans"),
+                georeferenced_date: Self::col_opt_string(&row, "georeferencedDate"),
+                georeference_protocol: Self::col_opt_string(&row, "georeferenceProtocol"),
+                coordinate_uncertainty_in_meters: Self::col_opt_f64(&row, "coordinateUncertaintyInMeters"),
+                coordinate_precision: Self::col_opt_f64(&row, "coordinatePrecision"),
+                geodetic_datum: Self::col_opt_string(&row, "geodeticDatum"),
+                access_rights: Self::col_opt_string(&row, "accessRights"),
+                license: Self::col_opt_string(&row, "license"),
+                information_withheld: Self::col_opt_string(&row, "informationWithheld"),
+                modified: Self::col_opt_string(&row, "modified"),
+                captive: Self::col_opt_bool(&row, "captive"),
+                event_time: Self::col_opt_string(&row, "eventTime"),
+                verbatim_event_date: Self::col_opt_string(&row, "verbatimEventDate"),
+                verbatim_locality: Self::col_opt_string(&row, "verbatimLocality"),
             })
         })?;
 
