@@ -2,6 +2,92 @@ use inaturalist::models::{Observation, ShowTaxon};
 use std::collections::HashMap;
 use super::{Occurrence, Multimedia, Audiovisual, Identification};
 
+// GBIF-valid life stages
+const GBIF_LIFE_STAGES: &[&str] = &[
+    "adult", "agamont", "ammocoete", "bipinnaria", "blastomere", "calf", "caterpillar",
+    "chick", "eft", "egg", "elver", "embryo", "fawn", "foal", "fry", "gamete",
+    "gametophyte", "gamont", "glochidium", "grub", "hatchling", "imago", "infant",
+    "juvenile", "kit", "kitten", "larva", "larvae", "leptocephalus", "maggot",
+    "nauplius", "nymph", "ovule", "ovum", "planula", "polewig", "pollen", "polliwig",
+    "polliwog", "pollywog", "polwig", "protonema", "pup", "pupa", "puppe", "seed",
+    "seedling", "sperm", "spore", "sporophyte", "tadpole", "trochophore", "veliger",
+    "whelp", "wriggler", "zoea", "zygote",
+];
+
+// Valid sex values from iNaturalist controlled terms
+const VALID_SEXES: &[&str] = &["female", "male", "cannot be determined"];
+
+/// Extract life stage from annotations, following the same logic as
+/// https://github.com/inaturalist/inaturalist/blob/main/lib/darwin_core/occurrence.rb#L490
+fn extract_life_stage(obs: &Observation) -> Option<String> {
+    extract_annotation_value(obs, "Life Stage", |value_lower| {
+        GBIF_LIFE_STAGES.contains(&value_lower)
+    })
+}
+
+/// Extract sex from annotations, following the same logic as
+/// https://github.com/inaturalist/inaturalist/blob/main/lib/darwin_core/occurrence.rb
+fn extract_sex(obs: &Observation) -> Option<String> {
+    let value = extract_annotation_value(obs, "Sex", |value_lower| {
+        VALID_SEXES.contains(&value_lower)
+    })?;
+
+    // Map "cannot be determined" to "undetermined" as per Ruby code
+    if value == "cannot be determined" {
+        Some("undetermined".to_string())
+    } else {
+        Some(value)
+    }
+}
+
+/// Extract reproductive condition from annotations
+fn extract_reproductive_condition(obs: &Observation) -> Option<String> {
+    // No validation list - accept any value from Flowers and Fruits annotation
+    extract_annotation_value(obs, "Flowers and Fruits", |_| true)
+}
+
+/// Helper function to extract annotation values with a validation function
+fn extract_annotation_value<F>(
+    obs: &Observation,
+    attribute_name: &str,
+    validator: F,
+) -> Option<String>
+where
+    F: Fn(&str) -> bool,
+{
+    let annotations = obs.annotations.as_ref()?;
+    let prefix = format!("{}=", attribute_name);
+
+    // Find annotations with positive vote scores
+    let matching_annotations: Vec<_> = annotations
+        .iter()
+        .filter(|a| {
+            if let Some(ref concat_val) = a.concatenated_attr_val {
+                concat_val.starts_with(&prefix) && a.vote_score.unwrap_or(0) >= 0
+            } else {
+                false
+            }
+        })
+        .collect();
+
+    // Get the annotation with the highest vote score
+    let winning_annotation = matching_annotations
+        .iter()
+        .max_by_key(|a| a.vote_score.unwrap_or(0))?;
+
+    // Extract the value part
+    let concat_val = winning_annotation.concatenated_attr_val.as_ref()?;
+    let value = concat_val.strip_prefix(&prefix)?;
+    let value_lower = value.to_lowercase();
+
+    // Only return if it passes validation
+    if validator(&value_lower) {
+        Some(value_lower)
+    } else {
+        None
+    }
+}
+
 impl From<(&Observation, &HashMap<i32, ShowTaxon>)> for Occurrence {
     fn from((obs, taxa_hash): (&Observation, &HashMap<i32, ShowTaxon>)) -> Self {
         // Extract coordinates if available
@@ -23,16 +109,24 @@ impl From<(&Observation, &HashMap<i32, ShowTaxon>)> for Occurrence {
         };
 
         // Extract scientific name and rank from taxon
-        let (scientific_name, taxon_rank, vernacular_name, kingdom, phylum, class, order, family, genus) =
+        let (scientific_name, taxon_rank, vernacular_name, kingdom, phylum, class, order,
+            superfamily, family, subfamily, tribe, subtribe, genus, subgenus, species) =
             if let Some(taxon) = &obs.taxon {
                 // Get taxonomic hierarchy from ancestor_ids using taxa_hash
-                let (kingdom, phylum, class, order, family, genus) = if let Some(ancestor_ids) = &taxon.ancestor_ids {
+                let (kingdom, phylum, class, order, superfamily, family, subfamily, tribe,
+                    subtribe, genus, subgenus, species) = if let Some(ancestor_ids) = &taxon.ancestor_ids {
                     let mut k = None;
                     let mut p = None;
                     let mut c = None;
                     let mut o = None;
+                    let mut sf = None;
                     let mut f = None;
+                    let mut sbf = None;
+                    let mut t = None;
+                    let mut st = None;
                     let mut g = None;
+                    let mut sg = None;
+                    let mut sp = None;
 
                     // Look up each ancestor in the taxa hash and extract names by rank
                     for ancestor_id in ancestor_ids {
@@ -43,17 +137,23 @@ impl From<(&Observation, &HashMap<i32, ShowTaxon>)> for Occurrence {
                                     "phylum" => p = ancestor_taxon.name.clone(),
                                     "class" => c = ancestor_taxon.name.clone(),
                                     "order" => o = ancestor_taxon.name.clone(),
+                                    "superfamily" => sf = ancestor_taxon.name.clone(),
                                     "family" => f = ancestor_taxon.name.clone(),
+                                    "subfamily" => sbf = ancestor_taxon.name.clone(),
+                                    "tribe" => t = ancestor_taxon.name.clone(),
+                                    "subtribe" => st = ancestor_taxon.name.clone(),
                                     "genus" => g = ancestor_taxon.name.clone(),
+                                    "subgenus" => sg = ancestor_taxon.name.clone(),
+                                    "species" => sp = ancestor_taxon.name.clone(),
                                     _ => {} // Ignore other ranks
                                 }
                             }
                         }
                     }
 
-                    (k, p, c, o, f, g)
+                    (k, p, c, o, sf, f, sbf, t, st, g, sg, sp)
                 } else {
-                    (None, None, None, None, None, None)
+                    (None, None, None, None, None, None, None, None, None, None, None, None)
                 };
 
                 (
@@ -64,11 +164,17 @@ impl From<(&Observation, &HashMap<i32, ShowTaxon>)> for Occurrence {
                     phylum,
                     class,
                     order,
+                    superfamily,
                     family,
+                    subfamily,
+                    tribe,
+                    subtribe,
                     genus,
+                    subgenus,
+                    species,
                 )
             } else {
-                (None, None, None, None, None, None, None, None, None)
+                (None, None, None, None, None, None, None, None, None, None, None, None, None, None, None)
             };
 
         // Determine establishment means based on captive flag
@@ -99,8 +205,29 @@ impl From<(&Observation, &HashMap<i32, ShowTaxon>)> for Occurrence {
         // Format event date
         let event_date = obs.observed_on.clone();
 
+        // Extract year, month, day from event_date if available
+        let (year, month, day) = if let Some(ref date_str) = event_date {
+            // Parse ISO 8601 date format: YYYY-MM-DD
+            let parts: Vec<&str> = date_str.split('-').collect();
+            if parts.len() == 3 {
+                let y = parts[0].parse::<i32>().ok();
+                let m = parts[1].parse::<i32>().ok();
+                let d = parts[2].parse::<i32>().ok();
+                (y, m, d)
+            } else {
+                (None, None, None)
+            }
+        } else {
+            (None, None, None)
+        };
+
         // Extract occurrence remarks from description
         let occurrence_remarks = obs.description.clone();
+
+        // Extract annotation values
+        let life_stage = extract_life_stage(obs);
+        let sex = extract_sex(obs);
+        let reproductive_condition = extract_reproductive_condition(obs);
 
         let information_withheld = match obs.geoprivacy.as_deref() {
             Some("private") => {
@@ -192,6 +319,200 @@ impl From<(&Observation, &HashMap<i32, ShowTaxon>)> for Occurrence {
             }),
             verbatim_event_date: obs.observed_on_string.clone(),
             verbatim_locality: obs.private_place_guess.clone().or(obs.place_guess.clone()),
+            continent: None,
+            country_code: None,
+            state_province: None,
+            county: None,
+            municipality: None,
+            locality: None,
+            water_body: None,
+            island: None,
+            island_group: None,
+            elevation: None,
+            elevation_accuracy: None,
+            depth: None,
+            depth_accuracy: None,
+            minimum_distance_above_surface_in_meters: None,
+            maximum_distance_above_surface_in_meters: None,
+            habitat: None,
+            georeference_remarks: None,
+            georeference_sources: None,
+            georeference_verification_status: None,
+            georeferenced_by: None,
+            point_radius_spatial_fit: None,
+            footprint_spatial_fit: None,
+            footprint_wkt: None,
+            footprint_srs: None,
+            verbatim_srs: None,
+            verbatim_coordinate_system: None,
+            vertical_datum: None,
+            verbatim_elevation: None,
+            verbatim_depth: None,
+            distance_from_centroid_in_meters: None,
+            has_coordinate: Some(decimal_latitude.is_some() && decimal_longitude.is_some()),
+            has_geospatial_issues: None,
+            higher_geography: None,
+            higher_geography_id: None,
+            location_according_to: None,
+            location_id: None,
+            location_remarks: obs.place_guess.clone(),
+            year,
+            month,
+            day,
+            start_day_of_year: None,
+            end_day_of_year: None,
+            event_id: None,
+            parent_event_id: None,
+            event_type: Some("Observation".to_string()),
+            event_remarks: obs.description.clone(),
+            sampling_effort: None,
+            sampling_protocol: None,
+            sample_size_value: None,
+            sample_size_unit: None,
+            field_notes: None,
+            field_number: None,
+            accepted_scientific_name: None,
+            accepted_name_usage: None,
+            accepted_name_usage_id: None,
+            higher_classification: None,
+            subfamily,
+            subgenus,
+            tribe,
+            subtribe,
+            superfamily,
+            species,
+            generic_name: None,
+            infrageneric_epithet: None,
+            cultivar_epithet: None,
+            parent_name_usage: None,
+            parent_name_usage_id: None,
+            original_name_usage: None,
+            original_name_usage_id: None,
+            name_published_in: None,
+            name_published_in_id: None,
+            name_published_in_year: None,
+            nomenclatural_code: None,
+            nomenclatural_status: None,
+            name_according_to: None,
+            name_according_to_id: None,
+            taxon_concept_id: None,
+            scientific_name_id: None,
+            taxon_remarks: None,
+            taxonomic_issue: None,
+            non_taxonomic_issue: None,
+            associated_taxa: None,
+            verbatim_identification: None,
+            verbatim_taxon_rank: None,
+            verbatim_scientific_name: None,
+            typified_name: None,
+            identified_by: None,
+            identified_by_id: None,
+            date_identified: None,
+            identification_id: None,
+            identification_qualifier: None,
+            identification_references: None,
+            identification_remarks: None,
+            identification_verification_status: None,
+            previous_identifications: None,
+            type_status: None,
+            institution_code: Some(String::from("iNaturalist")),
+            institution_id: None,
+            collection_code: Some(String::from("Observations")),
+            collection_id: None,
+            owner_institution_code: None,
+            catalog_number: if let Some(id) = obs.id { Some(format!("{}", id)) } else { None },
+            record_number: None,
+            other_catalog_numbers: None,
+            preparations: None,
+            disposition: None,
+            organism_id: None,
+            organism_name: None,
+            organism_quantity: None,
+            organism_quantity_type: None,
+            relative_organism_quantity: None,
+            organism_remarks: None,
+            organism_scope: None,
+            associated_organisms: None,
+            individual_count: None,
+            life_stage,
+            sex,
+            reproductive_condition,
+            behavior: None,
+            caste: None,
+            vitality: None,
+            degree_of_establishment: None,
+            pathway: None,
+            is_invasive: None,
+            material_sample_id: None,
+            material_entity_id: None,
+            material_entity_remarks: None,
+            associated_occurrences: None,
+            associated_sequences: None,
+            associated_references: None,
+            is_sequenced: None,
+            occurrence_status: None,
+            bibliographic_citation: None,
+            references: None,
+            language: None,
+            rights_holder: None,
+            data_generalizations: None,
+            dynamic_properties: None,
+            type_field: None,
+            dataset_id: None,
+            dataset_name: None,
+            issue: None,
+            media_type: None,
+            project_id: None,
+            protocol: None,
+            geological_context_id: None,
+            bed: None,
+            formation: None,
+            group: None,
+            member: None,
+            lithostratigraphic_terms: None,
+            earliest_eon_or_lowest_eonothem: None,
+            latest_eon_or_highest_eonothem: None,
+            earliest_era_or_lowest_erathem: None,
+            latest_era_or_highest_erathem: None,
+            earliest_period_or_lowest_system: None,
+            latest_period_or_highest_system: None,
+            earliest_epoch_or_lowest_series: None,
+            latest_epoch_or_highest_series: None,
+            earliest_age_or_lowest_stage: None,
+            latest_age_or_highest_stage: None,
+            lowest_biostratigraphic_zone: None,
+            highest_biostratigraphic_zone: None,
+            gbif_id: None,
+            gbif_region: None,
+            taxon_key: None,
+            accepted_taxon_key: None,
+            kingdom_key: None,
+            phylum_key: None,
+            class_key: None,
+            order_key: None,
+            family_key: None,
+            genus_key: None,
+            subgenus_key: None,
+            species_key: None,
+            dataset_key: None,
+            publisher: None,
+            publishing_country: None,
+            published_by_gbif_region: None,
+            last_crawled: None,
+            last_parsed: None,
+            last_interpreted: None,
+            iucn_red_list_category: None,
+            repatriated: None,
+            level0_gid: None,
+            level0_name: None,
+            level1_gid: None,
+            level1_name: None,
+            level2_gid: None,
+            level2_name: None,
+            level3_gid: None,
+            level3_name: None,
+            recorded_by_id: None,
+            verbatim_label: None,
         }
     }
 }
@@ -757,5 +1078,342 @@ mod tests {
         assert_eq!(occurrence.order, None);  // Missing
         assert_eq!(occurrence.family, None); // Missing
         assert_eq!(occurrence.genus, Some("Rosa".to_string()));
+    }
+
+    #[test]
+    fn test_year_month_day_extraction_from_event_date() {
+        let mut obs = Observation::default();
+        obs.observed_on = Some("2020-05-02".to_string());
+
+        let occurrence = Occurrence::from(&obs);
+
+        assert_eq!(occurrence.year, Some(2020));
+        assert_eq!(occurrence.month, Some(5));
+        assert_eq!(occurrence.day, Some(2));
+    }
+
+    #[test]
+    fn test_additional_taxonomic_ranks() {
+        use inaturalist::models::ObservationTaxon;
+
+        let mut obs = Observation::default();
+        let mut taxon = ObservationTaxon::default();
+        taxon.ancestor_ids = Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+        obs.taxon = Some(Box::new(taxon));
+
+        let mut taxa_hash = HashMap::new();
+
+        // Kingdom
+        let mut kingdom_taxon = ShowTaxon::default();
+        kingdom_taxon.id = Some(1);
+        kingdom_taxon.name = Some("Animalia".to_string());
+        kingdom_taxon.rank = Some("kingdom".to_string());
+        taxa_hash.insert(1, kingdom_taxon);
+
+        // Phylum
+        let mut phylum_taxon = ShowTaxon::default();
+        phylum_taxon.id = Some(2);
+        phylum_taxon.name = Some("Arthropoda".to_string());
+        phylum_taxon.rank = Some("phylum".to_string());
+        taxa_hash.insert(2, phylum_taxon);
+
+        // Class
+        let mut class_taxon = ShowTaxon::default();
+        class_taxon.id = Some(3);
+        class_taxon.name = Some("Insecta".to_string());
+        class_taxon.rank = Some("class".to_string());
+        taxa_hash.insert(3, class_taxon);
+
+        // Order
+        let mut order_taxon = ShowTaxon::default();
+        order_taxon.id = Some(4);
+        order_taxon.name = Some("Lepidoptera".to_string());
+        order_taxon.rank = Some("order".to_string());
+        taxa_hash.insert(4, order_taxon);
+
+        // Superfamily
+        let mut superfamily_taxon = ShowTaxon::default();
+        superfamily_taxon.id = Some(5);
+        superfamily_taxon.name = Some("Papilionoidea".to_string());
+        superfamily_taxon.rank = Some("superfamily".to_string());
+        taxa_hash.insert(5, superfamily_taxon);
+
+        // Family
+        let mut family_taxon = ShowTaxon::default();
+        family_taxon.id = Some(6);
+        family_taxon.name = Some("Nymphalidae".to_string());
+        family_taxon.rank = Some("family".to_string());
+        taxa_hash.insert(6, family_taxon);
+
+        // Subfamily
+        let mut subfamily_taxon = ShowTaxon::default();
+        subfamily_taxon.id = Some(7);
+        subfamily_taxon.name = Some("Danainae".to_string());
+        subfamily_taxon.rank = Some("subfamily".to_string());
+        taxa_hash.insert(7, subfamily_taxon);
+
+        // Tribe
+        let mut tribe_taxon = ShowTaxon::default();
+        tribe_taxon.id = Some(8);
+        tribe_taxon.name = Some("Danaini".to_string());
+        tribe_taxon.rank = Some("tribe".to_string());
+        taxa_hash.insert(8, tribe_taxon);
+
+        // Subtribe
+        let mut subtribe_taxon = ShowTaxon::default();
+        subtribe_taxon.id = Some(9);
+        subtribe_taxon.name = Some("Danaina".to_string());
+        subtribe_taxon.rank = Some("subtribe".to_string());
+        taxa_hash.insert(9, subtribe_taxon);
+
+        // Genus
+        let mut genus_taxon = ShowTaxon::default();
+        genus_taxon.id = Some(10);
+        genus_taxon.name = Some("Danaus".to_string());
+        genus_taxon.rank = Some("genus".to_string());
+        taxa_hash.insert(10, genus_taxon);
+
+        // Subgenus
+        let mut subgenus_taxon = ShowTaxon::default();
+        subgenus_taxon.id = Some(11);
+        subgenus_taxon.name = Some("Danaus".to_string());
+        subgenus_taxon.rank = Some("subgenus".to_string());
+        taxa_hash.insert(11, subgenus_taxon);
+
+        // Species
+        let mut species_taxon = ShowTaxon::default();
+        species_taxon.id = Some(12);
+        species_taxon.name = Some("Danaus plexippus".to_string());
+        species_taxon.rank = Some("species".to_string());
+        taxa_hash.insert(12, species_taxon);
+
+        let occurrence = Occurrence::from((&obs, &taxa_hash));
+
+        assert_eq!(occurrence.kingdom, Some("Animalia".to_string()));
+        assert_eq!(occurrence.phylum, Some("Arthropoda".to_string()));
+        assert_eq!(occurrence.class, Some("Insecta".to_string()));
+        assert_eq!(occurrence.order, Some("Lepidoptera".to_string()));
+        assert_eq!(occurrence.superfamily, Some("Papilionoidea".to_string()));
+        assert_eq!(occurrence.family, Some("Nymphalidae".to_string()));
+        assert_eq!(occurrence.subfamily, Some("Danainae".to_string()));
+        assert_eq!(occurrence.tribe, Some("Danaini".to_string()));
+        assert_eq!(occurrence.subtribe, Some("Danaina".to_string()));
+        assert_eq!(occurrence.genus, Some("Danaus".to_string()));
+        assert_eq!(occurrence.subgenus, Some("Danaus".to_string()));
+        assert_eq!(occurrence.species, Some("Danaus plexippus".to_string()));
+    }
+
+    #[test]
+    fn test_life_stage_extraction_from_annotations() {
+        use inaturalist::models::Annotation;
+
+        let mut obs = Observation::default();
+
+        // Create Life Stage annotation with "Adult" value
+        let mut annotation = Annotation::default();
+        annotation.concatenated_attr_val = Some("Life Stage=Adult".to_string());
+        annotation.vote_score = Some(2);
+
+        obs.annotations = Some(vec![annotation]);
+
+        let occurrence = Occurrence::from(&obs);
+
+        assert_eq!(occurrence.life_stage, Some("adult".to_string()));
+    }
+
+    #[test]
+    fn test_life_stage_ignores_invalid_values() {
+        use inaturalist::models::Annotation;
+
+        let mut obs = Observation::default();
+
+        // Create Life Stage annotation with invalid value
+        let mut annotation = Annotation::default();
+        annotation.concatenated_attr_val = Some("Life Stage=InvalidValue".to_string());
+        annotation.vote_score = Some(2);
+
+        obs.annotations = Some(vec![annotation]);
+
+        let occurrence = Occurrence::from(&obs);
+
+        assert_eq!(occurrence.life_stage, None);
+    }
+
+    #[test]
+    fn test_life_stage_selects_highest_vote_score() {
+        use inaturalist::models::Annotation;
+
+        let mut obs = Observation::default();
+
+        // Create multiple Life Stage annotations with different vote scores
+        let mut annotation1 = Annotation::default();
+        annotation1.concatenated_attr_val = Some("Life Stage=Juvenile".to_string());
+        annotation1.vote_score = Some(1);
+
+        let mut annotation2 = Annotation::default();
+        annotation2.concatenated_attr_val = Some("Life Stage=Adult".to_string());
+        annotation2.vote_score = Some(5);
+
+        let mut annotation3 = Annotation::default();
+        annotation3.concatenated_attr_val = Some("Life Stage=Larva".to_string());
+        annotation3.vote_score = Some(2);
+
+        obs.annotations = Some(vec![annotation1, annotation2, annotation3]);
+
+        let occurrence = Occurrence::from(&obs);
+
+        assert_eq!(occurrence.life_stage, Some("adult".to_string()));
+    }
+
+    #[test]
+    fn test_life_stage_ignores_negative_vote_scores() {
+        use inaturalist::models::Annotation;
+
+        let mut obs = Observation::default();
+
+        // Create Life Stage annotation with negative vote score
+        let mut annotation = Annotation::default();
+        annotation.concatenated_attr_val = Some("Life Stage=Adult".to_string());
+        annotation.vote_score = Some(-1);
+
+        obs.annotations = Some(vec![annotation]);
+
+        let occurrence = Occurrence::from(&obs);
+
+        assert_eq!(occurrence.life_stage, None);
+    }
+
+    #[test]
+    fn test_sex_extraction_from_annotations() {
+        use inaturalist::models::Annotation;
+
+        let mut obs = Observation::default();
+
+        // Create Sex annotation with "Female" value
+        let mut annotation = Annotation::default();
+        annotation.concatenated_attr_val = Some("Sex=Female".to_string());
+        annotation.vote_score = Some(2);
+
+        obs.annotations = Some(vec![annotation]);
+
+        let occurrence = Occurrence::from(&obs);
+
+        assert_eq!(occurrence.sex, Some("female".to_string()));
+    }
+
+    #[test]
+    fn test_sex_maps_cannot_be_determined_to_undetermined() {
+        use inaturalist::models::Annotation;
+
+        let mut obs = Observation::default();
+
+        // Create Sex annotation with "Cannot Be Determined" value
+        let mut annotation = Annotation::default();
+        annotation.concatenated_attr_val = Some("Sex=Cannot Be Determined".to_string());
+        annotation.vote_score = Some(2);
+
+        obs.annotations = Some(vec![annotation]);
+
+        let occurrence = Occurrence::from(&obs);
+
+        assert_eq!(occurrence.sex, Some("undetermined".to_string()));
+    }
+
+    #[test]
+    fn test_sex_ignores_invalid_values() {
+        use inaturalist::models::Annotation;
+
+        let mut obs = Observation::default();
+
+        // Create Sex annotation with invalid value
+        let mut annotation = Annotation::default();
+        annotation.concatenated_attr_val = Some("Sex=Unknown".to_string());
+        annotation.vote_score = Some(2);
+
+        obs.annotations = Some(vec![annotation]);
+
+        let occurrence = Occurrence::from(&obs);
+
+        assert_eq!(occurrence.sex, None);
+    }
+
+    #[test]
+    fn test_sex_selects_highest_vote_score() {
+        use inaturalist::models::Annotation;
+
+        let mut obs = Observation::default();
+
+        // Create multiple Sex annotations with different vote scores
+        let mut annotation1 = Annotation::default();
+        annotation1.concatenated_attr_val = Some("Sex=Female".to_string());
+        annotation1.vote_score = Some(1);
+
+        let mut annotation2 = Annotation::default();
+        annotation2.concatenated_attr_val = Some("Sex=Male".to_string());
+        annotation2.vote_score = Some(5);
+
+        obs.annotations = Some(vec![annotation1, annotation2]);
+
+        let occurrence = Occurrence::from(&obs);
+
+        assert_eq!(occurrence.sex, Some("male".to_string()));
+    }
+
+    #[test]
+    fn test_reproductive_condition_extraction_from_annotations() {
+        use inaturalist::models::Annotation;
+
+        let mut obs = Observation::default();
+
+        // Create Flowers and Fruits annotation with "Flowering" value
+        let mut annotation = Annotation::default();
+        annotation.concatenated_attr_val = Some("Flowers and Fruits=Flowering".to_string());
+        annotation.vote_score = Some(2);
+
+        obs.annotations = Some(vec![annotation]);
+
+        let occurrence = Occurrence::from(&obs);
+
+        assert_eq!(occurrence.reproductive_condition, Some("flowering".to_string()));
+    }
+
+    #[test]
+    fn test_reproductive_condition_accepts_any_value() {
+        use inaturalist::models::Annotation;
+
+        let mut obs = Observation::default();
+
+        // Create Flowers and Fruits annotation with any value
+        let mut annotation = Annotation::default();
+        annotation.concatenated_attr_val = Some("Flowers and Fruits=Fruiting".to_string());
+        annotation.vote_score = Some(2);
+
+        obs.annotations = Some(vec![annotation]);
+
+        let occurrence = Occurrence::from(&obs);
+
+        assert_eq!(occurrence.reproductive_condition, Some("fruiting".to_string()));
+    }
+
+    #[test]
+    fn test_reproductive_condition_selects_highest_vote_score() {
+        use inaturalist::models::Annotation;
+
+        let mut obs = Observation::default();
+
+        // Create multiple Flowers and Fruits annotations with different vote scores
+        let mut annotation1 = Annotation::default();
+        annotation1.concatenated_attr_val = Some("Flowers and Fruits=Flowering".to_string());
+        annotation1.vote_score = Some(1);
+
+        let mut annotation2 = Annotation::default();
+        annotation2.concatenated_attr_val = Some("Flowers and Fruits=Fruiting".to_string());
+        annotation2.vote_score = Some(5);
+
+        obs.annotations = Some(vec![annotation1, annotation2]);
+
+        let occurrence = Occurrence::from(&obs);
+
+        assert_eq!(occurrence.reproductive_condition, Some("fruiting".to_string()));
     }
 }
