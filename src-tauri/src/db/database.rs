@@ -143,12 +143,45 @@ impl Database {
         &self,
         limit: usize,
         offset: usize,
-    ) -> Result<Vec<chuck_core::darwin_core::Occurrence>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT * FROM occurrences LIMIT ? OFFSET ?"
-        )?;
+        search_params: crate::commands::archive::SearchParams,
+    ) -> Result<crate::commands::archive::SearchResult> {
+        // Build dynamic WHERE clause
+        let mut where_clauses = Vec::new();
+        let mut count_params: Vec<Box<dyn duckdb::ToSql>> = Vec::new();
 
-        let rows = stmt.query_map([limit, offset], |row| {
+        if let Some(ref name) = search_params.scientific_name {
+            where_clauses.push("scientificName ILIKE ?");
+            count_params.push(Box::new(format!("%{}%", name)));
+        }
+
+        let where_clause = if where_clauses.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", where_clauses.join(" AND "))
+        };
+
+        // Execute COUNT query
+        let count_query = format!("SELECT COUNT(*) FROM occurrences{}", where_clause);
+        let count_param_refs: Vec<&dyn duckdb::ToSql> = count_params.iter().map(|p| p.as_ref()).collect();
+        let total: usize = self.conn.query_row(&count_query, count_param_refs.as_slice(), |row| row.get(0))?;
+
+        // Build SELECT query
+        let select_query = format!("SELECT * FROM occurrences{} LIMIT ? OFFSET ?", where_clause);
+
+        // Rebuild params for SELECT query (reuse where params + add limit/offset)
+        let mut select_params: Vec<Box<dyn duckdb::ToSql>> = Vec::new();
+        if let Some(ref name) = search_params.scientific_name {
+            select_params.push(Box::new(format!("%{}%", name)));
+        }
+        select_params.push(Box::new(limit));
+        select_params.push(Box::new(offset));
+
+        let mut stmt = self.conn.prepare(&select_query)?;
+
+        // Convert params to references for query_map
+        let select_param_refs: Vec<&dyn duckdb::ToSql> = select_params.iter().map(|p| p.as_ref()).collect();
+
+        let rows = stmt.query_map(select_param_refs.as_slice(), |row| {
             // Map DuckDB row to Occurrence struct
             Ok(chuck_core::darwin_core::Occurrence {
                 occurrence_id: Self::col_string(&row, "occurrenceID")?,
@@ -188,12 +221,15 @@ impl Database {
             })
         })?;
 
-        let mut occurrences = Vec::new();
+        let mut results = Vec::new();
         for row in rows {
-            occurrences.push(row?);
+            results.push(row?);
         }
 
-        Ok(occurrences)
+        Ok(crate::commands::archive::SearchResult {
+            total,
+            results,
+        })
     }
 }
 
@@ -311,12 +347,15 @@ mod tests {
             &fixture.db_path
         ).unwrap();
 
+        use crate::commands::archive::SearchParams;
+
         // Test searching for all records
-        let results = db.search(10, 0).unwrap();
-        assert_eq!(results.len(), 3);
+        let search_result = db.search(10, 0, SearchParams::default()).unwrap();
+        assert_eq!(search_result.total, 3);
+        assert_eq!(search_result.results.len(), 3);
 
         // Verify first occurrence fields
-        let first = &results[0];
+        let first = &search_result.results[0];
         assert_eq!(first.occurrence_id, "123456");
         assert_eq!(first.basis_of_record, "HumanObservation");
         assert_eq!(first.recorded_by, "John Doe");
@@ -329,17 +368,66 @@ mod tests {
         assert_eq!(first.family, Some("Fagaceae".to_string()));
 
         // Test limit parameter
-        let limited = db.search(2, 0).unwrap();
-        assert_eq!(limited.len(), 2);
+        let limited = db.search(2, 0, SearchParams::default()).unwrap();
+        assert_eq!(limited.total, 3);
+        assert_eq!(limited.results.len(), 2);
 
         // Test offset parameter
-        let offset_results = db.search(2, 1).unwrap();
-        assert_eq!(offset_results.len(), 2);
-        assert_eq!(offset_results[0].occurrence_id, "789012");
+        let offset_result = db.search(2, 1, SearchParams::default()).unwrap();
+        assert_eq!(offset_result.total, 3);
+        assert_eq!(offset_result.results.len(), 2);
+        assert_eq!(offset_result.results[0].occurrence_id, "789012");
 
         // Test limit larger than available records
-        let all = db.search(100, 0).unwrap();
-        assert_eq!(all.len(), 3);
+        let all = db.search(100, 0, SearchParams::default()).unwrap();
+        assert_eq!(all.total, 3);
+        assert_eq!(all.results.len(), 3);
+    }
+
+    #[test]
+    fn test_search_by_scientific_name() {
+        use crate::commands::archive::SearchParams;
+
+        // Create test data with various scientific names
+        let csv_data = br#"occurrenceID,basisOfRecord,recordedBy,eventDate,decimalLatitude,decimalLongitude,scientificName,taxonRank,taxonomicStatus,vernacularName,kingdom,phylum,class,order,family,genus,specificEpithet,infraspecificEpithet,taxonID,occurrenceRemarks,establishmentMeans,georeferencedDate,georeferenceProtocol,coordinateUncertaintyInMeters,coordinatePrecision,geodeticDatum,accessRights,license,informationWithheld,modified,captive,eventTime,verbatimEventDate,verbatimLocality
+1,obs,John,2024-01-01,0,0,Foobar,species,accepted,,,,,,,,,,,,,,,,,,,,,,,,,
+2,obs,Jane,2024-01-01,0,0,foo,species,accepted,,,,,,,,,,,,,,,,,,,,,,,,,
+3,obs,Bob,2024-01-01,0,0,Foo,species,accepted,,,,,,,,,,,,,,,,,,,,,,,,,
+4,obs,Alice,2024-01-01,0,0,Barfoo,species,accepted,,,,,,,,,,,,,,,,,,,,,,,,,
+5,obs,Charlie,2024-01-01,0,0,Bar,species,accepted,,,,,,,,,,,,,,,,,,,,,,,,,
+"#;
+
+        let fixture = TestFixture::new("search_scientific_name", vec![csv_data]);
+
+        let db = Database::create_from_core_files(&fixture.csv_paths, &fixture.db_path).unwrap();
+
+        // Search for "foo" (case-insensitive partial match)
+        let search_result = db.search(10, 0, SearchParams {
+            scientific_name: Some("foo".to_string()),
+        }).unwrap();
+
+        // Should return 4 results: "Foobar", "foo", "Foo", "Barfoo"
+        assert_eq!(search_result.total, 4, "Expected total count of 4");
+        assert_eq!(search_result.results.len(), 4, "Expected 4 results containing 'foo'");
+
+        // Verify the names contain "foo" (case-insensitive)
+        for result in &search_result.results {
+            let name = result.scientific_name.as_ref().unwrap().to_lowercase();
+            assert!(
+                name.contains("foo"),
+                "Expected '{}' to contain 'foo'",
+                result.scientific_name.as_ref().unwrap()
+            );
+        }
+
+        // Should NOT return "Bar"
+        for result in &search_result.results {
+            assert_ne!(
+                result.scientific_name.as_ref().unwrap(),
+                "Bar",
+                "Should not return 'Bar'"
+            );
+        }
     }
 }
 

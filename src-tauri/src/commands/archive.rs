@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
 use crate::dwca::Archive;
@@ -11,6 +11,18 @@ pub struct ArchiveInfo {
 
     #[serde(rename = "coreCount")]
     pub core_count: usize,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub struct SearchParams {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scientific_name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SearchResult {
+    pub total: usize,
+    pub results: Vec<chuck_core::darwin_core::Occurrence>,
 }
 
 fn get_local_data_dir(app: tauri::AppHandle) -> Result<PathBuf> {
@@ -35,9 +47,10 @@ pub fn search(
     app: tauri::AppHandle,
     limit: usize,
     offset: usize,
-) -> Result<Vec<chuck_core::darwin_core::Occurrence>> {
+    search_params: SearchParams,
+) -> Result<SearchResult> {
     let archive = Archive::current(&get_local_data_dir(app)?)?;
-    archive.search(limit, offset).map_err(|e| {
+    archive.search(limit, offset, search_params).map_err(|e| {
         println!("caught search error: {}", e);
         e
     })

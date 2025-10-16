@@ -114,8 +114,9 @@ impl Archive {
         &self,
         limit: usize,
         offset: usize,
-    ) -> Result<Vec<chuck_core::darwin_core::Occurrence>> {
-        self.db.search(limit, offset)
+        search_params: crate::commands::archive::SearchParams,
+    ) -> Result<crate::commands::archive::SearchResult> {
+        self.db.search(limit, offset, search_params)
     }
 }
 
