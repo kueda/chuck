@@ -1,8 +1,18 @@
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 use duckdb::Row;
 use chuck_core::darwin_core::Occurrence;
 
 use crate::error::{ChuckError, Result};
+
+// Most DwC attributes are strings, but a few should have different types to
+// enable better queries
+const TYPE_OVERRIDES: [(&str, &str); 4] = [
+    ("decimalLatitude", "DOUBLE"),
+    ("decimalLonglongitude", "DOUBLE"),
+    ("eventDate", "DATE"),
+    ("gbifID", "BIGINT"),
+];
 
 /// Represents a DuckDB database for Darwin Core Archive data
 pub struct Database {
@@ -10,6 +20,7 @@ pub struct Database {
 }
 
 impl Database {
+
     /// Creates a new database from core files
     pub fn create_from_core_files(
         core_files: &[PathBuf],
@@ -26,11 +37,40 @@ impl Database {
             .to_str()
             .ok_or(ChuckError::PathEncoding)?;
 
+        // In order to set some of the column types using the types arg of
+        // read_csv below, we need to know what columns are present in the
+        // file, or read_csv will error out when we tell it to use types for
+        // columns that don't exist
+        let mut stmt = conn.prepare(&format!(
+            "SELECT unnest(Columns).name FROM sniff_csv('{}')",
+            first_file
+        ))?;
+        let column_names: Vec<String> = stmt.query_map([], |row| {
+            row.get(0)
+        })?.collect::<std::result::Result<Vec<_>, _>>()?;
+        let type_map: HashMap<&str, &str> = TYPE_OVERRIDES
+            .iter()
+            .filter(|(col, _)| column_names.contains(&col.to_string()))
+            .copied()
+            .collect();
+        // Convert to DuckDB's JSON format: {'col1': 'TYPE1', 'col2': 'TYPE2'}
+        // Only include types parameter if we have overrides
+        let types_param = if type_map.is_empty() {
+            String::new()
+        } else {
+            let pairs: Vec<String> = type_map
+                .iter()
+                .map(|(col, typ)| format!("'{}': '{}'", col, typ))
+                .collect();
+            format!(", types = {{{}}}", pairs.join(", "))
+        };
+
         // Try to create table with specific types for known columns if they exist
         let create_result = conn.execute(
             &format!(
-                "CREATE TABLE occurrences AS SELECT * FROM read_csv('{}')",
-                first_file
+                "CREATE TABLE occurrences AS SELECT * FROM read_csv('{}', all_varchar = true{})",
+                first_file,
+                types_param
             ),
             [],
         );
@@ -38,7 +78,7 @@ impl Database {
         // If table already exists, insert from first file instead
         match create_result {
             Ok(_) => {
-                // Insert remaining files
+                // Insert remaining files with the same type overrides
                 for core_file in &core_files[1..] {
                     let csv_path = core_file
                         .to_str()
@@ -46,8 +86,9 @@ impl Database {
 
                     conn.execute(
                         &format!(
-                            "INSERT INTO occurrences SELECT * FROM read_csv('{}')",
-                            csv_path
+                            "INSERT INTO occurrences SELECT * FROM read_csv('{}', all_varchar = true{})",
+                            csv_path,
+                            types_param
                         ),
                         [],
                     )?;

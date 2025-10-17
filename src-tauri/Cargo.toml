@@ -18,15 +18,17 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-opener = "2"
-serde = { workspace = true }
-serde_json = { workspace = true }
-tauri-plugin-dialog = "2"
-duckdb = { version = "1.4.1", features = ["bundled"] }
-zip = "6.0.0"
-sha2 = "0.10.9"
-roxmltree = "0.20"
-thiserror = "2.0"
 chrono = "0.4"
 chuck-core = { path = "../chuck-core" }
+duckdb = { version = "1.4.1", features = ["bundled"] }
+env_logger = { workspace = true }
+log = { workspace = true }
+roxmltree = "0.20"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10.9"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+thiserror = "2.0"
+zip = "6.0.0"

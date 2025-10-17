@@ -34,12 +34,18 @@ fn get_local_data_dir(app: tauri::AppHandle) -> Result<PathBuf> {
 
 #[tauri::command]
 pub fn open_archive(app: tauri::AppHandle, path: &str) -> Result<ArchiveInfo> {
-    Archive::open(Path::new(path), &get_local_data_dir(app)?)?.info()
+    Archive::open(Path::new(path), &get_local_data_dir(app)?).map_err(|e| {
+        log::error!("Failed to open archive: {}", e);
+        e
+    })?.info()
 }
 
 #[tauri::command]
 pub fn current_archive(app: tauri::AppHandle) -> Result<ArchiveInfo> {
-    Archive::current(&get_local_data_dir(app)?)?.info()
+    Archive::current(&get_local_data_dir(app)?).map_err(|e| {
+        log::error!("Failed to get current archive: {}", e);
+        e
+    })?.info()
 }
 
 #[tauri::command]
@@ -52,7 +58,7 @@ pub fn search(
 ) -> Result<SearchResult> {
     let archive = Archive::current(&get_local_data_dir(app)?)?;
     archive.search(limit, offset, search_params, fields).map_err(|e| {
-        println!("caught search error: {}", e);
+        log::error!("caught search error: {}", e);
         e
     })
 }
