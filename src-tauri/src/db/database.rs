@@ -1,11 +1,11 @@
 use std::path::{Path, PathBuf};
 use duckdb::Row;
+use chuck_core::darwin_core::Occurrence;
 
 use crate::error::{ChuckError, Result};
 
 /// Represents a DuckDB database for Darwin Core Archive data
 pub struct Database {
-    path: PathBuf,
     conn: duckdb::Connection,
 }
 
@@ -22,14 +22,15 @@ impl Database {
         let conn = duckdb::Connection::open(db_path)?;
 
         // Try to create table from first file
-        let first_csv = core_files[0]
+        let first_file = core_files[0]
             .to_str()
             .ok_or(ChuckError::PathEncoding)?;
 
+        // Try to create table with specific types for known columns if they exist
         let create_result = conn.execute(
             &format!(
-                "CREATE TABLE occurrences AS SELECT * FROM read_csv_auto('{}')",
-                first_csv
+                "CREATE TABLE occurrences AS SELECT * FROM read_csv('{}')",
+                first_file
             ),
             [],
         );
@@ -45,7 +46,7 @@ impl Database {
 
                     conn.execute(
                         &format!(
-                            "INSERT INTO occurrences SELECT * FROM read_csv_auto('{}')",
+                            "INSERT INTO occurrences SELECT * FROM read_csv('{}')",
                             csv_path
                         ),
                         [],
@@ -62,19 +63,13 @@ impl Database {
             }
         }
 
-        Ok(Self {
-            path: db_path.to_path_buf(),
-            conn,
-        })
+        Ok(Self { conn })
     }
 
     /// Opens an existing database
     pub fn open(db_path: &Path) -> Result<Self> {
         let conn = duckdb::Connection::open(db_path)?;
-        Ok(Self {
-            path: db_path.to_path_buf(),
-            conn,
-        })
+        Ok(Self { conn })
     }
 
     /// Counts the number of observations in the database
@@ -87,91 +82,67 @@ impl Database {
         Ok(count)
     }
 
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
+    /// Helper to convert a DuckDB column value to serde_json::Value
+    fn get_column_as_json(row: &Row, idx: usize) -> serde_json::Value {
+        let col_type = row.as_ref().column_type(idx);
+        let type_str = col_type.to_string();
+        // let col_name = row.as_ref().column_name(idx);
+        // println!("{:?} ({}) type: {}", col_name, idx, col_type);
 
-    /// Helper to get column index from a row given a name
-    fn col_index(row: &Row, name: &str) -> std::result::Result<usize, duckdb::Error> {
-        row.as_ref().column_index(name)
-    }
-
-    /// Helper to get a required string value, converting from i64 if necessary
-    fn col_string(row: &Row, name: &str) -> std::result::Result<String, duckdb::Error> {
-        let idx = Self::col_index(&row, name)?;
-        // Try as string first
-        if let Ok(s) = row.get::<_, Option<String>>(idx) {
-            Ok(s.unwrap_or_default())
-        } else if let Ok(i) = row.get::<_, Option<i64>>(idx) {
-            // Fall back to converting i64 to string
-            Ok(i.map(|v| v.to_string()).unwrap_or_default())
-        } else {
-            Ok(String::new())
-        }
-    }
-
-    /// Gets an optional string value, returning None if the column doesn't exist.
-    /// Used for optional Darwin Core fields that may not be present in all archives.
-    fn col_opt_string(row: &Row, name: &str) -> Option<String> {
-        match row.as_ref().column_index(name) {
-            Ok(idx) => {
-                // Check if this is a Date32 column
-                let col_type = row.as_ref().column_type(idx);
-                if col_type.to_string() == "Date32" {
-                    if let Ok(days) = row.get::<_, Option<i32>>(idx) {
-                        return days.map(|d| {
-                            let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
-                            let date = epoch + chrono::Duration::days(d as i64);
-                            date.format("%Y-%m-%d").to_string()
-                        });
-                    }
-                }
-
-                // Try different types that DuckDB might infer
-                if let Ok(s) = row.get::<_, Option<String>>(idx) {
-                    s
-                } else if let Ok(i) = row.get::<_, Option<i64>>(idx) {
-                    i.map(|v| v.to_string())
-                } else if let Ok(d) = row.get::<_, Option<f64>>(idx) {
-                    d.map(|v| v.to_string())
+        // Handle different DuckDB types
+        match type_str.as_str() {
+            "Integer" | "BigInt" | "Int64" => {
+                if let Ok(val) = row.get::<_, Option<i64>>(idx) {
+                    val.map(|v| serde_json::json!(v)).unwrap_or(serde_json::Value::Null)
                 } else {
-                    None
+                    serde_json::Value::Null
                 }
             }
-            Err(_) => None, // Column doesn't exist, return None
+            "Double" | "Float" | "Float64" => {
+                if let Ok(val) = row.get::<_, Option<f64>>(idx) {
+                    val.map(|v| serde_json::json!(v)).unwrap_or(serde_json::Value::Null)
+                } else {
+                    serde_json::Value::Null
+                }
+            }
+            "Boolean" => {
+                if let Ok(val) = row.get::<_, Option<bool>>(idx) {
+                    val.map(|v| serde_json::json!(v)).unwrap_or(serde_json::Value::Null)
+                } else {
+                    serde_json::Value::Null
+                }
+            }
+            "Date32" => {
+                // Handle Date32 as days since epoch
+                if let Ok(days) = row.get::<_, Option<i32>>(idx) {
+                    days.map(|d| {
+                        let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
+                        let date = epoch + chrono::Duration::days(d as i64);
+                        serde_json::json!(date.format("%Y-%m-%d").to_string())
+                    }).unwrap_or(serde_json::Value::Null)
+                } else {
+                    serde_json::Value::Null
+                }
+            }
+            "Varchar" | _ => {
+                // For VARCHAR columns, try to parse as number if possible
+                if let Ok(Some(s)) = row.get::<_, Option<String>>(idx) {
+                    // Try parsing as float first (handles both int and float)
+                    if let Ok(f) = s.parse::<f64>() {
+                        // Check if it's actually an integer
+                        if f.fract() == 0.0 && f.abs() < (i64::MAX as f64) {
+                            serde_json::json!(f as i64)
+                        } else {
+                            serde_json::json!(f)
+                        }
+                    } else {
+                        serde_json::json!(s)
+                    }
+                } else {
+                    serde_json::Value::Null
+                }
+            }
         }
-    }
-
-    /// Gets an optional f64 value, returning None if the column doesn't exist
-    fn col_opt_f64(row: &Row, name: &str) -> Option<f64> {
-        row.as_ref().column_index(name)
-            .ok()
-            .and_then(|idx| row.get::<_, Option<f64>>(idx).ok())
-            .flatten()
-    }
-
-    /// Gets an optional i32 value, returning None if the column doesn't exist
-    fn col_opt_i32(row: &Row, name: &str) -> Option<i32> {
-        row.as_ref().column_index(name)
-            .ok()
-            .and_then(|idx| row.get::<_, Option<i32>>(idx).ok())
-            .flatten()
-    }
-
-    /// Gets an optional bool value, returning None if the column doesn't exist
-    fn col_opt_bool(row: &Row, name: &str) -> Option<bool> {
-        row.as_ref().column_index(name)
-            .ok()
-            .and_then(|idx| row.get::<_, Option<bool>>(idx).ok())
-            .flatten()
-    }
-
-    /// Gets an optional i64 value, returning None if the column doesn't exist
-    fn col_opt_i64(row: &Row, name: &str) -> Option<i64> {
-        row.as_ref().column_index(name)
-            .ok()
-            .and_then(|idx| row.get::<_, Option<i64>>(idx).ok())
-            .flatten()
     }
 
     /// Searches for occurrences, returning up to the specified limit starting at offset
@@ -180,16 +151,32 @@ impl Database {
         limit: usize,
         offset: usize,
         search_params: crate::commands::archive::SearchParams,
+        fields: Option<Vec<String>>,
     ) -> Result<crate::commands::archive::SearchResult> {
-        // Build dynamic WHERE clause
+        // Validate and filter requested fields against allowlist
+        let select_fields = if let Some(ref requested) = fields {
+            let validated: Vec<&str> = requested
+                .iter()
+                .filter(|f| Occurrence::FIELD_NAMES.contains(&f.as_str()))
+                .map(|s| s.as_str())
+                .collect();
+
+            if validated.is_empty() {
+                "*".to_string()
+            } else {
+                validated.join(", ")
+            }
+        } else {
+            "*".to_string()
+        };
+
+        // Build dynamic WHERE clause and SELECT fields
         let mut where_clauses = Vec::new();
         let mut count_params: Vec<Box<dyn duckdb::ToSql>> = Vec::new();
-
         if let Some(ref name) = search_params.scientific_name {
             where_clauses.push("scientificName ILIKE ?");
             count_params.push(Box::new(format!("%{}%", name)));
         }
-
         let where_clause = if where_clauses.is_empty() {
             String::new()
         } else {
@@ -198,11 +185,18 @@ impl Database {
 
         // Execute COUNT query
         let count_query = format!("SELECT COUNT(*) FROM occurrences{}", where_clause);
-        let count_param_refs: Vec<&dyn duckdb::ToSql> = count_params.iter().map(|p| p.as_ref()).collect();
-        let total: usize = self.conn.query_row(&count_query, count_param_refs.as_slice(), |row| row.get(0))?;
+        let count_param_refs: Vec<&dyn duckdb::ToSql> = count_params.iter()
+            .map(|p| p.as_ref()).collect();
+        let total: usize = self.conn.query_row(
+            &count_query,
+            count_param_refs.as_slice(), |row| row.get(0)
+        )?;
 
         // Build SELECT query
-        let select_query = format!("SELECT * FROM occurrences{} LIMIT ? OFFSET ?", where_clause);
+        let select_query = format!(
+            "SELECT {} FROM occurrences{} LIMIT ? OFFSET ?",
+            select_fields, where_clause
+        );
 
         // Rebuild params for SELECT query (reuse where params + add limit/offset)
         let mut select_params: Vec<Box<dyn duckdb::ToSql>> = Vec::new();
@@ -218,251 +212,18 @@ impl Database {
         let select_param_refs: Vec<&dyn duckdb::ToSql> = select_params.iter().map(|p| p.as_ref()).collect();
 
         let rows = stmt.query_map(select_param_refs.as_slice(), |row| {
-            // Map DuckDB row to Occurrence struct
-            // Use safe helpers for optional fields to handle archives with varying schemas
-            Ok(chuck_core::darwin_core::Occurrence {
-                occurrence_id: Self::col_string(&row, "occurrenceID")?,
-                basis_of_record: Self::col_string(&row, "basisOfRecord")?,
-                recorded_by: Self::col_string(&row, "recordedBy")?,
-                event_date: Self::col_opt_string(&row, "eventDate"),
-                decimal_latitude: Self::col_opt_f64(&row, "decimalLatitude"),
-                decimal_longitude: Self::col_opt_f64(&row, "decimalLongitude"),
-                scientific_name: Self::col_opt_string(&row, "scientificName"),
-                taxon_rank: Self::col_opt_string(&row, "taxonRank"),
-                taxonomic_status: Self::col_opt_string(&row, "taxonomicStatus"),
-                vernacular_name: Self::col_opt_string(&row, "vernacularName"),
-                kingdom: Self::col_opt_string(&row, "kingdom"),
-                phylum: Self::col_opt_string(&row, "phylum"),
-                class: Self::col_opt_string(&row, "class"),
-                order: Self::col_opt_string(&row, "order"),
-                family: Self::col_opt_string(&row, "family"),
-                genus: Self::col_opt_string(&row, "genus"),
-                specific_epithet: Self::col_opt_string(&row, "specificEpithet"),
-                infraspecific_epithet: Self::col_opt_string(&row, "infraspecificEpithet"),
-                taxon_id: Self::col_opt_i32(&row, "taxonID"),
-                occurrence_remarks: Self::col_opt_string(&row, "occurrenceRemarks"),
-                establishment_means: Self::col_opt_string(&row, "establishmentMeans"),
-                georeferenced_date: Self::col_opt_string(&row, "georeferencedDate"),
-                georeference_protocol: Self::col_opt_string(&row, "georeferenceProtocol"),
-                coordinate_uncertainty_in_meters: Self::col_opt_f64(&row, "coordinateUncertaintyInMeters"),
-                coordinate_precision: Self::col_opt_f64(&row, "coordinatePrecision"),
-                geodetic_datum: Self::col_opt_string(&row, "geodeticDatum"),
-                access_rights: Self::col_opt_string(&row, "accessRights"),
-                license: Self::col_opt_string(&row, "license"),
-                information_withheld: Self::col_opt_string(&row, "informationWithheld"),
-                modified: Self::col_opt_string(&row, "modified"),
-                captive: Self::col_opt_bool(&row, "captive"),
-                event_time: Self::col_opt_string(&row, "eventTime"),
-                verbatim_event_date: Self::col_opt_string(&row, "verbatimEventDate"),
-                verbatim_locality: Self::col_opt_string(&row, "verbatimLocality"),
-                // Geographic Location fields
-                continent: Self::col_opt_string(&row, "continent"),
-                country_code: Self::col_opt_string(&row, "countryCode"),
-                state_province: Self::col_opt_string(&row, "stateProvince"),
-                county: Self::col_opt_string(&row, "county"),
-                municipality: Self::col_opt_string(&row, "municipality"),
-                locality: Self::col_opt_string(&row, "locality"),
-                water_body: Self::col_opt_string(&row, "waterBody"),
-                island: Self::col_opt_string(&row, "island"),
-                island_group: Self::col_opt_string(&row, "islandGroup"),
-                // Elevation and Depth
-                elevation: Self::col_opt_f64(&row, "elevation"),
-                elevation_accuracy: Self::col_opt_f64(&row, "elevationAccuracy"),
-                depth: Self::col_opt_f64(&row, "depth"),
-                depth_accuracy: Self::col_opt_f64(&row, "depthAccuracy"),
-                minimum_distance_above_surface_in_meters: Self::col_opt_f64(&row, "minimumDistanceAboveSurfaceInMeters"),
-                maximum_distance_above_surface_in_meters: Self::col_opt_f64(&row, "maximumDistanceAboveSurfaceInMeters"),
-                habitat: Self::col_opt_string(&row, "habitat"),
-                // Georeference Quality fields
-                georeference_remarks: Self::col_opt_string(&row, "georeferenceRemarks"),
-                georeference_sources: Self::col_opt_string(&row, "georeferenceSources"),
-                georeference_verification_status: Self::col_opt_string(&row, "georeferenceVerificationStatus"),
-                georeferenced_by: Self::col_opt_string(&row, "georeferencedBy"),
-                point_radius_spatial_fit: Self::col_opt_f64(&row, "pointRadiusSpatialFit"),
-                footprint_spatial_fit: Self::col_opt_f64(&row, "footprintSpatialFit"),
-                footprint_wkt: Self::col_opt_string(&row, "footprintWKT"),
-                footprint_srs: Self::col_opt_string(&row, "footprintSRS"),
-                verbatim_srs: Self::col_opt_string(&row, "verbatimSRS"),
-                verbatim_coordinate_system: Self::col_opt_string(&row, "verbatimCoordinateSystem"),
-                vertical_datum: Self::col_opt_string(&row, "verticalDatum"),
-                verbatim_elevation: Self::col_opt_string(&row, "verbatimElevation"),
-                verbatim_depth: Self::col_opt_string(&row, "verbatimDepth"),
-                distance_from_centroid_in_meters: Self::col_opt_f64(&row, "distanceFromCentroidInMeters"),
-                has_coordinate: Self::col_opt_bool(&row, "hasCoordinate"),
-                has_geospatial_issues: Self::col_opt_bool(&row, "hasGeospatialIssues"),
-                higher_geography: Self::col_opt_string(&row, "higherGeography"),
-                higher_geography_id: Self::col_opt_string(&row, "higherGeographyID"),
-                location_according_to: Self::col_opt_string(&row, "locationAccordingTo"),
-                location_id: Self::col_opt_string(&row, "locationID"),
-                location_remarks: Self::col_opt_string(&row, "locationRemarks"),
-                // Temporal fields
-                year: Self::col_opt_i32(&row, "year"),
-                month: Self::col_opt_i32(&row, "month"),
-                day: Self::col_opt_i32(&row, "day"),
-                start_day_of_year: Self::col_opt_i32(&row, "startDayOfYear"),
-                end_day_of_year: Self::col_opt_i32(&row, "endDayOfYear"),
-                // Event fields
-                event_id: Self::col_opt_string(&row, "eventID"),
-                parent_event_id: Self::col_opt_string(&row, "parentEventID"),
-                event_type: Self::col_opt_string(&row, "eventType"),
-                event_remarks: Self::col_opt_string(&row, "eventRemarks"),
-                sampling_effort: Self::col_opt_string(&row, "samplingEffort"),
-                sampling_protocol: Self::col_opt_string(&row, "samplingProtocol"),
-                sample_size_value: Self::col_opt_f64(&row, "sampleSizeValue"),
-                sample_size_unit: Self::col_opt_string(&row, "sampleSizeUnit"),
-                field_notes: Self::col_opt_string(&row, "fieldNotes"),
-                field_number: Self::col_opt_string(&row, "fieldNumber"),
-                // Taxonomic fields
-                accepted_scientific_name: Self::col_opt_string(&row, "acceptedScientificName"),
-                accepted_name_usage: Self::col_opt_string(&row, "acceptedNameUsage"),
-                accepted_name_usage_id: Self::col_opt_string(&row, "acceptedNameUsageID"),
-                higher_classification: Self::col_opt_string(&row, "higherClassification"),
-                subfamily: Self::col_opt_string(&row, "subfamily"),
-                subgenus: Self::col_opt_string(&row, "subgenus"),
-                tribe: Self::col_opt_string(&row, "tribe"),
-                subtribe: Self::col_opt_string(&row, "subtribe"),
-                superfamily: Self::col_opt_string(&row, "superfamily"),
-                species: Self::col_opt_string(&row, "species"),
-                generic_name: Self::col_opt_string(&row, "genericName"),
-                infrageneric_epithet: Self::col_opt_string(&row, "infragenericEpithet"),
-                cultivar_epithet: Self::col_opt_string(&row, "cultivarEpithet"),
-                parent_name_usage: Self::col_opt_string(&row, "parentNameUsage"),
-                parent_name_usage_id: Self::col_opt_string(&row, "parentNameUsageID"),
-                original_name_usage: Self::col_opt_string(&row, "originalNameUsage"),
-                original_name_usage_id: Self::col_opt_string(&row, "originalNameUsageID"),
-                name_published_in: Self::col_opt_string(&row, "namePublishedIn"),
-                name_published_in_id: Self::col_opt_string(&row, "namePublishedInID"),
-                name_published_in_year: Self::col_opt_i32(&row, "namePublishedInYear"),
-                nomenclatural_code: Self::col_opt_string(&row, "nomenclaturalCode"),
-                nomenclatural_status: Self::col_opt_string(&row, "nomenclaturalStatus"),
-                name_according_to: Self::col_opt_string(&row, "nameAccordingTo"),
-                name_according_to_id: Self::col_opt_string(&row, "nameAccordingToID"),
-                taxon_concept_id: Self::col_opt_string(&row, "taxonConceptID"),
-                scientific_name_id: Self::col_opt_string(&row, "scientificNameID"),
-                taxon_remarks: Self::col_opt_string(&row, "taxonRemarks"),
-                taxonomic_issue: Self::col_opt_bool(&row, "taxonomicIssue"),
-                non_taxonomic_issue: Self::col_opt_bool(&row, "nonTaxonomicIssue"),
-                associated_taxa: Self::col_opt_string(&row, "associatedTaxa"),
-                verbatim_identification: Self::col_opt_string(&row, "verbatimIdentification"),
-                verbatim_taxon_rank: Self::col_opt_string(&row, "verbatimTaxonRank"),
-                verbatim_scientific_name: Self::col_opt_string(&row, "verbatimScientificName"),
-                typified_name: Self::col_opt_string(&row, "typifiedName"),
-                // Identification fields
-                identified_by: Self::col_opt_string(&row, "identifiedBy"),
-                identified_by_id: Self::col_opt_string(&row, "identifiedByID"),
-                date_identified: Self::col_opt_string(&row, "dateIdentified"),
-                identification_id: Self::col_opt_string(&row, "identificationID"),
-                identification_qualifier: Self::col_opt_string(&row, "identificationQualifier"),
-                identification_references: Self::col_opt_string(&row, "identificationReferences"),
-                identification_remarks: Self::col_opt_string(&row, "identificationRemarks"),
-                identification_verification_status: Self::col_opt_string(&row, "identificationVerificationStatus"),
-                previous_identifications: Self::col_opt_string(&row, "previousIdentifications"),
-                type_status: Self::col_opt_string(&row, "typeStatus"),
-                // Collection/Institution fields
-                institution_code: Self::col_opt_string(&row, "institutionCode"),
-                institution_id: Self::col_opt_string(&row, "institutionID"),
-                collection_code: Self::col_opt_string(&row, "collectionCode"),
-                collection_id: Self::col_opt_string(&row, "collectionID"),
-                owner_institution_code: Self::col_opt_string(&row, "ownerInstitutionCode"),
-                catalog_number: Self::col_opt_string(&row, "catalogNumber"),
-                record_number: Self::col_opt_string(&row, "recordNumber"),
-                other_catalog_numbers: Self::col_opt_string(&row, "otherCatalogNumbers"),
-                preparations: Self::col_opt_string(&row, "preparations"),
-                disposition: Self::col_opt_string(&row, "disposition"),
-                // Organism fields
-                organism_id: Self::col_opt_string(&row, "organismID"),
-                organism_name: Self::col_opt_string(&row, "organismName"),
-                organism_quantity: Self::col_opt_f64(&row, "organismQuantity"),
-                organism_quantity_type: Self::col_opt_string(&row, "organismQuantityType"),
-                relative_organism_quantity: Self::col_opt_f64(&row, "relativeOrganismQuantity"),
-                organism_remarks: Self::col_opt_string(&row, "organismRemarks"),
-                organism_scope: Self::col_opt_string(&row, "organismScope"),
-                associated_organisms: Self::col_opt_string(&row, "associatedOrganisms"),
-                individual_count: Self::col_opt_i32(&row, "individualCount"),
-                life_stage: Self::col_opt_string(&row, "lifeStage"),
-                sex: Self::col_opt_string(&row, "sex"),
-                reproductive_condition: Self::col_opt_string(&row, "reproductiveCondition"),
-                behavior: Self::col_opt_string(&row, "behavior"),
-                caste: Self::col_opt_string(&row, "caste"),
-                vitality: Self::col_opt_string(&row, "vitality"),
-                degree_of_establishment: Self::col_opt_string(&row, "degreeOfEstablishment"),
-                pathway: Self::col_opt_string(&row, "pathway"),
-                is_invasive: Self::col_opt_bool(&row, "isInvasive"),
-                // Material Sample fields
-                material_sample_id: Self::col_opt_string(&row, "materialSampleID"),
-                material_entity_id: Self::col_opt_string(&row, "materialEntityID"),
-                material_entity_remarks: Self::col_opt_string(&row, "materialEntityRemarks"),
-                associated_occurrences: Self::col_opt_string(&row, "associatedOccurrences"),
-                associated_sequences: Self::col_opt_string(&row, "associatedSequences"),
-                associated_references: Self::col_opt_string(&row, "associatedReferences"),
-                is_sequenced: Self::col_opt_bool(&row, "isSequenced"),
-                // Record-level fields
-                occurrence_status: Self::col_opt_string(&row, "occurrenceStatus"),
-                bibliographic_citation: Self::col_opt_string(&row, "bibliographicCitation"),
-                references: Self::col_opt_string(&row, "references"),
-                language: Self::col_opt_string(&row, "language"),
-                rights_holder: Self::col_opt_string(&row, "rightsHolder"),
-                data_generalizations: Self::col_opt_string(&row, "dataGeneralizations"),
-                dynamic_properties: Self::col_opt_string(&row, "dynamicProperties"),
-                type_field: Self::col_opt_string(&row, "type"),
-                dataset_id: Self::col_opt_string(&row, "datasetID"),
-                dataset_name: Self::col_opt_string(&row, "datasetName"),
-                issue: Self::col_opt_string(&row, "issue"),
-                media_type: Self::col_opt_string(&row, "mediaType"),
-                project_id: Self::col_opt_string(&row, "projectId"),
-                protocol: Self::col_opt_string(&row, "protocol"),
-                // Geological Context fields
-                geological_context_id: Self::col_opt_string(&row, "geologicalContextID"),
-                bed: Self::col_opt_string(&row, "bed"),
-                formation: Self::col_opt_string(&row, "formation"),
-                group: Self::col_opt_string(&row, "group"),
-                member: Self::col_opt_string(&row, "member"),
-                lithostratigraphic_terms: Self::col_opt_string(&row, "lithostratigraphicTerms"),
-                earliest_eon_or_lowest_eonothem: Self::col_opt_string(&row, "earliestEonOrLowestEonothem"),
-                latest_eon_or_highest_eonothem: Self::col_opt_string(&row, "latestEonOrHighestEonothem"),
-                earliest_era_or_lowest_erathem: Self::col_opt_string(&row, "earliestEraOrLowestErathem"),
-                latest_era_or_highest_erathem: Self::col_opt_string(&row, "latestEraOrHighestErathem"),
-                earliest_period_or_lowest_system: Self::col_opt_string(&row, "earliestPeriodOrLowestSystem"),
-                latest_period_or_highest_system: Self::col_opt_string(&row, "latestPeriodOrHighestSystem"),
-                earliest_epoch_or_lowest_series: Self::col_opt_string(&row, "earliestEpochOrLowestSeries"),
-                latest_epoch_or_highest_series: Self::col_opt_string(&row, "latestEpochOrHighestSeries"),
-                earliest_age_or_lowest_stage: Self::col_opt_string(&row, "earliestAgeOrLowestStage"),
-                latest_age_or_highest_stage: Self::col_opt_string(&row, "latestAgeOrHighestStage"),
-                lowest_biostratigraphic_zone: Self::col_opt_string(&row, "lowestBiostratigraphicZone"),
-                highest_biostratigraphic_zone: Self::col_opt_string(&row, "highestBiostratigraphicZone"),
-                // GBIF-specific fields
-                gbif_id: Self::col_opt_i64(&row, "gbifID"),
-                gbif_region: Self::col_opt_string(&row, "gbifRegion"),
-                taxon_key: Self::col_opt_i64(&row, "taxonKey"),
-                accepted_taxon_key: Self::col_opt_i64(&row, "acceptedTaxonKey"),
-                kingdom_key: Self::col_opt_i64(&row, "kingdomKey"),
-                phylum_key: Self::col_opt_i64(&row, "phylumKey"),
-                class_key: Self::col_opt_i64(&row, "classKey"),
-                order_key: Self::col_opt_i64(&row, "orderKey"),
-                family_key: Self::col_opt_i64(&row, "familyKey"),
-                genus_key: Self::col_opt_i64(&row, "genusKey"),
-                subgenus_key: Self::col_opt_i64(&row, "subgenusKey"),
-                species_key: Self::col_opt_i64(&row, "speciesKey"),
-                dataset_key: Self::col_opt_string(&row, "datasetKey"),
-                publisher: Self::col_opt_string(&row, "publisher"),
-                publishing_country: Self::col_opt_string(&row, "publishingCountry"),
-                published_by_gbif_region: Self::col_opt_string(&row, "publishedByGbifRegion"),
-                last_crawled: Self::col_opt_string(&row, "lastCrawled"),
-                last_parsed: Self::col_opt_string(&row, "lastParsed"),
-                last_interpreted: Self::col_opt_string(&row, "lastInterpreted"),
-                iucn_red_list_category: Self::col_opt_string(&row, "iucnRedListCategory"),
-                repatriated: Self::col_opt_bool(&row, "repatriated"),
-                level0_gid: Self::col_opt_string(&row, "level0Gid"),
-                level0_name: Self::col_opt_string(&row, "level0Name"),
-                level1_gid: Self::col_opt_string(&row, "level1Gid"),
-                level1_name: Self::col_opt_string(&row, "level1Name"),
-                level2_gid: Self::col_opt_string(&row, "level2Gid"),
-                level2_name: Self::col_opt_string(&row, "level2Name"),
-                level3_gid: Self::col_opt_string(&row, "level3Gid"),
-                level3_name: Self::col_opt_string(&row, "level3Name"),
-                recorded_by_id: Self::col_opt_string(&row, "recordedByID"),
-                verbatim_label: Self::col_opt_string(&row, "verbatimLabel"),
-            })
+            // Dynamically map columns to JSON
+            let mut map = serde_json::Map::new();
+            let column_count = row.as_ref().column_count();
+
+            for i in 0..column_count {
+                let name = row.as_ref().column_name(i)
+                    .map_err(|_e| duckdb::Error::InvalidColumnIndex(i))?;
+                let value = Self::get_column_as_json(&row, i);
+                map.insert(name.to_string(), value);
+            }
+
+            Ok(map)
         })?;
 
         let mut results = Vec::new();
@@ -594,36 +355,37 @@ mod tests {
         use crate::commands::archive::SearchParams;
 
         // Test searching for all records
-        let search_result = db.search(10, 0, SearchParams::default()).unwrap();
+        let search_result = db.search(10, 0, SearchParams::default(), None).unwrap();
         assert_eq!(search_result.total, 3);
         assert_eq!(search_result.results.len(), 3);
 
         // Verify first occurrence fields
         let first = &search_result.results[0];
-        assert_eq!(first.occurrence_id, "123456");
-        assert_eq!(first.basis_of_record, "HumanObservation");
-        assert_eq!(first.recorded_by, "John Doe");
-        assert_eq!(first.event_date, Some("2024-01-15".to_string()));
-        assert_eq!(first.decimal_latitude, Some(34.0522));
-        assert_eq!(first.decimal_longitude, Some(-118.2437));
-        assert_eq!(first.scientific_name, Some("Quercus agrifolia".to_string()));
-        assert_eq!(first.taxon_rank, Some("species".to_string()));
-        assert_eq!(first.kingdom, Some("Plantae".to_string()));
-        assert_eq!(first.family, Some("Fagaceae".to_string()));
+        // occurrenceID is parsed as a number since it's all digits
+        assert_eq!(first.get("occurrenceID").and_then(|v| v.as_i64()), Some(123456));
+        assert_eq!(first.get("basisOfRecord").and_then(|v| v.as_str()), Some("HumanObservation"));
+        assert_eq!(first.get("recordedBy").and_then(|v| v.as_str()), Some("John Doe"));
+        assert_eq!(first.get("eventDate").and_then(|v| v.as_str()), Some("2024-01-15"));
+        assert_eq!(first.get("decimalLatitude").and_then(|v| v.as_f64()), Some(34.0522));
+        assert_eq!(first.get("decimalLongitude").and_then(|v| v.as_f64()), Some(-118.2437));
+        assert_eq!(first.get("scientificName").and_then(|v| v.as_str()), Some("Quercus agrifolia"));
+        assert_eq!(first.get("taxonRank").and_then(|v| v.as_str()), Some("species"));
+        assert_eq!(first.get("kingdom").and_then(|v| v.as_str()), Some("Plantae"));
+        assert_eq!(first.get("family").and_then(|v| v.as_str()), Some("Fagaceae"));
 
         // Test limit parameter
-        let limited = db.search(2, 0, SearchParams::default()).unwrap();
+        let limited = db.search(2, 0, SearchParams::default(), None).unwrap();
         assert_eq!(limited.total, 3);
         assert_eq!(limited.results.len(), 2);
 
         // Test offset parameter
-        let offset_result = db.search(2, 1, SearchParams::default()).unwrap();
+        let offset_result = db.search(2, 1, SearchParams::default(), None).unwrap();
         assert_eq!(offset_result.total, 3);
         assert_eq!(offset_result.results.len(), 2);
-        assert_eq!(offset_result.results[0].occurrence_id, "789012");
+        assert_eq!(offset_result.results[0].get("occurrenceID").and_then(|v| v.as_i64()), Some(789012));
 
         // Test limit larger than available records
-        let all = db.search(100, 0, SearchParams::default()).unwrap();
+        let all = db.search(100, 0, SearchParams::default(), None).unwrap();
         assert_eq!(all.total, 3);
         assert_eq!(all.results.len(), 3);
     }
@@ -648,7 +410,7 @@ mod tests {
         // Search for "foo" (case-insensitive partial match)
         let search_result = db.search(10, 0, SearchParams {
             scientific_name: Some("foo".to_string()),
-        }).unwrap();
+        }, None).unwrap();
 
         // Should return 4 results: "Foobar", "foo", "Foo", "Barfoo"
         assert_eq!(search_result.total, 4, "Expected total count of 4");
@@ -656,22 +418,55 @@ mod tests {
 
         // Verify the names contain "foo" (case-insensitive)
         for result in &search_result.results {
-            let name = result.scientific_name.as_ref().unwrap().to_lowercase();
+            let name = result.get("scientificName")
+                .and_then(|v| v.as_str())
+                .expect("scientificName should exist")
+                .to_lowercase();
             assert!(
                 name.contains("foo"),
                 "Expected '{}' to contain 'foo'",
-                result.scientific_name.as_ref().unwrap()
+                result.get("scientificName").and_then(|v| v.as_str()).unwrap()
             );
         }
 
         // Should NOT return "Bar"
         for result in &search_result.results {
+            let name = result.get("scientificName").and_then(|v| v.as_str()).unwrap();
             assert_ne!(
-                result.scientific_name.as_ref().unwrap(),
+                name,
                 "Bar",
                 "Should not return 'Bar'"
             );
         }
+    }
+
+    #[test]
+    fn test_search_with_field_selection() {
+        use crate::commands::archive::SearchParams;
+
+        // Create test data
+        let csv_data = br#"occurrenceID,basisOfRecord,recordedBy,eventDate,decimalLatitude,decimalLongitude,scientificName
+1,obs,John,2024-01-01,0,0,Test species
+"#;
+
+        let fixture = TestFixture::new("search_field_selection", vec![csv_data]);
+        let db = Database::create_from_core_files(&fixture.csv_paths, &fixture.db_path).unwrap();
+
+        // Search with specific fields
+        let search_result = db.search(10, 0, SearchParams::default(), Some(vec![
+            "occurrenceID".to_string(),
+            "scientificName".to_string(),
+        ])).unwrap();
+
+        assert_eq!(search_result.total, 1);
+        assert_eq!(search_result.results.len(), 1);
+
+        let first = &search_result.results[0];
+        // Should have the requested fields
+        assert!(first.contains_key("occurrenceID"));
+        assert!(first.contains_key("scientificName"));
+        // Should only have the requested fields (2 fields)
+        assert_eq!(first.len(), 2);
     }
 }
 

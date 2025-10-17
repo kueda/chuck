@@ -14,236 +14,238 @@
     coreCount: number,
   }
 
+  // Attributes are undefined when the client doesn't ask for them, and
+  // (hopefully) null when the client asks for them but they are blank
   interface Occurrence {
-    occurrenceID: string;
-    basisOfRecord: string;
-    recordedBy: string;
-    eventDate: string | null;
-    decimalLatitude: number | null;
-    decimalLongitude: number | null;
-    scientificName: string | null;
-    taxonRank: string | null;
-    taxonomicStatus: string | null;
-    vernacularName: string | null;
-    kingdom: string | null;
-    phylum: string | null;
-    class: string | null;
-    order: string | null;
-    family: string | null;
-    genus: string | null;
-    specificEpithet: string | null;
-    infraspecificEpithet: string | null;
-    taxonID: number | null;
-    occurrenceRemarks: string | null;
-    establishmentMeans: string | null;
-    georeferencedDate: string | null;
-    georeferenceProtocol: string | null;
-    coordinateUncertaintyInMeters: number | null;
-    coordinatePrecision: number | null;
-    geodeticDatum: string | null;
-    accessRights: string | null;
-    license: string | null;
-    informationWithheld: string | null;
-    modified: string | null;
-    captive: boolean | null;
-    eventTime: string | null;
-    verbatimEventDate: string | null;
-    verbatimLocality: string | null;
-    continent: string | null;
-    countryCode: string | null;
-    stateProvince: string | null;
-    county: string | null;
-    municipality: string | null;
-    locality: string | null;
-    waterBody: string | null;
-    island: string | null;
-    islandGroup: string | null;
-    elevation: number | null;
-    elevationAccuracy: number | null;
-    depth: number | null;
-    depthAccuracy: number | null;
-    minimumDistanceAboveSurfaceInMeters: number | null;
-    maximumDistanceAboveSurfaceInMeters: number | null;
-    habitat: string | null;
-    georeferenceRemarks: string | null;
-    georeferenceSources: string | null;
-    georeferenceVerificationStatus: string | null;
-    georeferencedBy: string | null;
-    pointRadiusSpatialFit: number | null;
-    footprintSpatialFit: number | null;
-    footprintWKT: string | null;
-    footprintSRS: string | null;
-    verbatimSRS: string | null;
-    verbatimCoordinateSystem: string | null;
-    verticalDatum: string | null;
-    verbatimElevation: string | null;
-    verbatimDepth: string | null;
-    distanceFromCentroidInMeters: number | null;
-    hasCoordinate: boolean | null;
-    hasGeospatialIssues: boolean | null;
-    higherGeography: string | null;
-    higherGeographyID: string | null;
-    locationAccordingTo: string | null;
-    locationID: string | null;
-    locationRemarks: string | null;
-    year: number | null;
-    month: number | null;
-    day: number | null;
-    startDayOfYear: number | null;
-    endDayOfYear: number | null;
-    eventID: string | null;
-    parentEventID: string | null;
-    eventType: string | null;
-    eventRemarks: string | null;
-    samplingEffort: string | null;
-    samplingProtocol: string | null;
-    sampleSizeValue: number | null;
-    sampleSizeUnit: string | null;
-    fieldNotes: string | null;
-    fieldNumber: string | null;
-    acceptedScientificName: string | null;
-    acceptedNameUsage: string | null;
-    acceptedNameUsageID: string | null;
-    higherClassification: string | null;
-    subfamily: string | null;
-    subgenus: string | null;
-    tribe: string | null;
-    subtribe: string | null;
-    superfamily: string | null;
-    species: string | null;
-    genericName: string | null;
-    infragenericEpithet: string | null;
-    cultivarEpithet: string | null;
-    parentNameUsage: string | null;
-    parentNameUsageID: string | null;
-    originalNameUsage: string | null;
-    originalNameUsageID: string | null;
-    namePublishedIn: string | null;
-    namePublishedInID: string | null;
-    namePublishedInYear: number | null;
-    nomenclaturalCode: string | null;
-    nomenclaturalStatus: string | null;
-    nameAccordingTo: string | null;
-    nameAccordingToID: string | null;
-    taxonConceptID: string | null;
-    scientificNameID: string | null;
-    taxonRemarks: string | null;
-    taxonomicIssue: boolean | null;
-    nonTaxonomicIssue: boolean | null;
-    associatedTaxa: string | null;
-    verbatimIdentification: string | null;
-    verbatimTaxonRank: string | null;
-    verbatimScientificName: string | null;
-    typifiedName: string | null;
-    identifiedBy: string | null;
-    identifiedByID: string | null;
-    dateIdentified: string | null;
-    identificationID: string | null;
-    identificationQualifier: string | null;
-    identificationReferences: string | null;
-    identificationRemarks: string | null;
-    identificationVerificationStatus: string | null;
-    previousIdentifications: string | null;
-    typeStatus: string | null;
-    institutionCode: string | null;
-    institutionID: string | null;
-    collectionCode: string | null;
-    collectionID: string | null;
-    ownerInstitutionCode: string | null;
-    catalogNumber: string | null;
-    recordNumber: string | null;
-    otherCatalogNumbers: string | null;
-    preparations: string | null;
-    disposition: string | null;
-    organismID: string | null;
-    organismName: string | null;
-    organismQuantity: number | null;
-    organismQuantityType: string | null;
-    relativeOrganismQuantity: number | null;
-    organismRemarks: string | null;
-    organismScope: string | null;
-    associatedOrganisms: string | null;
-    individualCount: number | null;
-    lifeStage: string | null;
-    sex: string | null;
-    reproductiveCondition: string | null;
-    behavior: string | null;
-    caste: string | null;
-    vitality: string | null;
-    degreeOfEstablishment: string | null;
-    pathway: string | null;
-    isInvasive: boolean | null;
-    materialSampleID: string | null;
-    materialEntityID: string | null;
-    materialEntityRemarks: string | null;
-    associatedOccurrences: string | null;
-    associatedSequences: string | null;
-    associatedReferences: string | null;
-    isSequenced: boolean | null;
-    occurrenceStatus: string | null;
-    bibliographicCitation: string | null;
-    references: string | null;
-    language: string | null;
-    rightsHolder: string | null;
-    dataGeneralizations: string | null;
-    dynamicProperties: string | null;
-    type: string | null;
-    datasetID: string | null;
-    datasetName: string | null;
-    issue: string | null;
-    mediaType: string | null;
-    projectId: string | null;
-    protocol: string | null;
-    geologicalContextID: string | null;
-    bed: string | null;
-    formation: string | null;
-    group: string | null;
-    member: string | null;
-    lithostratigraphicTerms: string | null;
-    earliestEonOrLowestEonothem: string | null;
-    latestEonOrHighestEonothem: string | null;
-    earliestEraOrLowestErathem: string | null;
-    latestEraOrHighestErathem: string | null;
-    earliestPeriodOrLowestSystem: string | null;
-    latestPeriodOrHighestSystem: string | null;
-    earliestEpochOrLowestSeries: string | null;
-    latestEpochOrHighestSeries: string | null;
-    earliestAgeOrLowestStage: string | null;
-    latestAgeOrHighestStage: string | null;
-    lowestBiostratigraphicZone: string | null;
-    highestBiostratigraphicZone: string | null;
-    gbifID: number | null;
-    gbifRegion: string | null;
-    taxonKey: number | null;
-    acceptedTaxonKey: number | null;
-    kingdomKey: number | null;
-    phylumKey: number | null;
-    classKey: number | null;
-    orderKey: number | null;
-    familyKey: number | null;
-    genusKey: number | null;
-    subgenusKey: number | null;
-    speciesKey: number | null;
-    datasetKey: string | null;
-    publisher: string | null;
-    publishingCountry: string | null;
-    publishedByGbifRegion: string | null;
-    lastCrawled: string | null;
-    lastParsed: string | null;
-    lastInterpreted: string | null;
-    iucnRedListCategory: string | null;
-    repatriated: boolean | null;
-    level0Gid: string | null;
-    level0Name: string | null;
-    level1Gid: string | null;
-    level1Name: string | null;
-    level2Gid: string | null;
-    level2Name: string | null;
-    level3Gid: string | null;
-    level3Name: string | null;
-    recordedByID: string | null;
-    verbatimLabel: string | null;
-  }
+    occurrenceID?: string | null;
+    basisOfRecord?: string | null;
+    recordedBy?: string | null;
+    eventDate?: string | null;
+    decimalLatitude?: number | null;
+    decimalLongitude?: number | null;
+    scientificName?: string | null;
+    taxonRank?: string | null;
+    taxonomicStatus?: string | null;
+    vernacularName?: string | null;
+    kingdom?: string | null;
+    phylum?: string | null;
+    class?: string | null;
+    order?: string | null;
+    family?: string | null;
+    genus?: string | null;
+    specificEpithet?: string | null;
+    infraspecificEpithet?: string | null;
+    taxonID?: string | null;
+    occurrenceRemarks?: string | null;
+    establishmentMeans?: string | null;
+    georeferencedDate?: string | null;
+    georeferenceProtocol?: string | null;
+    coordinateUncertaintyInMeters?: string | null;
+    coordinatePrecision?: string | null;
+    geodeticDatum?: string | null;
+    accessRights?: string | null;
+    license?: string | null;
+    informationWithheld?: string | null;
+    modified?: string | null;
+    captive?: string | null;
+    eventTime?: string | null;
+    verbatimEventDate?: string | null;
+    verbatimLocality?: string | null;
+    continent?: string | null;
+    countryCode?: string | null;
+    stateProvince?: string | null;
+    county?: string | null;
+    municipality?: string | null;
+    locality?: string | null;
+    waterBody?: string | null;
+    island?: string | null;
+    islandGroup?: string | null;
+    elevation?: string | null;
+    elevationAccuracy?: string | null;
+    depth?: string | null;
+    depthAccuracy?: string | null;
+    minimumDistanceAboveSurfaceInMeters?: string | null;
+    maximumDistanceAboveSurfaceInMeters?: string | null;
+    habitat?: string | null;
+    georeferenceRemarks?: string | null;
+    georeferenceSources?: string | null;
+    georeferenceVerificationStatus?: string | null;
+    georeferencedBy?: string | null;
+    pointRadiusSpatialFit?: string | null;
+    footprintSpatialFit?: string | null;
+    footprintWKT?: string | null;
+    footprintSRS?: string | null;
+    verbatimSRS?: string | null;
+    verbatimCoordinateSystem?: string | null;
+    verticalDatum?: string | null;
+    verbatimElevation?: string | null;
+    verbatimDepth?: string | null;
+    distanceFromCentroidInMeters?: string | null;
+    hasCoordinate?: string | null;
+    hasGeospatialIssues?: string | null;
+    higherGeography?: string | null;
+    higherGeographyID?: string | null;
+    locationAccordingTo?: string | null;
+    locationID?: string | null;
+    locationRemarks?: string | null;
+    year?: string | null;
+    month?: string | null;
+    day?: string | null;
+    startDayOfYear?: string | null;
+    endDayOfYear?: string | null;
+    eventID?: string | null;
+    parentEventID?: string | null;
+    eventType?: string | null;
+    eventRemarks?: string | null;
+    samplingEffort?: string | null;
+    samplingProtocol?: string | null;
+    sampleSizeValue?: string | null;
+    sampleSizeUnit?: string | null;
+    fieldNotes?: string | null;
+    fieldNumber?: string | null;
+    acceptedScientificName?: string | null;
+    acceptedNameUsage?: string | null;
+    acceptedNameUsageID?: string | null;
+    higherClassification?: string | null;
+    subfamily?: string | null;
+    subgenus?: string | null;
+    tribe?: string | null;
+    subtribe?: string | null;
+    superfamily?: string | null;
+    species?: string | null;
+    genericName?: string | null;
+    infragenericEpithet?: string | null;
+    cultivarEpithet?: string | null;
+    parentNameUsage?: string | null;
+    parentNameUsageID?: string | null;
+    originalNameUsage?: string | null;
+    originalNameUsageID?: string | null;
+    namePublishedIn?: string | null;
+    namePublishedInID?: string | null;
+    namePublishedInYear?: string | null;
+    nomenclaturalCode?: string | null;
+    nomenclaturalStatus?: string | null;
+    nameAccordingTo?: string | null;
+    nameAccordingToID?: string | null;
+    taxonConceptID?: string | null;
+    scientificNameID?: string | null;
+    taxonRemarks?: string | null;
+    taxonomicIssue?: string | null;
+    nonTaxonomicIssue?: string | null;
+    associatedTaxa?: string | null;
+    verbatimIdentification?: string | null;
+    verbatimTaxonRank?: string | null;
+    verbatimScientificName?: string | null;
+    typifiedName?: string | null;
+    identifiedBy?: string | null;
+    identifiedByID?: string | null;
+    dateIdentified?: string | null;
+    identificationID?: string | null;
+    identificationQualifier?: string | null;
+    identificationReferences?: string | null;
+    identificationRemarks?: string | null;
+    identificationVerificationStatus?: string | null;
+    previousIdentifications?: string | null;
+    typeStatus?: string | null;
+    institutionCode?: string | null;
+    institutionID?: string | null;
+    collectionCode?: string | null;
+    collectionID?: string | null;
+    ownerInstitutionCode?: string | null;
+    catalogNumber?: string | null;
+    recordNumber?: string | null;
+    otherCatalogNumbers?: string | null;
+    preparations?: string | null;
+    disposition?: string | null;
+    organismID?: string | null;
+    organismName?: string | null;
+    organismQuantity?: string | null;
+    organismQuantityType?: string | null;
+    relativeOrganismQuantity?: string | null;
+    organismRemarks?: string | null;
+    organismScope?: string | null;
+    associatedOrganisms?: string | null;
+    individualCount?: string | null;
+    lifeStage?: string | null;
+    sex?: string | null;
+    reproductiveCondition?: string | null;
+    behavior?: string | null;
+    caste?: string | null;
+    vitality?: string | null;
+    degreeOfEstablishment?: string | null;
+    pathway?: string | null;
+    isInvasive?: string | null;
+    materialSampleID?: string | null;
+    materialEntityID?: string | null;
+    materialEntityRemarks?: string | null;
+    associatedOccurrences?: string | null;
+    associatedSequences?: string | null;
+    associatedReferences?: string | null;
+    isSequenced?: string | null;
+    occurrenceStatus?: string | null;
+    bibliographicCitation?: string | null;
+    references?: string | null;
+    language?: string | null;
+    rightsHolder?: string | null;
+    dataGeneralizations?: string | null;
+    dynamicProperties?: string | null;
+    type?: string | null;
+    datasetID?: string | null;
+    datasetName?: string | null;
+    issue?: string | null;
+    mediaType?: string | null;
+    projectId?: string | null;
+    protocol?: string | null;
+    geologicalContextID?: string | null;
+    bed?: string | null;
+    formation?: string | null;
+    group?: string | null;
+    member?: string | null;
+    lithostratigraphicTerms?: string | null;
+    earliestEonOrLowestEonothem?: string | null;
+    latestEonOrHighestEonothem?: string | null;
+    earliestEraOrLowestErathem?: string | null;
+    latestEraOrHighestErathem?: string | null;
+    earliestPeriodOrLowestSystem?: string | null;
+    latestPeriodOrHighestSystem?: string | null;
+    earliestEpochOrLowestSeries?: string | null;
+    latestEpochOrHighestSeries?: string | null;
+    earliestAgeOrLowestStage?: string | null;
+    latestAgeOrHighestStage?: string | null;
+    lowestBiostratigraphicZone?: string | null;
+    highestBiostratigraphicZone?: string | null;
+    gbifID?: string | null;
+    gbifRegion?: string | null;
+    taxonKey?: string | null;
+    acceptedTaxonKey?: string | null;
+    kingdomKey?: string | null;
+    phylumKey?: string | null;
+    classKey?: string | null;
+    orderKey?: string | null;
+    familyKey?: string | null;
+    genusKey?: string | null;
+    subgenusKey?: string | null;
+    speciesKey?: string | null;
+    datasetKey?: string | null;
+    publisher?: string | null;
+    publishingCountry?: string | null;
+    publishedByGbifRegion?: string | null;
+    lastCrawled?: string | null;
+    lastParsed?: string | null;
+    lastInterpreted?: string | null;
+    iucnRedListCategory?: string | null;
+    repatriated?: string | null;
+    level0Gid?: string | null;
+    level0Name?: string | null;
+    level1Gid?: string | null;
+    level1Name?: string | null;
+    level2Gid?: string | null;
+    level2Name?: string | null;
+    level3Gid?: string | null;
+    level3Name?: string | null;
+    recordedByID?: string | null;
+    verbatimLabel?: string | null;
+  };
 
   interface SearchResult {
     total: number;
@@ -251,6 +253,14 @@
   }
 
   const CHUNK_SIZE = 500;
+  const DISPLAY_FIELDS = [
+    'occurrenceID',
+    'scientificName',
+    'decimalLatitude',
+    'decimalLongitude',
+    'eventDate',
+    'eventTime'
+  ];
 
   let archive = $state<ArchiveInfo>();
   // Map is not a reactive data structure in Svelte, so we use
@@ -297,7 +307,9 @@
         limit: CHUNK_SIZE,
         offset: offset,
         searchParams: currentSearchParams,
+        fields: DISPLAY_FIELDS,
       });
+      console.log('[+page.svelte] searchResult', searchResult);
 
       // Add results to cache
       searchResult.results.forEach((occurrence, i) => {
@@ -313,6 +325,7 @@
   }
 
   // Tanstack Virtual onChange handler
+  let lastLoadedRange = { firstChunk: -1, lastChunk: -1 };
   function loadVisibleChunks(instance: Virtualizer<Element, Element>) {
     const items = instance.getVirtualItems();
     if (items.length === 0) return;
@@ -324,6 +337,17 @@
     // Calculate which chunks we need
     const firstChunk = Math.floor(firstIndex / CHUNK_SIZE);
     const lastChunk = Math.floor(lastIndex / CHUNK_SIZE);
+
+    // Skip if we're already loading this exact range. Performance will suffer
+    // a lot for large archives without this
+    if (
+      firstChunk === lastLoadedRange.firstChunk &&
+      lastChunk === lastLoadedRange.lastChunk
+    ) {
+      return;
+    }
+
+    lastLoadedRange = { firstChunk, lastChunk };
 
     // Load all chunks in the visible range
     for (let chunk = firstChunk; chunk <= lastChunk; chunk++) {
@@ -349,6 +373,7 @@
         limit: CHUNK_SIZE,
         offset: 0,
         searchParams: params,
+        fields: DISPLAY_FIELDS,
       });
 
       // Update filtered total
@@ -371,7 +396,7 @@
         count: filteredTotal,
         getScrollElement: () => scrollElement ?? null,
         estimateSize: () => 40,
-        overscan: 5,
+        overscan: 50,
         onChange: loadVisibleChunks,
       });
 
@@ -398,8 +423,8 @@
       count: filteredTotal,
       getScrollElement: () => scrollElement ?? null,
       estimateSize: () => 40,
-      overscan: 5,
-      onChange: loadVisibleChunks
+      overscan: 50,
+      onChange: loadVisibleChunks,
     });
 
     virtualizerReady = true;

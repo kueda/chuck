@@ -18,11 +18,14 @@
     }
 
     debounceTimer = setTimeout(() => {
+      const start = performance.now();
       const params: SearchParams = {};
       if (scientificName.trim()) {
         params.scientific_name = scientificName.trim();
       }
+      console.log(`[Filters] triggering search with params:`, params);
       onSearchChange(params);
+      console.log(`[Filters] onSearchChange call took ${(performance.now() - start).toFixed(2)}ms`);
     }, 300);
   }
 </script>

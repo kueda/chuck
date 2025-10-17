@@ -115,8 +115,9 @@ impl Archive {
         limit: usize,
         offset: usize,
         search_params: crate::commands::archive::SearchParams,
+        fields: Option<Vec<String>>,
     ) -> Result<crate::commands::archive::SearchResult> {
-        self.db.search(limit, offset, search_params)
+        self.db.search(limit, offset, search_params, fields)
     }
 }
 

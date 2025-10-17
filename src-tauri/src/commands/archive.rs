@@ -22,7 +22,7 @@ pub struct SearchParams {
 #[derive(Debug, Serialize)]
 pub struct SearchResult {
     pub total: usize,
-    pub results: Vec<chuck_core::darwin_core::Occurrence>,
+    pub results: Vec<serde_json::Map<String, serde_json::Value>>,
 }
 
 fn get_local_data_dir(app: tauri::AppHandle) -> Result<PathBuf> {
@@ -48,9 +48,10 @@ pub fn search(
     limit: usize,
     offset: usize,
     search_params: SearchParams,
+    fields: Option<Vec<String>>,
 ) -> Result<SearchResult> {
     let archive = Archive::current(&get_local_data_dir(app)?)?;
-    archive.search(limit, offset, search_params).map_err(|e| {
+    archive.search(limit, offset, search_params, fields).map_err(|e| {
         println!("caught search error: {}", e);
         e
     })
