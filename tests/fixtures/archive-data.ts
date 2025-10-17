@@ -109,5 +109,49 @@ export const mockSearchResultSmall: SearchResult = {
   results: mockOccurrences,
 };
 
+// Second archive with different data for testing archive switching
+export const mockArchive2: ArchiveInfo = {
+  name: 'Second Test Archive',
+  coreCount: 500,
+};
+
+export const mockOccurrences2: Occurrence[] = [
+  {
+    occurrenceID: 'ARCHIVE2-001',
+    scientificName: 'Puma concolor',
+    decimalLatitude: 36.7783,
+    decimalLongitude: -119.4179,
+    eventDate: '2024-02-01',
+    eventTime: '08:00:00',
+    recordedBy: 'Wildlife Tracker',
+    basisOfRecord: 'HumanObservation',
+  },
+  {
+    occurrenceID: 'ARCHIVE2-002',
+    scientificName: 'Ursus arctos',
+    decimalLatitude: 37.5000,
+    decimalLongitude: -119.5000,
+    eventDate: '2024-02-02',
+    eventTime: '09:30:00',
+    recordedBy: 'Wildlife Tracker',
+    basisOfRecord: 'HumanObservation',
+  },
+  {
+    occurrenceID: 'ARCHIVE2-003',
+    scientificName: 'Canis lupus',
+    decimalLatitude: 38.0000,
+    decimalLongitude: -120.0000,
+    eventDate: '2024-02-03',
+    eventTime: '10:15:00',
+    recordedBy: 'Wildlife Tracker',
+    basisOfRecord: 'HumanObservation',
+  },
+];
+
+export const mockSearchResult2: SearchResult = {
+  total: 3,
+  results: mockOccurrences2,
+};
+
 // Export types for use in other test files
 export type { ArchiveInfo, Occurrence, SearchResult };

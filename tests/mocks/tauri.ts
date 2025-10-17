@@ -121,11 +121,16 @@ export function getMockTauriAPIs(
  */
 export function getInjectionScript(
   mockArchive: ArchiveInfo,
-  mockSearchResults: SearchResult
+  mockSearchResults: SearchResult,
+  mockArchive2?: ArchiveInfo,
+  mockSearchResults2?: SearchResult
 ): string {
   // Serialize the mock data
   const mockArchiveJSON = JSON.stringify(mockArchive);
   const mockSearchResultsJSON = JSON.stringify(mockSearchResults);
+  const mockArchive2JSON = mockArchive2 ? JSON.stringify(mockArchive2) : 'null';
+  const mockSearchResults2JSON = mockSearchResults2 ?
+    JSON.stringify(mockSearchResults2) : 'null';
 
   return `
     (function() {
@@ -133,8 +138,13 @@ export function getInjectionScript(
 
       const mockArchive = ${mockArchiveJSON};
       const mockSearchResults = ${mockSearchResultsJSON};
+      const mockArchive2 = ${mockArchive2JSON};
+      const mockSearchResults2 = ${mockSearchResults2JSON};
 
       let currentArchive = null;
+      let currentSearchResults = null;
+      let openCount = 0;
+      let eventListeners = new Map();
 
       // Mock invoke function
       const mockInvoke = async (command, args) => {
@@ -142,8 +152,15 @@ export function getInjectionScript(
 
         switch (command) {
           case 'open_archive':
-            currentArchive = mockArchive;
-            return mockArchive;
+            openCount++;
+            if (openCount === 1) {
+              currentArchive = mockArchive;
+              currentSearchResults = mockSearchResults;
+            } else if (openCount === 2 && mockArchive2) {
+              currentArchive = mockArchive2;
+              currentSearchResults = mockSearchResults2;
+            }
+            return currentArchive;
 
           case 'current_archive':
             if (!currentArchive) {
@@ -154,7 +171,11 @@ export function getInjectionScript(
           case 'search': {
             const { limit, offset, searchParams } = args;
 
-            let filteredResults = mockSearchResults.results;
+            if (!currentSearchResults) {
+              return { total: 0, results: [] };
+            }
+
+            let filteredResults = currentSearchResults.results;
 
             if (searchParams?.scientific_name) {
               filteredResults = filteredResults.filter(r =>
@@ -189,9 +210,20 @@ export function getInjectionScript(
       // Mock event listener
       const mockListen = async (event, handler) => {
         console.log('[Mock Tauri] Listening for event:', event);
+        eventListeners.set(event, handler);
         return () => {
           console.log('[Mock Tauri] Unlistening from event:', event);
+          eventListeners.delete(event);
         };
+      };
+
+      // Function to trigger menu-open event (for testing)
+      const triggerMenuOpen = () => {
+        console.log('[Mock Tauri] Triggering menu-open event');
+        const handler = eventListeners.get('menu-open');
+        if (handler) {
+          handler();
+        }
       };
 
       // Intercept dynamic imports
@@ -209,6 +241,7 @@ export function getInjectionScript(
         open: mockOpen,
         getCurrentWindow: mockGetCurrentWindow,
         listen: mockListen,
+        triggerMenuOpen: triggerMenuOpen,
       };
 
       console.log('[Mock Tauri] Mocks injected successfully');

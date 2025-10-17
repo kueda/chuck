@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke, getCurrentWindow, listen, open } from '$lib/tauri-api';
   import { onMount } from "svelte";
-  import { createVirtualizer, type Virtualizer } from '@tanstack/svelte-virtual';
+  import { createVirtualizer, type Virtualizer, type VirtualizerOptions } from '@tanstack/svelte-virtual';
   import Filters from '$lib/components/Filters.svelte';
 
   import type { SearchParams } from '$lib/components/Filters.svelte';
@@ -111,6 +111,16 @@
     }
   }
 
+  function createOccurrenceVirtualizer() {
+    return createVirtualizer({
+      count: filteredTotal,
+      getScrollElement: () => scrollElement ?? null ,
+      estimateSize: () => 40,
+      overscan: 50,
+      onChange: loadVisibleChunks
+    });
+  }
+
   async function handleSearchChange(params: SearchParams) {
     if (!scrollElement) return;
     if (!archive) return;
@@ -148,13 +158,7 @@
 
       // Create new virtualizer with filtered count
       // Svelte's store subscription system will automatically update the template
-      virtualizer = createVirtualizer({
-        count: filteredTotal,
-        getScrollElement: () => scrollElement ?? null,
-        estimateSize: () => 40,
-        overscan: 50,
-        onChange: loadVisibleChunks,
-      });
+      virtualizer = createOccurrenceVirtualizer();
 
       virtualizerReady = true;
     } catch (e) {
@@ -174,15 +178,7 @@
 
     // Initialize filteredTotal with full archive count
     filteredTotal = archive.coreCount;
-
-    virtualizer = createVirtualizer({
-      count: filteredTotal,
-      getScrollElement: () => scrollElement ?? null,
-      estimateSize: () => 40,
-      overscan: 50,
-      onChange: loadVisibleChunks,
-    });
-
+    virtualizer = createOccurrenceVirtualizer();
     virtualizerReady = true;
   });
 
@@ -195,7 +191,29 @@
   async function openArchive() {
     const path = await open();
     if (path) {
+      // Clear existing data before opening new archive
+      occurrenceCache = new Map();
+      occurrenceCacheVersion = 0;
+      loadingChunks = new Set();
+      virtualizer = null;
+      virtualizerReady = false;
+      currentSearchParams = {};
+      lastLoadedRange = { firstChunk: -1, lastChunk: -1 };
+
+      // Open the new archive
       archive = await invoke('open_archive', { path });
+
+      // Reset scroll position
+      if (scrollElement) {
+        scrollElement.scrollTop = 0;
+      }
+
+      // Initialize the new virtualizer with the new archive's data
+      if (scrollElement && archive) {
+        filteredTotal = archive.coreCount;
+        virtualizer = createOccurrenceVirtualizer();
+        virtualizerReady = true;
+      }
     }
   }
 

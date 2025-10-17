@@ -7,6 +7,8 @@ import { getInjectionScript } from '../mocks/tauri';
 import {
   mockArchive,
   mockSearchResult,
+  mockArchive2,
+  mockSearchResult2,
 } from '../fixtures/archive-data';
 
 import type { ArchiveInfo, SearchResult } from '../../src/lib/types/archive';
@@ -21,7 +23,9 @@ export async function setupMockTauri(
   searchResult: SearchResult = mockSearchResult
 ) {
   // Add initialization script that runs before any page code
-  await page.addInitScript(getInjectionScript(archive, searchResult));
+  await page.addInitScript(
+    getInjectionScript(archive, searchResult, mockArchive2, mockSearchResult2)
+  );
 }
 
 /**
@@ -62,4 +66,19 @@ export async function searchByScientificName(page: Page, scientificName: string)
  */
 export async function getVisibleOccurrences(page: Page) {
   return page.locator('main .flex.items-center.py-2.px-2.border-b').all();
+}
+
+/**
+ * Triggers the menu-open event to simulate CMD-O or File > Open
+ */
+export async function triggerMenuOpen(page: Page) {
+  await page.evaluate(() => {
+    const mockTauri = (window as any).__MOCK_TAURI__;
+    if (mockTauri && mockTauri.triggerMenuOpen) {
+      mockTauri.triggerMenuOpen();
+    }
+  });
+
+  // Wait for archive to load
+  await page.waitForTimeout(1000);
 }

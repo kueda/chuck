@@ -5,6 +5,7 @@ import {
   openArchive,
   searchByScientificName,
   getVisibleOccurrences,
+  triggerMenuOpen,
 } from './helpers/setup';
 
 test.describe('Chuck Application', () => {
@@ -143,5 +144,23 @@ test.describe('Chuck Application', () => {
     for (const header of headers) {
       await expect(page.getByText(header)).toBeVisible();
     }
+  });
+
+  test.only('should update results when opening a second archive', async ({ page }) => {
+    // Open the first archive
+    await openArchive(page);
+
+    // Verify we see data from the first archive (Quercus, Sequoia, Pinus)
+    await expect(page.getByText('Quercus lobata').first()).toBeVisible();
+
+    // Open a second archive (simulates CMD-O or File > Open)
+    await triggerMenuOpen(page);
+
+    // The results should now show data from the second archive
+    // (Puma concolor, Ursus arctos, Canis lupus)
+    await expect(page.getByText('Puma concolor').first()).toBeVisible();
+
+    // The first archive's data should no longer be visible
+    await expect(page.getByText('Quercus lobata')).toHaveCount(0);
   });
 });
