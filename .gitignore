@@ -18,3 +18,7 @@ Cargo.lock
 CLAUDE.md
 
 .vscode*
+
+# Playwright
+playwright-report
+test-results

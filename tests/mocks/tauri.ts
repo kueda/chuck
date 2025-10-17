@@ -1,0 +1,217 @@
+/**
+ * Mock implementation of Tauri APIs for Playwright testing.
+ * This allows testing the frontend without running the Rust backend.
+ */
+
+import type {
+  ArchiveInfo,
+  SearchResult,
+  Occurrence,
+} from '../../src/lib/types/archive';
+
+interface MockState {
+  currentArchive: ArchiveInfo | null;
+  searchResults: Map<string, SearchResult>;
+}
+
+/**
+ * Creates a stateful mock of Tauri's invoke command system.
+ * Maintains state like which archive is currently open.
+ */
+export function createMockInvoke(
+  mockArchive: ArchiveInfo,
+  mockSearchResults: SearchResult
+) {
+  const state: MockState = {
+    currentArchive: null,
+    searchResults: new Map(),
+  };
+
+  return async function invoke<T>(command: string, args?: any): Promise<T> {
+    console.log('[Mock Tauri] invoke called:', command, args);
+
+    switch (command) {
+      case 'open_archive':
+        state.currentArchive = mockArchive;
+        return mockArchive as T;
+
+      case 'current_archive':
+        if (!state.currentArchive) {
+          throw new Error('No archive currently open');
+        }
+        return state.currentArchive as T;
+
+      case 'search': {
+        const { limit, offset, searchParams, fields } = args;
+
+        // Generate cache key from search params
+        const cacheKey = JSON.stringify({ searchParams, fields });
+
+        // Filter results based on search params
+        let filteredResults = mockSearchResults.results;
+
+        if (searchParams?.scientific_name) {
+          filteredResults = filteredResults.filter((r: Occurrence) =>
+            r.scientificName?.toLowerCase()
+              .includes(searchParams.scientific_name.toLowerCase())
+          );
+        }
+
+        // Apply pagination
+        const paginatedResults = filteredResults.slice(offset, offset + limit);
+
+        const result: SearchResult = {
+          total: filteredResults.length,
+          results: paginatedResults,
+        };
+
+        return result as T;
+      }
+
+      default:
+        throw new Error(`Unknown command: ${command}`);
+    }
+  };
+}
+
+/**
+ * Returns the complete mock object to inject into the browser window.
+ * This replaces all Tauri APIs with mock implementations.
+ */
+export function getMockTauriAPIs(
+  mockArchive: ArchiveInfo,
+  mockSearchResults: SearchResult
+) {
+  const mockInvoke = createMockInvoke(mockArchive, mockSearchResults);
+
+  return {
+    // Mock @tauri-apps/api/core
+    __TAURI_INVOKE__: mockInvoke,
+
+    // Mock @tauri-apps/plugin-dialog
+    __TAURI_PLUGIN_DIALOG__: {
+      open: async () => '/mock/path/to/test-archive.zip',
+    },
+
+    // Mock @tauri-apps/api/window
+    __TAURI_WINDOW__: {
+      getCurrentWindow: () => ({
+        setTitle: (title: string) => {
+          console.log('[Mock Tauri] Window title set to:', title);
+        },
+      }),
+    },
+
+    // Mock @tauri-apps/api/event
+    __TAURI_EVENT__: {
+      listen: async (event: string, handler: Function) => {
+        console.log('[Mock Tauri] Listening for event:', event);
+        // Return unlisten function
+        return () => {
+          console.log('[Mock Tauri] Unlistening from event:', event);
+        };
+      },
+    },
+  };
+}
+
+/**
+ * Script to inject into the page that intercepts Tauri module imports.
+ * This must be injected before the app loads.
+ */
+export function getInjectionScript(
+  mockArchive: ArchiveInfo,
+  mockSearchResults: SearchResult
+): string {
+  // Serialize the mock data
+  const mockArchiveJSON = JSON.stringify(mockArchive);
+  const mockSearchResultsJSON = JSON.stringify(mockSearchResults);
+
+  return `
+    (function() {
+      console.log('[Mock Tauri] Injecting Tauri API mocks');
+
+      const mockArchive = ${mockArchiveJSON};
+      const mockSearchResults = ${mockSearchResultsJSON};
+
+      let currentArchive = null;
+
+      // Mock invoke function
+      const mockInvoke = async (command, args) => {
+        console.log('[Mock Tauri] invoke called:', command, args);
+
+        switch (command) {
+          case 'open_archive':
+            currentArchive = mockArchive;
+            return mockArchive;
+
+          case 'current_archive':
+            if (!currentArchive) {
+              throw new Error('No archive currently open');
+            }
+            return currentArchive;
+
+          case 'search': {
+            const { limit, offset, searchParams } = args;
+
+            let filteredResults = mockSearchResults.results;
+
+            if (searchParams?.scientific_name) {
+              filteredResults = filteredResults.filter(r =>
+                r.scientificName?.toLowerCase()
+                  .includes(searchParams.scientific_name.toLowerCase())
+              );
+            }
+
+            const paginatedResults = filteredResults.slice(offset, offset + limit);
+
+            return {
+              total: filteredResults.length,
+              results: paginatedResults,
+            };
+          }
+
+          default:
+            throw new Error('Unknown command: ' + command);
+        }
+      };
+
+      // Mock dialog.open function
+      const mockOpen = async () => '/mock/path/to/test-archive.zip';
+
+      // Mock window functions
+      const mockGetCurrentWindow = () => ({
+        setTitle: (title) => {
+          console.log('[Mock Tauri] Window title set to:', title);
+        },
+      });
+
+      // Mock event listener
+      const mockListen = async (event, handler) => {
+        console.log('[Mock Tauri] Listening for event:', event);
+        return () => {
+          console.log('[Mock Tauri] Unlistening from event:', event);
+        };
+      };
+
+      // Intercept dynamic imports
+      const originalImport = window.__import || (async (specifier) => {
+        throw new Error('Dynamic import not supported');
+      });
+
+      // Override module resolution
+      window.__TAURI_INTERNALS__ = window.__TAURI_INTERNALS__ || {};
+      window.__TAURI_INTERNALS__.invoke = mockInvoke;
+
+      // Store mocks globally for module interception
+      window.__MOCK_TAURI__ = {
+        invoke: mockInvoke,
+        open: mockOpen,
+        getCurrentWindow: mockGetCurrentWindow,
+        listen: mockListen,
+      };
+
+      console.log('[Mock Tauri] Mocks injected successfully');
+    })();
+  `;
+}

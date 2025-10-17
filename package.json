@@ -10,7 +10,10 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri",
-    "tauri-debug": "RUST_LOG=debug tauri dev"
+    "tauri-debug": "RUST_LOG=debug tauri dev",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --headed"
   },
   "license": "MIT",
   "dependencies": {
@@ -22,6 +25,7 @@
     "lightningcss": "^1.30.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@skeletonlabs/skeleton": "^3.2.2",
     "@skeletonlabs/skeleton-svelte": "^1.5.3",
     "@sveltejs/adapter-static": "^3.0.6",

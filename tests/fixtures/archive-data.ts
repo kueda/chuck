@@ -1,0 +1,113 @@
+/**
+ * Mock data fixtures for testing.
+ * Types are imported from the main application code.
+ */
+
+import type {
+  ArchiveInfo,
+  SearchResult,
+  Occurrence,
+} from '../../src/lib/types/archive';
+
+export const mockArchive: ArchiveInfo = {
+  name: 'Test Darwin Core Archive',
+  coreCount: 1000,
+};
+
+export const mockOccurrences: Occurrence[] = [
+  {
+    occurrenceID: 'TEST-001',
+    scientificName: 'Quercus lobata',
+    decimalLatitude: 37.7749,
+    decimalLongitude: -122.4194,
+    eventDate: '2024-01-15',
+    eventTime: '10:30:00',
+    recordedBy: 'Jane Smith',
+    basisOfRecord: 'HumanObservation',
+  },
+  {
+    occurrenceID: 'TEST-002',
+    scientificName: 'Sequoia sempervirens',
+    decimalLatitude: 37.8044,
+    decimalLongitude: -122.2712,
+    eventDate: '2024-01-16',
+    eventTime: '14:20:00',
+    recordedBy: 'John Doe',
+    basisOfRecord: 'HumanObservation',
+  },
+  {
+    occurrenceID: 'TEST-003',
+    scientificName: 'Pinus ponderosa',
+    decimalLatitude: 38.5816,
+    decimalLongitude: -121.4944,
+    eventDate: '2024-01-17',
+    eventTime: '09:15:00',
+    recordedBy: 'Jane Smith',
+    basisOfRecord: 'HumanObservation',
+  },
+  {
+    occurrenceID: 'TEST-004',
+    scientificName: 'Quercus agrifolia',
+    decimalLatitude: 34.0522,
+    decimalLongitude: -118.2437,
+    eventDate: '2024-01-18',
+    eventTime: '11:45:00',
+    recordedBy: 'Bob Johnson',
+    basisOfRecord: 'HumanObservation',
+  },
+  {
+    occurrenceID: 'TEST-005',
+    scientificName: 'Sequoia sempervirens',
+    decimalLatitude: 40.8021,
+    decimalLongitude: -124.1637,
+    eventDate: '2024-01-19',
+    eventTime: '13:30:00',
+    recordedBy: 'Alice Williams',
+    basisOfRecord: 'HumanObservation',
+  },
+];
+
+// Generate additional mock occurrences to simulate a larger dataset
+function generateMockOccurrences(count: number): Occurrence[] {
+  const species = [
+    'Quercus lobata',
+    'Sequoia sempervirens',
+    'Pinus ponderosa',
+    'Quercus agrifolia',
+    'Arctostaphylos manzanita',
+  ];
+  const observers = ['Jane Smith', 'John Doe', 'Bob Johnson', 'Alice Williams'];
+
+  const occurrences: Occurrence[] = [...mockOccurrences];
+
+  for (let i = mockOccurrences.length; i < count; i++) {
+    occurrences.push({
+      occurrenceID: `TEST-${String(i + 1).padStart(3, '0')}`,
+      scientificName: species[i % species.length],
+      decimalLatitude: 34 + Math.random() * 8,
+      decimalLongitude: -124 + Math.random() * 6,
+      eventDate: `2024-01-${String((i % 28) + 1).padStart(2, '0')}`,
+      eventTime: `${String(Math.floor(Math.random() * 24)).padStart(2, '0')}:${String(
+        Math.floor(Math.random() * 60)
+      ).padStart(2, '0')}:00`,
+      recordedBy: observers[i % observers.length],
+      basisOfRecord: 'HumanObservation',
+    });
+  }
+
+  return occurrences;
+}
+
+export const mockSearchResult: SearchResult = {
+  total: 1000,
+  results: generateMockOccurrences(1000),
+};
+
+// Smaller dataset for quick tests
+export const mockSearchResultSmall: SearchResult = {
+  total: 5,
+  results: mockOccurrences,
+};
+
+// Export types for use in other test files
+export type { ArchiveInfo, Occurrence, SearchResult };
