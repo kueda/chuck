@@ -146,7 +146,7 @@ test.describe('Chuck Application', () => {
     }
   });
 
-  test.only('should update results when opening a second archive', async ({ page }) => {
+  test('should update results when opening a second archive', async ({ page }) => {
     // Open the first archive
     await openArchive(page);
 

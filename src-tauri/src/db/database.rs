@@ -66,14 +66,12 @@ impl Database {
         };
 
         // Try to create table with specific types for known columns if they exist
-        let create_result = conn.execute(
-            &format!(
-                "CREATE TABLE occurrences AS SELECT * FROM read_csv('{}', all_varchar = true{})",
-                first_file,
-                types_param
-            ),
-            [],
+        let sql = format!(
+            "CREATE TABLE occurrences AS SELECT * FROM read_csv('{}', all_varchar = true{})",
+            first_file,
+            types_param
         );
+        let create_result = conn.execute(&sql, []);
 
         // If table already exists, insert from first file instead
         match create_result {

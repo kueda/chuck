@@ -24,6 +24,7 @@ impl Archive {
         remove_other_archives(base_dir, &storage_dir)?;
 
         extract_archive(archive_path, &storage_dir)?;
+
         let core_files = parse_meta_xml(&storage_dir)?;
 
         // Create database from core files
