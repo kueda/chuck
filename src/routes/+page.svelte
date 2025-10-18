@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { invoke, getCurrentWindow, listen, open } from '$lib/tauri-api';
   import { onMount } from "svelte";
   import { createVirtualizer, type Virtualizer, type VirtualizerOptions } from '@tanstack/svelte-virtual';
+  import { Progress } from '@skeletonlabs/skeleton-svelte';
+  import { invoke, getCurrentWindow, listen, open } from '$lib/tauri-api';
   import Filters from '$lib/components/Filters.svelte';
 
   import type { SearchParams } from '$lib/components/Filters.svelte';
-
   import type { ArchiveInfo, Occurrence, SearchResult } from '$lib/types/archive';
 
   const CHUNK_SIZE = 500;
@@ -31,6 +31,24 @@
   let scrollElement: Element | undefined = $state(undefined);
   let currentSearchParams = $state<SearchParams>({});
   let filteredTotal = $state<number>(0);
+  let archiveLoadingStatus = $state<
+    null | 'importing' | 'extracting' | 'creatingDatabase'
+  >(null);
+  let archiveLoadingProgress = $derived.by(() => {
+    switch (archiveLoadingStatus) {
+      case null:
+        return 10;
+      case 'importing':
+        return 20;
+      case 'extracting':
+        return 40;
+      case 'creatingDatabase':
+        return 60;
+      default:
+        return 0;
+    }
+  });
+  let archiveLoadingError = $state<string | null>(null);
   // Note: virtualizer is a store from TanStack Virtual, not wrapped in $state
   // to avoid infinite loops. Use virtualizerReady flag for initial render trigger.
   // Using type assertion (as) instead of type annotation (:) because when Svelte's
@@ -199,20 +217,31 @@
       virtualizerReady = false;
       currentSearchParams = {};
       lastLoadedRange = { firstChunk: -1, lastChunk: -1 };
+      archiveLoadingStatus = 'importing';
+      archiveLoadingError = null;
 
-      // Open the new archive
-      archive = await invoke('open_archive', { path });
+      try {
+        // Open the new archive (progress will be reported via events)
+        archive = await invoke('open_archive', { path });
 
-      // Reset scroll position
-      if (scrollElement) {
-        scrollElement.scrollTop = 0;
-      }
+        // Clear loading status on success
+        archiveLoadingStatus = null;
 
-      // Initialize the new virtualizer with the new archive's data
-      if (scrollElement && archive) {
-        filteredTotal = archive.coreCount;
-        virtualizer = createOccurrenceVirtualizer();
-        virtualizerReady = true;
+        // Reset scroll position
+        if (scrollElement) {
+          scrollElement.scrollTop = 0;
+        }
+
+        // Initialize the new virtualizer with the new archive's data
+        if (scrollElement && archive) {
+          filteredTotal = archive.coreCount;
+          virtualizer = createOccurrenceVirtualizer();
+          virtualizerReady = true;
+        }
+      } catch (e) {
+        archiveLoadingError = e instanceof Error ? e.message : String(e);
+        archiveLoadingStatus = null;
+        console.error('[+page.svelte] Error opening archive:', e);
       }
     }
   }
@@ -227,18 +256,98 @@
       });
 
     // Listen for menu events
-    let unlisten: (() => void) | undefined;
+    let unlistenMenu: (() => void) | undefined;
     listen('menu-open', openArchive).then(unlistenFn => {
-      unlisten = unlistenFn;
+      unlistenMenu = unlistenFn;
+    });
+
+    // Listen for archive open progress events
+    type ProgressEvent =
+      | { status: 'importing' }
+      | { status: 'extracting' }
+      | { status: 'creatingDatabase' }
+      | { status: 'complete'; info: ArchiveInfo }
+      | { status: 'error'; message: string };
+
+    let unlistenProgress: (() => void) | undefined;
+    listen<ProgressEvent>('archive-open-progress', (event) => {
+      const progress = event.payload;
+
+      switch (progress.status) {
+        case 'importing':
+          archiveLoadingStatus = 'importing';
+          archiveLoadingError = null;
+          break;
+        case 'extracting':
+          archiveLoadingStatus = 'extracting';
+          break;
+        case 'creatingDatabase':
+          archiveLoadingStatus = 'creatingDatabase';
+          break;
+        case 'complete':
+          archiveLoadingStatus = null;
+          archiveLoadingError = null;
+          break;
+        case 'error':
+          archiveLoadingStatus = null;
+          archiveLoadingError = progress.message;
+          console.error('[+page.svelte] Archive open error:', progress.message);
+          break;
+      }
+    }).then(unlistenFn => {
+      unlistenProgress = unlistenFn;
     });
 
     return () => {
-      unlisten?.();
+      unlistenMenu?.();
+      unlistenProgress?.();
     };
   });
 </script>
 
-{#if archive}
+{#if archiveLoadingStatus}
+  <div
+    class="w-full h-screen flex flex-col justify-center items-center p-4 text-center"
+  >
+    <div class="mb-4">
+      <div class="text-xl mb-2">
+        {#if archiveLoadingStatus === 'importing'}
+          Importing archive...
+        {:else if archiveLoadingStatus === 'extracting'}
+          Extracting archive...
+        {:else if archiveLoadingStatus === 'creatingDatabase'}
+          Creating database...
+        {/if}
+      </div>
+      <div class="text-sm text-gray-500">
+        This may take a few moments for large archives
+      </div>
+    </div>
+    <Progress value={archiveLoadingProgress} class="w-64">
+      <Progress.Track>
+        <Progress.Range />
+      </Progress.Track>
+    </Progress>
+
+  </div>
+{:else if archiveLoadingError}
+  <div
+    class="w-full h-screen flex flex-col justify-center items-center p-4 text-center"
+  >
+    <div class="text-xl mb-4 text-red-600">Error Opening Archive</div>
+    <div class="text-sm mb-6 max-w-md">{archiveLoadingError}</div>
+    <button
+      type="button"
+      class="btn preset-filled"
+      onclick={() => {
+        archiveLoadingError = null;
+        openArchive();
+      }}
+    >
+      Try Again
+    </button>
+  </div>
+{:else if archive}
   <div class="flex flex-row p-4 fixed w-full h-screen">
     <Filters onSearchChange={handleSearchChange} />
     <main class="overflow-y-auto w-full relative" bind:this={scrollElement}>

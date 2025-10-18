@@ -1,11 +1,21 @@
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use crate::dwca::Archive;
 use crate::error::{ChuckError, Result};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum ArchiveOpenProgress {
+    Importing,
+    Extracting,
+    CreatingDatabase,
+    Complete { info: ArchiveInfo },
+    Error { message: String },
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ArchiveInfo {
     pub name: String,
 
@@ -33,11 +43,88 @@ fn get_local_data_dir(app: tauri::AppHandle) -> Result<PathBuf> {
 }
 
 #[tauri::command]
-pub fn open_archive(app: tauri::AppHandle, path: &str) -> Result<ArchiveInfo> {
-    Archive::open(Path::new(path), &get_local_data_dir(app)?).map_err(|e| {
-        log::error!("Failed to open archive: {}", e);
-        e
-    })?.info()
+pub async fn open_archive(app: tauri::AppHandle, path: String) -> Result<ArchiveInfo> {
+    use std::sync::mpsc;
+
+    let base_dir = get_local_data_dir(app.clone())?;
+    let path_clone = path.clone();
+
+    // Emit initial importing status
+    app.emit("archive-open-progress", ArchiveOpenProgress::Importing)
+        .map_err(|e| ChuckError::Tauri(e.to_string()))?;
+
+    // Create a channel for progress updates
+    let (tx, rx) = mpsc::channel();
+
+    // Spawn blocking task
+    let app_for_thread = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        Archive::open_with_progress(
+            Path::new(&path_clone),
+            &base_dir,
+            |stage| {
+                let _ = tx.send(stage.to_string());
+            },
+        )
+    });
+
+    // Listen for progress updates and emit events
+    std::thread::spawn(move || {
+        for stage in rx {
+            let progress = match stage.as_str() {
+                "importing" => ArchiveOpenProgress::Importing,
+                "extracting" => ArchiveOpenProgress::Extracting,
+                "creating_database" => ArchiveOpenProgress::CreatingDatabase,
+                _ => continue,
+            };
+            let _ = app_for_thread.emit("archive-open-progress", progress);
+        }
+    });
+
+    match result.await {
+        Ok(Ok(archive)) => {
+            let info = archive.info()?;
+
+            // Emit completion event
+            app.emit(
+                "archive-open-progress",
+                ArchiveOpenProgress::Complete {
+                    info: info.clone(),
+                },
+            )
+            .map_err(|e| ChuckError::Tauri(e.to_string()))?;
+
+            Ok(info)
+        }
+        Ok(Err(e)) => {
+            log::error!("Failed to open archive: {}", e);
+
+            // Emit error event
+            app.emit(
+                "archive-open-progress",
+                ArchiveOpenProgress::Error {
+                    message: e.to_string(),
+                },
+            )
+            .map_err(|err| ChuckError::Tauri(err.to_string()))?;
+
+            Err(e)
+        }
+        Err(e) => {
+            let err_msg = format!("Task join error: {}", e);
+            log::error!("{}", err_msg);
+
+            app.emit(
+                "archive-open-progress",
+                ArchiveOpenProgress::Error {
+                    message: err_msg.clone(),
+                },
+            )
+            .ok();
+
+            Err(ChuckError::Tauri(err_msg))
+        }
+    }
 }
 
 #[tauri::command]

@@ -17,17 +17,32 @@ pub struct Archive {
 impl Archive {
     /// Opens and extracts a Darwin Core Archive
     pub fn open(archive_path: &Path, base_dir: &Path) -> Result<Self> {
+        Self::open_with_progress(archive_path, base_dir, |_| {})
+    }
+
+    /// Opens and extracts a Darwin Core Archive with progress callback
+    pub fn open_with_progress<F>(
+        archive_path: &Path,
+        base_dir: &Path,
+        mut progress_callback: F,
+    ) -> Result<Self>
+    where
+        F: FnMut(&str),
+    {
         // Create storage directory based on archive hash
+        progress_callback("importing");
         let storage_dir = create_storage_dir(archive_path, base_dir)?;
 
         // Remove all other archive directories in the base directory
         remove_other_archives(base_dir, &storage_dir)?;
 
+        progress_callback("extracting");
         extract_archive(archive_path, &storage_dir)?;
 
         let core_files = parse_meta_xml(&storage_dir)?;
 
         // Create database from core files
+        progress_callback("creating_database");
         let db_name = archive_path
             .file_stem()
             .and_then(|s| s.to_str())
