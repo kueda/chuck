@@ -1,7 +1,28 @@
 use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 use crate::error::{ChuckError, Result};
+use crate::commands::archive::SearchParams;
 use crate::db::Database;
+
+/// Information about an extension in a DarwinCore Archive
+#[derive(Debug, Clone)]
+pub struct ExtensionInfo {
+    /// The rowType from meta.xml (e.g., "http://rs.gbif.org/terms/1.0/Multimedia")
+    pub row_type: String,
+    /// Path to the extension CSV file
+    pub location: PathBuf,
+    /// Table name derived from rowType (e.g., "multimedia")
+    pub table_name: String,
+    /// The core ID column name that extensions reference (e.g., "gbifID" or "occurrenceID")
+    pub core_id_column: String,
+}
+
+/// Supported DarwinCore Archive extension rowTypes
+const SUPPORTED_ROW_TYPES: &[&str] = &[
+    "http://rs.gbif.org/terms/1.0/Multimedia",           // Simple Multimedia
+    "http://rs.tdwg.org/ac/terms/Multimedia",             // Audiovisual
+    "http://rs.tdwg.org/dwc/terms/Identification",        // Identification
+];
 
 /// Represents a Darwin Core Archive
 pub struct Archive {
@@ -9,6 +30,8 @@ pub struct Archive {
     pub storage_dir: PathBuf,
 
     pub name: String,
+
+    pub core_id_column: String,
 
     /// Internal database for querying archive data
     db: Database,
@@ -39,16 +62,16 @@ impl Archive {
         progress_callback("extracting");
         extract_archive(archive_path, &storage_dir)?;
 
-        let core_files = parse_meta_xml(&storage_dir)?;
+        let (core_files, core_id_column, extensions) = parse_meta_xml(&storage_dir)?;
 
-        // Create database from core files
+        // Create database from core files and extensions
         progress_callback("creating_database");
         let db_name = archive_path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("archive");
         let db_path = storage_dir.join(format!("{}.db", db_name));
-        let db = Database::create_from_core_files(&core_files, &db_path)?;
+        let db = Database::create_from_core_files(&core_files, &extensions, &db_path)?;
 
         Ok(Self {
             // archive_path: archive_path.to_path_buf(),
@@ -58,6 +81,7 @@ impl Archive {
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown")
                 .to_string(),
+            core_id_column,
             db,
         })
     }
@@ -103,11 +127,15 @@ impl Archive {
             .find(|p| p.extension().and_then(|s| s.to_str()) == Some("db"))
             .ok_or_else(|| ChuckError::NoArchiveFound(storage_dir.clone()))?;
 
-        let db = Database::open(&db_path)?;
+        // Parse meta.xml to get extension information
+        let (_core_files, core_id_column, extensions) = parse_meta_xml(&storage_dir)?;
+
+        let db = Database::open(&db_path, &extensions)?;
 
         Ok(Self {
             storage_dir,
             name,
+            core_id_column,
             db,
         })
     }
@@ -130,10 +158,19 @@ impl Archive {
         &self,
         limit: usize,
         offset: usize,
-        search_params: crate::commands::archive::SearchParams,
+        search_params: SearchParams,
         fields: Option<Vec<String>>,
     ) -> Result<crate::commands::archive::SearchResult> {
-        self.db.search(limit, offset, search_params, fields)
+        let params = SearchParams {
+            order_by: Some(self.core_id_column.clone()),
+            ..search_params
+        };
+        self.db.search(
+            limit,
+            offset,
+            params,
+            fields
+        )
     }
 }
 
@@ -248,7 +285,7 @@ fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn parse_meta_xml(storage_dir: &Path) -> Result<Vec<PathBuf>> {
+fn parse_meta_xml(storage_dir: &Path) -> Result<(Vec<PathBuf>, String, Vec<ExtensionInfo>)> {
     let meta_path = storage_dir.join("meta.xml");
     let contents = std::fs::read_to_string(&meta_path).map_err(|e| ChuckError::FileRead {
         path: meta_path.clone(),
@@ -260,10 +297,15 @@ fn parse_meta_xml(storage_dir: &Path) -> Result<Vec<PathBuf>> {
         source: e,
     })?;
 
-    let core_files: Vec<PathBuf> = doc
+    // Find the core element
+    let core_node = doc
         .descendants()
-        .filter(|n| n.has_tag_name("core"))
-        .flat_map(|core| core.descendants())
+        .find(|n| n.has_tag_name("core"))
+        .ok_or(ChuckError::NoCoreFiles)?;
+
+    // Parse core files
+    let core_files: Vec<PathBuf> = core_node
+        .descendants()
         .filter(|n| n.has_tag_name("location"))
         .filter_map(|n| n.text())
         .map(|text| storage_dir.join(text))
@@ -273,7 +315,84 @@ fn parse_meta_xml(storage_dir: &Path) -> Result<Vec<PathBuf>> {
         return Err(ChuckError::NoCoreFiles);
     }
 
-    Ok(core_files)
+    // Parse core ID field - this is the column that extensions will reference
+    let core_id_index = core_node
+        .descendants()
+        .find(|n| n.has_tag_name("id"))
+        .and_then(|id_node| id_node.attribute("index"))
+        .and_then(|idx| idx.parse::<usize>().ok());
+
+    // Find the core ID column name by looking up the field at that index
+    let core_id_column = if let Some(id_index) = core_id_index {
+        core_node
+            .descendants()
+            .filter(|n| n.has_tag_name("field"))
+            .find(|field_node| {
+                field_node
+                    .attribute("index")
+                    .and_then(|idx| idx.parse::<usize>().ok())
+                    == Some(id_index)
+            })
+            .and_then(|field_node| field_node.attribute("term"))
+            .and_then(|term| {
+                // Extract the column name from the term URL
+                // e.g., "http://rs.gbif.org/terms/1.0/gbifID" -> "gbifID"
+                term.rsplit('/')
+                    .next()
+                    .or_else(|| term.rsplit('#').next())
+            })
+            .map(|s| s.to_string())
+    } else {
+        None
+    };
+
+    let core_id_column = core_id_column.unwrap_or_else(|| {
+        log::warn!("Could not determine core ID column from meta.xml, defaulting to 'occurrenceID'");
+        "occurrenceID".to_string()
+    });
+
+    // Parse extensions (only supported types)
+    let extensions: Vec<ExtensionInfo> = doc
+        .descendants()
+        .filter(|n| n.has_tag_name("extension"))
+        .filter_map(|ext_node| {
+            let row_type = ext_node.attribute("rowType")?;
+
+            // Only process supported extension types
+            if !SUPPORTED_ROW_TYPES.contains(&row_type) {
+                log::debug!("Skipping unsupported extension type: {}", row_type);
+                return None;
+            }
+
+            // Extract location from <files><location>...</location></files>
+            let location_text = ext_node
+                .descendants()
+                .filter(|n| n.has_tag_name("location"))
+                .filter_map(|n| n.text())
+                .next()?;
+
+            let location = storage_dir.join(location_text);
+
+            // Derive table name from rowType
+            // e.g., "http://rs.gbif.org/terms/1.0/Multimedia" -> "multimedia"
+            // or "http://rs.tdwg.org/ac/terms/Multimedia" -> "multimedia"
+            let table_name = row_type
+                .rsplit('/')
+                .next()
+                .or_else(|| row_type.rsplit('#').next())
+                .unwrap_or("unknown")
+                .to_lowercase();
+
+            Some(ExtensionInfo {
+                row_type: row_type.to_string(),
+                location,
+                table_name,
+                core_id_column: core_id_column.clone(),
+            })
+        })
+        .collect();
+
+    Ok((core_files, core_id_column, extensions))
 }
 
 #[cfg(test)]
@@ -348,7 +467,7 @@ mod tests {
                         .strip_suffix(".zip")
                         .unwrap_or(archive_name);
                     let db_path = storage_dir.join(format!("{}.db", db_name));
-                    let db = Database::create_from_core_files(&csv_paths, &db_path).unwrap();
+                    let db = Database::create_from_core_files(&csv_paths, &vec![], &db_path).unwrap();
                     drop(db);
                 }
             }
@@ -452,12 +571,14 @@ mod tests {
         let result = parse_meta_xml(fixture.dir());
         assert!(result.is_ok());
 
-        let core_files = result.unwrap();
+        let (core_files, core_id_column, extensions) = result.unwrap();
         assert_eq!(core_files.len(), 1);
         assert_eq!(
             core_files[0].file_name().unwrap(),
             "occurrence.csv"
         );
+        assert_eq!(core_id_column, "occurrenceID");
+        assert_eq!(extensions.len(), 0);
     }
 
     #[test]
@@ -479,7 +600,7 @@ mod tests {
         let result = parse_meta_xml(fixture.dir());
         assert!(result.is_ok());
 
-        let core_files = result.unwrap();
+        let (core_files, _core_id_column, extensions) = result.unwrap();
         assert_eq!(core_files.len(), 2);
         assert_eq!(
             core_files[0].file_name().unwrap(),
@@ -489,6 +610,7 @@ mod tests {
             core_files[1].file_name().unwrap(),
             "occurrence2.csv"
         );
+        assert_eq!(extensions.len(), 0);
     }
 
     #[test]
@@ -503,6 +625,153 @@ mod tests {
 
         let result = parse_meta_xml(fixture.dir());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_meta_xml_with_extensions() {
+        let meta_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<archive>
+  <core>
+    <files>
+      <location>occurrence.csv</location>
+    </files>
+  </core>
+  <extension encoding="UTF-8" rowType="http://rs.gbif.org/terms/1.0/Multimedia">
+    <files>
+      <location>multimedia.csv</location>
+    </files>
+  </extension>
+  <extension encoding="UTF-8" rowType="http://rs.tdwg.org/ac/terms/Multimedia">
+    <files>
+      <location>audiovisual.csv</location>
+    </files>
+  </extension>
+  <extension encoding="UTF-8" rowType="http://rs.tdwg.org/dwc/terms/Identification">
+    <files>
+      <location>identification.csv</location>
+    </files>
+  </extension>
+</archive>"#;
+        let fixture = UnzippedArchiveFixture::new(
+            "parse_meta_xml_with_extensions",
+            meta_xml
+        );
+
+        let result = parse_meta_xml(fixture.dir());
+        assert!(result.is_ok());
+
+        let (core_files, _core_id_column, extensions) = result.unwrap();
+        assert_eq!(core_files.len(), 1);
+        assert_eq!(extensions.len(), 3);
+
+        // Check that table names are derived correctly
+        assert_eq!(extensions[0].table_name, "multimedia");
+        assert_eq!(extensions[0].row_type, "http://rs.gbif.org/terms/1.0/Multimedia");
+        assert_eq!(extensions[0].core_id_column, "occurrenceID");
+        assert_eq!(
+            extensions[0].location.file_name().unwrap(),
+            "multimedia.csv"
+        );
+
+        assert_eq!(extensions[1].table_name, "multimedia");
+        assert_eq!(extensions[1].row_type, "http://rs.tdwg.org/ac/terms/Multimedia");
+        assert_eq!(extensions[1].core_id_column, "occurrenceID");
+        assert_eq!(
+            extensions[1].location.file_name().unwrap(),
+            "audiovisual.csv"
+        );
+
+        assert_eq!(extensions[2].table_name, "identification");
+        assert_eq!(extensions[2].row_type, "http://rs.tdwg.org/dwc/terms/Identification");
+        assert_eq!(extensions[2].core_id_column, "occurrenceID");
+        assert_eq!(
+            extensions[2].location.file_name().unwrap(),
+            "identification.csv"
+        );
+    }
+
+    #[test]
+    fn test_parse_meta_xml_filters_unsupported_extensions() {
+        let meta_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<archive>
+  <core>
+    <files>
+      <location>occurrence.csv</location>
+    </files>
+  </core>
+  <extension encoding="UTF-8" rowType="http://rs.gbif.org/terms/1.0/Multimedia">
+    <files>
+      <location>multimedia.csv</location>
+    </files>
+  </extension>
+  <extension encoding="UTF-8" rowType="http://rs.tdwg.org/dwc/terms/Occurrence">
+    <files>
+      <location>verbatim.csv</location>
+    </files>
+  </extension>
+  <extension encoding="UTF-8" rowType="http://rs.tdwg.org/dwc/terms/Identification">
+    <files>
+      <location>identification.csv</location>
+    </files>
+  </extension>
+</archive>"#;
+        let fixture = UnzippedArchiveFixture::new(
+            "parse_meta_xml_filters_unsupported",
+            meta_xml
+        );
+
+        let result = parse_meta_xml(fixture.dir());
+        assert!(result.is_ok());
+
+        let (core_files, _core_id_column, extensions) = result.unwrap();
+        assert_eq!(core_files.len(), 1);
+
+        // Should only have 2 extensions (Multimedia and Identification)
+        // Occurrence extension should be filtered out as unsupported
+        assert_eq!(extensions.len(), 2);
+
+        assert_eq!(extensions[0].table_name, "multimedia");
+        assert_eq!(extensions[0].core_id_column, "occurrenceID");
+        assert_eq!(extensions[1].table_name, "identification");
+        assert_eq!(extensions[1].core_id_column, "occurrenceID");
+
+        // Verify Occurrence extension was not included
+        assert!(!extensions.iter().any(|ext| ext.row_type == "http://rs.tdwg.org/dwc/terms/Occurrence"));
+    }
+
+    #[test]
+    fn test_parse_meta_xml_detects_gbif_id_column() {
+        let meta_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<archive>
+  <core encoding="UTF-8" rowType="http://rs.tdwg.org/dwc/terms/Occurrence">
+    <files>
+      <location>occurrence.csv</location>
+    </files>
+    <id index="0" />
+    <field index="0" term="http://rs.gbif.org/terms/1.0/gbifID"/>
+    <field index="1" term="http://rs.tdwg.org/dwc/terms/occurrenceID"/>
+  </core>
+  <extension encoding="UTF-8" rowType="http://rs.gbif.org/terms/1.0/Multimedia">
+    <files>
+      <location>multimedia.csv</location>
+    </files>
+  </extension>
+</archive>"#;
+        let fixture = UnzippedArchiveFixture::new(
+            "parse_meta_xml_detects_gbif_id",
+            meta_xml
+        );
+
+        let result = parse_meta_xml(fixture.dir());
+        assert!(result.is_ok());
+
+        let (core_files, core_id_column, extensions) = result.unwrap();
+        assert_eq!(core_files.len(), 1);
+        assert_eq!(core_id_column, "gbifID");
+        assert_eq!(extensions.len(), 1);
+
+        // Should detect gbifID as the core ID column
+        assert_eq!(extensions[0].core_id_column, "gbifID");
     }
 
     #[test]
@@ -557,7 +826,17 @@ mod tests {
         let fixture = UnzippedArchiveFixture::with_structure(
             "current_existing",
             "test_archive.zip",
-            &[("occurrence.csv", b"id,name\n1,test\n")],
+            &[
+                ("meta.xml", br#"<?xml version="1.0" encoding="UTF-8"?>
+<archive>
+  <core>
+    <files>
+      <location>occurrence.csv</location>
+    </files>
+  </core>
+</archive>"#),
+                ("occurrence.csv", b"id,name\n1,test\n"),
+            ],
             true,
         );
 
@@ -592,12 +871,48 @@ mod tests {
         let fixture = UnzippedArchiveFixture::with_structure(
             "current_name_extraction",
             "kueda-2017.zip",
-            &[("occurrence.csv", b"id,name\n1,test\n")],
+            &[
+                ("meta.xml", br#"<?xml version="1.0" encoding="UTF-8"?>
+<archive>
+  <core>
+    <files>
+      <location>occurrence.csv</location>
+    </files>
+  </core>
+</archive>"#),
+                ("occurrence.csv", b"id,name\n1,test\n"),
+            ],
             true,
         );
 
         let current_archive = Archive::current(fixture.base_dir()).unwrap();
         assert_eq!(current_archive.name, "kueda-2017.zip");
+    }
+
+    #[test]
+    fn test_current_returns_core_id_column() {
+        let fixture = UnzippedArchiveFixture::with_structure(
+            "core_id_column_extraction",
+            "kueda-2017.zip",
+            &[
+                ("meta.xml", br#"<?xml version="1.0" encoding="UTF-8"?>
+<archive>
+  <core>
+    <files>
+      <location>occurrence.csv</location>
+    </files>
+    <id index="0" />
+    <field index="1" term="http://rs.tdwg.org/dwc/terms/occurrenceID"/>
+    <field index="0" term="http://rs.gbif.org/terms/1.0/gbifID"/>
+  </core>
+</archive>"#),
+                ("occurrence.csv", b"gbifID,occurrenceID\n1,2\n"),
+            ],
+            true,
+        );
+
+        let current_archive = Archive::current(fixture.base_dir()).unwrap();
+        assert_eq!(current_archive.core_id_column, "gbifID");
     }
 }
 

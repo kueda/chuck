@@ -8,7 +8,7 @@ import {
   triggerMenuOpen,
 } from './helpers/setup';
 
-test.describe('Chuck Application', () => {
+test.describe('Frontend', () => {
   test.beforeEach(async ({ page }) => {
     // Set up Tauri mocks before each test
     await setupMockTauri(page);
@@ -162,5 +162,243 @@ test.describe('Chuck Application', () => {
 
     // The first archive's data should no longer be visible
     await expect(page.getByText('Quercus lobata')).toHaveCount(0);
+  });
+
+  test('should display ViewSwitcher component', async ({ page }) => {
+    // Open the archive
+    await openArchive(page);
+
+    // Wait for initial load
+    await page.waitForTimeout(1000);
+
+    // Verify the ViewSwitcher is visible and has both options
+    await expect(page.getByText('Table', { exact: true })).toBeVisible();
+    await expect(page.getByText('Cards', { exact: true })).toBeVisible();
+
+    // Verify we're initially in table view (column headers should be visible)
+    await expect(page.getByText('occurrenceID')).toBeVisible();
+    await expect(page.getByText('scientificName')).toBeVisible();
+  });
+
+  test('should use default table view on initial load', async ({ page }) => {
+    // Open the archive
+    await openArchive(page);
+
+    // Wait for initial load
+    await page.waitForTimeout(1000);
+
+    // Check localStorage shows default table view
+    const savedView = await page.evaluate(() => {
+      return localStorage.getItem('chuck:viewPreference');
+    });
+    // Should be 'table' by default
+    expect(savedView).toBe('table');
+
+    // Verify we're in table view (column headers should be visible)
+    await expect(page.getByText('occurrenceID')).toBeVisible();
+    await expect(page.getByText('scientificName')).toBeVisible();
+  });
+
+  test('should switch to cards view and display scientificName on cards', async ({ page }) => {
+    // Open the archive
+    await openArchive(page);
+
+    // Wait for initial load
+    await page.waitForTimeout(1000);
+
+    // Verify we're initially in table view
+    await expect(page.getByText('occurrenceID')).toBeVisible();
+
+    // Find and click the Cards option in the SegmentedControl
+    // The hidden input is what actually gets clicked
+    const cardsInput = page.locator('input[type="radio"][value="cards"]');
+    await expect(cardsInput).toBeAttached();
+    await cardsInput.click({ force: true });
+
+    // Wait for view to switch
+    await page.waitForTimeout(1000);
+
+    // Verify table headers are no longer visible
+    const tableHeader = page.locator('div.flex.items-center.py-2.px-2.border-b.font-bold');
+    await expect(tableHeader).not.toBeVisible();
+
+    // Verify cards are displayed
+    const cards = page.locator('.occurrence-card');
+    await expect(cards.first()).toBeVisible();
+
+    // Verify scientificName is shown on a card
+    // The card should contain the scientific name from our mock data
+    const firstCard = cards.first();
+    await expect(firstCard).toContainText('Quercus lobata');
+
+    // Verify the card has the expected structure (media placeholder, scientific name, etc.)
+    const cardContent = firstCard.locator('article');
+    await expect(cardContent).toBeVisible();
+  });
+
+  test('should render cards with the correct height', async ({ page }) => {
+    // Open the archive
+    await openArchive(page);
+
+    // Wait for initial load
+    await page.waitForTimeout(1000);
+
+    // Switch to cards view
+    const cardsInput = page.locator('input[type="radio"][value="cards"]');
+    await cardsInput.click({ force: true });
+
+    // Wait for view to switch
+    await page.waitForTimeout(1000);
+
+    // Get the first card's container div (which has the height style)
+    const cardContainer = page.locator('.occurrence-card').first().locator('..');
+    const cardHeight = await cardContainer.evaluate((el) => {
+      return window.getComputedStyle(el).height;
+    });
+
+    // The virtualizer estimates 280px per card
+    expect(cardHeight).toBe('280px');
+
+    // Also verify the actual card dimensions
+    const cardBoundingBox = await page.locator('.occurrence-card').first().boundingBox();
+    expect(cardBoundingBox).not.toBeNull();
+    if (cardBoundingBox) {
+      // Card should be approximately 280px tall (allowing small variance)
+      expect(cardBoundingBox.height).toBeGreaterThanOrEqual(250);
+      expect(cardBoundingBox.height).toBeLessThanOrEqual(280);
+    }
+  });
+
+  test('should properly handle search with zero results', async ({ page }) => {
+    // Open the archive
+    await openArchive(page);
+
+    // Wait for initial results to load
+    await expect(page.locator('main')).toBeVisible();
+    const initialRows = await getVisibleOccurrences(page);
+    expect(initialRows.length).toBeGreaterThan(0);
+
+    // Get the main scrollable element's scroll height before search
+    const mainElement = page.locator('main');
+    const initialScrollHeight = await mainElement.evaluate(el => el.scrollHeight);
+    expect(initialScrollHeight).toBeGreaterThan(0);
+
+    // Search for something that yields no results
+    await searchByScientificName(page, 'nothing');
+
+    // Wait for search to complete
+    await page.waitForTimeout(500);
+
+    // Verify no occurrence rows are visible (they should all be gone, not showing "Loading...")
+    const finalRows = await getVisibleOccurrences(page);
+    expect(finalRows.length).toBe(0);
+
+    // The scroll height should be much smaller now (close to viewport height)
+    // because there are no items to render
+    const finalScrollHeight = await mainElement.evaluate(el => el.scrollHeight);
+
+    // Should be significantly smaller than initial (at least 50% reduction)
+    expect(finalScrollHeight).toBeLessThan(initialScrollHeight * 0.5);
+  });
+
+  test('should preserve scroll position when window width changes in cards view', async ({ page }) => {
+    // Set initial viewport size to ensure we start with known column count
+    await page.setViewportSize({ width: 800, height: 800 });
+
+    // Open the archive
+    await openArchive(page);
+
+    // Wait for initial load
+    await page.waitForTimeout(1000);
+
+    // Switch to cards view
+    const cardsInput = page.locator('input[type="radio"][value="cards"]');
+    await cardsInput.click({ force: true });
+
+    // Wait for view to switch and cards to render
+    await page.waitForTimeout(1000);
+
+    // Verify cards are visible
+    const cards = page.locator('.occurrence-card');
+    await expect(cards.first()).toBeVisible();
+
+    // Scroll down significantly
+    const mainElement = page.locator('main');
+    await mainElement.evaluate((el) => {
+      el.scrollTop = 2000;
+    });
+
+    // Wait for scroll to settle and virtualizer to update
+    await page.waitForTimeout(500);
+
+    // Capture scroll position after scrolling
+    const scrollPositionBeforeResize = await mainElement.evaluate(el => el.scrollTop);
+    expect(scrollPositionBeforeResize).toBeGreaterThan(1500);
+
+    // Resize window to change the number of columns (3 cols -> 4 cols at 1024px breakpoint)
+    await page.setViewportSize({ width: 1100, height: 800 });
+
+    // Wait for resize to trigger virtualizer recreation
+    await page.waitForTimeout(500);
+
+    // Now scroll again - this is when the bug manifests
+    // The virtualizer recreation causes scroll to jump to top on next scroll
+    await mainElement.evaluate((el) => {
+      el.scrollTop += 100;
+    });
+
+    // Wait for scroll to complete
+    await page.waitForTimeout(300);
+
+    // Check that we're still near where we were
+    const scrollPositionAfterScroll = await mainElement.evaluate(el => el.scrollTop);
+
+    // Should still be near the bottom, not jumped to top
+    expect(scrollPositionAfterScroll).toBeGreaterThan(1000);
+  });
+
+  test('should not show loading cards for search results in cards view', async ({ page }) => {
+    // Open the archive
+    await openArchive(page);
+
+    // Wait for initial load
+    await page.waitForTimeout(1000);
+
+    // Switch to cards view
+    const cardsInput = page.locator('input[type="radio"][value="cards"]');
+    await cardsInput.click({ force: true });
+
+    // Wait for view to switch and cards to render
+    await page.waitForTimeout(1000);
+
+    // Search for "Alllium unifolium" which should return exactly 1 result
+    await searchByScientificName(page, 'Allium unifolium');
+
+    // Get matches
+    const matchingCards = page.locator('.occurrence-card');
+    const matchingCount = await matchingCards.count();
+    expect(matchingCount).toBe(1);
+
+    // Get all loading placeholder cards
+    const loadingCards = page.locator('.loading-card');
+    const loadingCount = await loadingCards.count();
+
+    // The key assertion: there should be NO loading cards visible
+    // All results should have been loaded
+    expect(loadingCount).toBe(0);
+
+    await searchByScientificName(page, '');
+
+    const matchingCardsAfterReset = page.locator('.occurrence-card');
+    const matchingCountAfterReset = await matchingCardsAfterReset.count();
+    expect(matchingCountAfterReset).toBeGreaterThan(5);
+
+    // Get all loading placeholder cards
+    const loadingCardsAfterReset = page.locator('.loading-card');
+    const loadingCountAfterReset = await loadingCardsAfterReset.count();
+
+    // The key assertion: there should be NO loading cards visible
+    // All results should have been loaded
+    expect(loadingCountAfterReset).toBe(0);
   });
 });

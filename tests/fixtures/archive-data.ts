@@ -80,7 +80,7 @@ function generateMockOccurrences(count: number): Occurrence[] {
 
   const occurrences: Occurrence[] = [...mockOccurrences];
 
-  for (let i = mockOccurrences.length; i < count; i++) {
+  for (let i = mockOccurrences.length; i < count-1; i++) {
     occurrences.push({
       occurrenceID: `TEST-${String(i + 1).padStart(3, '0')}`,
       scientificName: species[i % species.length],
@@ -94,6 +94,20 @@ function generateMockOccurrences(count: number): Occurrence[] {
       basisOfRecord: 'HumanObservation',
     });
   }
+
+  // Add an occurrence of a unique species to test certain filter conditions
+  occurrences.push({
+    occurrenceID: `TEST-${count.toString().padStart(3, '0')}`,
+    scientificName: "Allium unifolium",
+    decimalLatitude: 34 + Math.random() * 8,
+    decimalLongitude: -124 + Math.random() * 6,
+    eventDate: `2024-01-${String((count % 28) + 1).padStart(2, '0')}`,
+    eventTime: `${String(Math.floor(Math.random() * 24)).padStart(2, '0')}:${String(
+      Math.floor(Math.random() * 60)
+    ).padStart(2, '0')}:00`,
+    recordedBy: "Eunice Singleton",
+    basisOfRecord: 'HumanObservation',
+  });
 
   return occurrences;
 }
@@ -151,6 +165,27 @@ export const mockOccurrences2: Occurrence[] = [
 export const mockSearchResult2: SearchResult = {
   total: 3,
   results: mockOccurrences2,
+};
+
+// Large-scale archives for performance testing
+export const mockArchiveLarge: ArchiveInfo = {
+  name: 'Large Test Archive - 1M records',
+  coreCount: 1000000,
+};
+
+export const mockSearchResultLarge: SearchResult = {
+  total: 1000000,
+  results: generateMockOccurrences(100), // Only generate first 100 for initial display
+};
+
+export const mockArchiveSmall: ArchiveInfo = {
+  name: 'Small Test Archive - 1K records',
+  coreCount: 1000,
+};
+
+export const mockSearchResultSmallScale: SearchResult = {
+  total: 1000,
+  results: generateMockOccurrences(100),
 };
 
 // Export types for use in other test files

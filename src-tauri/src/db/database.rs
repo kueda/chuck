@@ -4,6 +4,7 @@ use duckdb::Row;
 use chuck_core::darwin_core::Occurrence;
 
 use crate::error::{ChuckError, Result};
+use crate::dwca::ExtensionInfo;
 
 // Most DwC attributes are strings, but a few should have different types to
 // enable better queries
@@ -17,13 +18,16 @@ const TYPE_OVERRIDES: [(&str, &str); 4] = [
 /// Represents a DuckDB database for Darwin Core Archive data
 pub struct Database {
     conn: duckdb::Connection,
+    /// Extension table metadata: (table_name, core_id_column)
+    extension_tables: Vec<(String, String)>,
 }
 
 impl Database {
 
-    /// Creates a new database from core files
+    /// Creates a new database from core files and extension files
     pub fn create_from_core_files(
         core_files: &[PathBuf],
+        extensions: &[ExtensionInfo],
         db_path: &Path,
     ) -> Result<Self> {
         if core_files.is_empty() {
@@ -102,13 +106,104 @@ impl Database {
             }
         }
 
-        Ok(Self { conn })
+        // Create extension tables
+        let extension_tables = Self::create_extension_tables(&conn, extensions)?;
+
+        Ok(Self { conn, extension_tables })
     }
 
-    /// Opens an existing database
-    pub fn open(db_path: &Path) -> Result<Self> {
+    /// Creates tables for DarwinCore Archive extensions
+    fn create_extension_tables(
+        conn: &duckdb::Connection,
+        extensions: &[ExtensionInfo],
+    ) -> Result<Vec<(String, String)>> {
+        let mut created_tables = Vec::new();
+
+        for ext in extensions {
+            // Check if the CSV file exists
+            if !ext.location.exists() {
+                log::warn!(
+                    "Extension file does not exist: {}. Skipping.",
+                    ext.location.display()
+                );
+                continue;
+            }
+
+            let csv_path = ext
+                .location
+                .to_str()
+                .ok_or(ChuckError::PathEncoding)?;
+
+            // Sniff the CSV to get column names
+            let mut stmt = conn.prepare(&format!(
+                "SELECT unnest(Columns).name FROM sniff_csv('{}')",
+                csv_path
+            ))?;
+            let column_names: Vec<String> = stmt
+                .query_map([], |row| row.get(0))?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+
+            // Apply type overrides for known numeric/date columns
+            let type_map: HashMap<&str, &str> = TYPE_OVERRIDES
+                .iter()
+                .filter(|(col, _)| column_names.contains(&col.to_string()))
+                .copied()
+                .collect();
+
+            let types_param = if type_map.is_empty() {
+                String::new()
+            } else {
+                let pairs: Vec<String> = type_map
+                    .iter()
+                    .map(|(col, typ)| format!("'{}': '{}'", col, typ))
+                    .collect();
+                format!(", types = {{{}}}", pairs.join(", "))
+            };
+
+            // Try to create the table
+            let sql = format!(
+                "CREATE TABLE {} AS SELECT * FROM read_csv('{}', all_varchar = true{})",
+                ext.table_name, csv_path, types_param
+            );
+
+            let create_result = conn.execute(&sql, []);
+
+            match create_result {
+                Ok(_) => {
+                    log::info!("Created extension table: {} (joins on {})", ext.table_name, ext.core_id_column);
+                    created_tables.push((ext.table_name.clone(), ext.core_id_column.clone()));
+                }
+                Err(e) => {
+                    let error_msg = e.to_string();
+                    if error_msg.contains("already exists") || error_msg.contains("Table with name") {
+                        log::info!("Extension table already exists: {}", ext.table_name);
+                        created_tables.push((ext.table_name.clone(), ext.core_id_column.clone()));
+                    } else {
+                        log::error!(
+                            "Failed to create extension table {}: {}",
+                            ext.table_name,
+                            e
+                        );
+                        return Err(e.into());
+                    }
+                }
+            }
+        }
+
+        Ok(created_tables)
+    }
+
+    /// Opens an existing database with extension metadata
+    pub fn open(db_path: &Path, extensions: &[ExtensionInfo]) -> Result<Self> {
         let conn = duckdb::Connection::open(db_path)?;
-        Ok(Self { conn })
+
+        // Build extension_tables from provided extension info
+        let extension_tables: Vec<(String, String)> = extensions
+            .iter()
+            .map(|ext| (ext.table_name.clone(), ext.core_id_column.clone()))
+            .collect();
+
+        Ok(Self { conn, extension_tables })
     }
 
     /// Counts the number of observations in the database
@@ -184,6 +279,75 @@ impl Database {
         }
     }
 
+    pub fn sql_parts(
+        search_params: crate::commands::archive::SearchParams,
+        fields: Option<Vec<String>>,
+        extension_tables: &Vec<(String, String)>,
+    ) -> (String, String, Vec<Box<dyn duckdb::ToSql>>, String) {
+        // Validate and filter requested fields against allowlist
+        let core_select_fields = if let Some(ref requested) = fields {
+            let validated: Vec<&str> = requested
+                .iter()
+                .filter(|f| Occurrence::FIELD_NAMES.contains(&f.as_str()))
+                .map(|s| s.as_str())
+                .collect();
+
+            if validated.is_empty() {
+                "occurrences.*".to_string()
+            } else {
+                validated.iter().map(|f| format!("occurrences.{}", f)).collect::<Vec<_>>().join(", ")
+            }
+        } else {
+            "occurrences.*".to_string()
+        };
+
+        // Build extension subqueries for each extension table
+        // Note: We aggregate rows into a list then convert to JSON. This
+        // looks like it should be less effecient than loading extension rows
+        // in subsequent queries, but benchmarking showed that it's
+        // actually *faster* with larger result sets
+        let extension_subqueries: Vec<String> = extension_tables
+            .iter()
+            .map(|(table_name, core_id_col)| {
+                format!(
+                    "(SELECT COALESCE(to_json(list({})), '[]') FROM {} WHERE {}.{} = occurrences.{}) as {}",
+                    table_name, table_name, table_name, core_id_col, core_id_col, table_name
+                )
+            })
+            .collect();
+
+        let select_fields = if extension_subqueries.is_empty() {
+            core_select_fields
+        } else {
+            format!("{}, {}", core_select_fields, extension_subqueries.join(", "))
+        };
+
+        // Build dynamic WHERE clause and SELECT fields
+        let mut where_clauses = Vec::new();
+        let mut where_interpolations: Vec<Box<dyn duckdb::ToSql>> = Vec::new();
+        if let Some(ref name) = search_params.scientific_name {
+            where_clauses.push("scientificName ILIKE ?");
+            where_interpolations.push(Box::new(format!("%{}%", name)));
+        }
+        let where_clause = if where_clauses.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", where_clauses.join(" AND "))
+        };
+
+        // Build ORDER clause
+        let order_clause = if let Some(order_by) = search_params.order_by {
+            if Occurrence::FIELD_NAMES.contains(&order_by.as_str()) {
+                format!(" ORDER BY {}", order_by)
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+        (select_fields, where_clause, where_interpolations, order_clause)
+    }
+
     /// Searches for occurrences, returning up to the specified limit starting at offset
     pub fn search(
         &self,
@@ -192,39 +356,16 @@ impl Database {
         search_params: crate::commands::archive::SearchParams,
         fields: Option<Vec<String>>,
     ) -> Result<crate::commands::archive::SearchResult> {
-        // Validate and filter requested fields against allowlist
-        let select_fields = if let Some(ref requested) = fields {
-            let validated: Vec<&str> = requested
-                .iter()
-                .filter(|f| Occurrence::FIELD_NAMES.contains(&f.as_str()))
-                .map(|s| s.as_str())
-                .collect();
-
-            if validated.is_empty() {
-                "*".to_string()
-            } else {
-                validated.join(", ")
-            }
-        } else {
-            "*".to_string()
-        };
-
-        // Build dynamic WHERE clause and SELECT fields
-        let mut where_clauses = Vec::new();
-        let mut count_params: Vec<Box<dyn duckdb::ToSql>> = Vec::new();
-        if let Some(ref name) = search_params.scientific_name {
-            where_clauses.push("scientificName ILIKE ?");
-            count_params.push(Box::new(format!("%{}%", name)));
-        }
-        let where_clause = if where_clauses.is_empty() {
-            String::new()
-        } else {
-            format!(" WHERE {}", where_clauses.join(" AND "))
-        };
+        let (
+            select_fields,
+            where_clause,
+            mut where_interpolations,
+            order_clause
+        ) = Self::sql_parts(search_params, fields, self.extension_tables.as_ref());
 
         // Execute COUNT query
         let count_query = format!("SELECT COUNT(*) FROM occurrences{}", where_clause);
-        let count_param_refs: Vec<&dyn duckdb::ToSql> = count_params.iter()
+        let count_param_refs: Vec<&dyn duckdb::ToSql> = where_interpolations.iter()
             .map(|p| p.as_ref()).collect();
         let total: usize = self.conn.query_row(
             &count_query,
@@ -233,22 +374,16 @@ impl Database {
 
         // Build SELECT query
         let select_query = format!(
-            "SELECT {} FROM occurrences{} LIMIT ? OFFSET ?",
-            select_fields, where_clause
+            "SELECT {} FROM occurrences{}{} LIMIT ? OFFSET ?",
+            select_fields, where_clause, order_clause
         );
-
-        // Rebuild params for SELECT query (reuse where params + add limit/offset)
-        let mut select_params: Vec<Box<dyn duckdb::ToSql>> = Vec::new();
-        if let Some(ref name) = search_params.scientific_name {
-            select_params.push(Box::new(format!("%{}%", name)));
-        }
-        select_params.push(Box::new(limit));
-        select_params.push(Box::new(offset));
+        where_interpolations.push(Box::new(limit));
+        where_interpolations.push(Box::new(offset));
 
         let mut stmt = self.conn.prepare(&select_query)?;
 
         // Convert params to references for query_map
-        let select_param_refs: Vec<&dyn duckdb::ToSql> = select_params.iter().map(|p| p.as_ref()).collect();
+        let select_param_refs: Vec<&dyn duckdb::ToSql> = where_interpolations.iter().map(|p| p.as_ref()).collect();
 
         let rows = stmt.query_map(select_param_refs.as_slice(), |row| {
             // Dynamically map columns to JSON
@@ -259,7 +394,27 @@ impl Database {
                 let name = row.as_ref().column_name(i)
                     .map_err(|_e| duckdb::Error::InvalidColumnIndex(i))?;
                 let value = Self::get_column_as_json(&row, i);
-                map.insert(name.to_string(), value);
+
+                // For extension columns, parse JSON string into array
+                let is_extension = self.extension_tables.iter().any(|(tbl, _)| tbl == name);
+                if is_extension {
+                    if let serde_json::Value::String(json_str) = &value {
+                        match serde_json::from_str::<serde_json::Value>(json_str) {
+                            Ok(parsed) => {
+                                map.insert(name.to_string(), parsed);
+                            }
+                            Err(_) => {
+                                // If parsing fails, insert empty array
+                                map.insert(name.to_string(), serde_json::json!([]));
+                            }
+                        }
+                    } else {
+                        // If not a string, insert empty array
+                        map.insert(name.to_string(), serde_json::json!([]));
+                    }
+                } else {
+                    map.insert(name.to_string(), value);
+                }
             }
 
             Ok(map)
@@ -332,6 +487,7 @@ mod tests {
         // First call should succeed
         let result1 = Database::create_from_core_files(
             &fixture.csv_paths,
+            &vec![],
             &fixture.db_path
         );
         assert!(result1.is_ok());
@@ -341,6 +497,7 @@ mod tests {
         // Second call should recognize existing table and not alter it
         let result2 = Database::create_from_core_files(
             &fixture.csv_paths,
+            &vec![],
             &fixture.db_path
         );
 
@@ -363,6 +520,7 @@ mod tests {
 
         let result = Database::create_from_core_files(
             &fixture.csv_paths,
+            &vec![],
             &fixture.db_path
         );
         assert!(result.is_ok());
@@ -388,6 +546,7 @@ mod tests {
 
         let db = Database::create_from_core_files(
             &fixture.csv_paths,
+            &vec![],
             &fixture.db_path
         ).unwrap();
 
@@ -444,11 +603,12 @@ mod tests {
 
         let fixture = TestFixture::new("search_scientific_name", vec![csv_data]);
 
-        let db = Database::create_from_core_files(&fixture.csv_paths, &fixture.db_path).unwrap();
+        let db = Database::create_from_core_files(&fixture.csv_paths, &vec![], &fixture.db_path).unwrap();
 
         // Search for "foo" (case-insensitive partial match)
         let search_result = db.search(10, 0, SearchParams {
             scientific_name: Some("foo".to_string()),
+            order_by: Some("occurrenceID".to_string()),
         }, None).unwrap();
 
         // Should return 4 results: "Foobar", "foo", "Foo", "Barfoo"
@@ -489,7 +649,7 @@ mod tests {
 "#;
 
         let fixture = TestFixture::new("search_field_selection", vec![csv_data]);
-        let db = Database::create_from_core_files(&fixture.csv_paths, &fixture.db_path).unwrap();
+        let db = Database::create_from_core_files(&fixture.csv_paths, &vec![], &fixture.db_path).unwrap();
 
         // Search with specific fields
         let search_result = db.search(10, 0, SearchParams::default(), Some(vec![
@@ -507,5 +667,157 @@ mod tests {
         // Should only have the requested fields (2 fields)
         assert_eq!(first.len(), 2);
     }
-}
 
+    #[test]
+    fn test_create_with_extensions() {
+        use crate::commands::archive::SearchParams;
+
+        // Create occurrence CSV
+        let occurrence_csv = br#"occurrenceID,scientificName
+1,Species A
+2,Species B
+"#;
+
+        // Create multimedia extension CSV
+        let multimedia_csv = br#"occurrenceID,type,identifier
+1,StillImage,http://example.com/img1.jpg
+1,StillImage,http://example.com/img2.jpg
+2,StillImage,http://example.com/img3.jpg
+"#;
+
+        // Set up fixture
+        let temp_dir = std::env::temp_dir()
+            .join("chuck_test_db_extensions");
+        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let occurrence_path = temp_dir.join("occurrence.csv");
+        let multimedia_path = temp_dir.join("multimedia.csv");
+        let db_path = temp_dir.join("test.db");
+
+        std::fs::write(&occurrence_path, occurrence_csv).unwrap();
+        std::fs::write(&multimedia_path, multimedia_csv).unwrap();
+
+        // Create extension info
+        let extensions = vec![ExtensionInfo {
+            row_type: "http://rs.gbif.org/terms/1.0/Multimedia".to_string(),
+            location: multimedia_path.clone(),
+            table_name: "multimedia".to_string(),
+            core_id_column: "occurrenceID".to_string(),
+        }];
+
+        // Create database with extensions
+        let db = Database::create_from_core_files(
+            &vec![occurrence_path],
+            &extensions,
+            &db_path
+        ).unwrap();
+
+        // Verify occurrences table was created
+        assert_eq!(db.count_records().unwrap(), 2);
+
+        // Verify extension table is tracked
+        assert_eq!(db.extension_tables.len(), 1);
+        assert_eq!(db.extension_tables[0].0, "multimedia");
+        assert_eq!(db.extension_tables[0].1, "occurrenceID");
+
+        // Search and verify extensions are included
+        let search_result = db.search(10, 0, SearchParams::default(), None).unwrap();
+        assert_eq!(search_result.results.len(), 2);
+
+        // Check first occurrence has multimedia array
+        let first = &search_result.results[0];
+        assert!(first.contains_key("multimedia"));
+
+        let multimedia = first.get("multimedia").unwrap();
+        assert!(multimedia.is_array());
+
+        let multimedia_array = multimedia.as_array().unwrap();
+        assert_eq!(multimedia_array.len(), 2); // Two images for occurrence 1
+
+        // Check multimedia items have expected fields
+        let first_image = &multimedia_array[0];
+
+        // occurrenceID is stored as VARCHAR in extension tables, so it comes back as string
+        assert_eq!(
+            first_image.get("occurrenceID").and_then(|v| v.as_str()),
+            Some("1")
+        );
+        assert_eq!(
+            first_image.get("type").and_then(|v| v.as_str()),
+            Some("StillImage")
+        );
+        assert_eq!(
+            first_image.get("identifier").and_then(|v| v.as_str()),
+            Some("http://example.com/img1.jpg")
+        );
+
+        // Check second occurrence has multimedia array
+        let second = &search_result.results[1];
+        let multimedia_second = second.get("multimedia").unwrap().as_array().unwrap();
+        assert_eq!(multimedia_second.len(), 1); // One image for occurrence 2
+
+        // Cleanup
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_open_database_detects_extensions() {
+        // Create occurrence CSV
+        let occurrence_csv = br#"occurrenceID,scientificName
+1,Species A
+"#;
+
+        // Create extension CSV
+        let multimedia_csv = br#"occurrenceID,identifier
+1,http://example.com/img1.jpg
+"#;
+
+        let temp_dir = std::env::temp_dir()
+            .join("chuck_test_db_open_extensions");
+        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let occurrence_path = temp_dir.join("occurrence.csv");
+        let multimedia_path = temp_dir.join("multimedia.csv");
+        let db_path = temp_dir.join("test.db");
+
+        std::fs::write(&occurrence_path, occurrence_csv).unwrap();
+        std::fs::write(&multimedia_path, multimedia_csv).unwrap();
+
+        let extensions = vec![ExtensionInfo {
+            row_type: "http://rs.gbif.org/terms/1.0/Multimedia".to_string(),
+            location: multimedia_path,
+            table_name: "multimedia".to_string(),
+            core_id_column: "occurrenceID".to_string(),
+        }];
+
+        // Create database
+        let _db = Database::create_from_core_files(
+            &vec![occurrence_path],
+            &extensions,
+            &db_path
+        ).unwrap();
+
+        // Reopen the database with extension info
+        let reopened_db = Database::open(&db_path, &extensions).unwrap();
+
+        // Verify it has the extension table info
+        assert_eq!(reopened_db.extension_tables.len(), 1);
+        assert_eq!(reopened_db.extension_tables[0].0, "multimedia");
+        assert_eq!(reopened_db.extension_tables[0].1, "occurrenceID");
+
+        // Cleanup
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_sql_parts_only_allows_known_order_by() {
+        let params = crate::commands::archive::SearchParams {
+            scientific_name: None,
+            order_by: Some("foo".to_string()),
+        };
+        let (_, _, _, order_clause) = Database::sql_parts(params, None, &vec![]);
+        assert_eq!(order_clause, "");
+    }
+}

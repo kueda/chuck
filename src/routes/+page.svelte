@@ -1,9 +1,12 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { createVirtualizer, type Virtualizer, type VirtualizerOptions } from '@tanstack/svelte-virtual';
+  import { onMount } from 'svelte';
   import { Progress } from '@skeletonlabs/skeleton-svelte';
   import { invoke, getCurrentWindow, listen, open } from '$lib/tauri-api';
   import Filters from '$lib/components/Filters.svelte';
+  import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
+
+  import Cards from './Cards.svelte';
+  import Table from './Table.svelte';
 
   import type { SearchParams } from '$lib/components/Filters.svelte';
   import type { ArchiveInfo, Occurrence, SearchResult } from '$lib/types/archive';
@@ -31,6 +34,7 @@
   let scrollElement: Element | undefined = $state(undefined);
   let currentSearchParams = $state<SearchParams>({});
   let filteredTotal = $state<number>(0);
+  let currentView = $state<'table' | 'cards'>('table');
   let archiveLoadingStatus = $state<
     null | 'importing' | 'extracting' | 'creatingDatabase'
   >(null);
@@ -49,22 +53,11 @@
     }
   });
   let archiveLoadingError = $state<string | null>(null);
-  // Note: virtualizer is a store from TanStack Virtual, not wrapped in $state
-  // to avoid infinite loops. Use virtualizerReady flag for initial render trigger.
-  // Using type assertion (as) instead of type annotation (:) because when Svelte's
-  // template compiler sees $virtualizer, it needs to unwrap the store type. With a
-  // strict type annotation, TypeScript's inference fails and resolves to 'never'.
-  // Type assertion allows TypeScript to infer the unwrapped type correctly.
-  //
-  // svelte-ignore non_reactive_update
-  let virtualizer = null as ReturnType<typeof createVirtualizer<Element, Element>> | null;
-  let virtualizerReady = $state(false);
-  let virtualizerInitialized = $state(false);
 
   // Load a chunk of results from the backend and add them to the cache
   async function loadChunk(chunkIndex: number) {
     if (loadingChunks.has(chunkIndex)) {
-      return; // Already loading this chunk
+      return;
     }
 
     const offset = chunkIndex * CHUNK_SIZE;
@@ -83,12 +76,12 @@
         searchParams: currentSearchParams,
         fields: DISPLAY_FIELDS,
       });
-      console.log('[+page.svelte] searchResult', searchResult);
 
       // Add results to cache
       searchResult.results.forEach((occurrence, i) => {
         occurrenceCache.set(offset + i, occurrence);
       });
+
       // Trigger reactivity by incrementing version counter
       occurrenceCacheVersion++;
     } catch (e) {
@@ -98,16 +91,9 @@
     }
   }
 
-  // Tanstack Virtual onChange handler
+  // Handler for when visible range changes in virtualizer
   let lastLoadedRange = { firstChunk: -1, lastChunk: -1 };
-  function loadVisibleChunks(instance: Virtualizer<Element, Element>) {
-    const items = instance.getVirtualItems();
-    if (items.length === 0) return;
-
-    // Get the range of visible items
-    const firstIndex = items[0].index;
-    const lastIndex = items[items.length - 1].index;
-
+  function handleVisibleRangeChange({ firstIndex, lastIndex }: { firstIndex: number; lastIndex: number }) {
     // Calculate which chunks we need
     const firstChunk = Math.floor(firstIndex / CHUNK_SIZE);
     const lastChunk = Math.floor(lastIndex / CHUNK_SIZE);
@@ -123,20 +109,9 @@
 
     lastLoadedRange = { firstChunk, lastChunk };
 
-    // Load all chunks in the visible range
     for (let chunk = firstChunk; chunk <= lastChunk; chunk++) {
       loadChunk(chunk);
     }
-  }
-
-  function createOccurrenceVirtualizer() {
-    return createVirtualizer({
-      count: filteredTotal,
-      getScrollElement: () => scrollElement ?? null ,
-      estimateSize: () => 40,
-      overscan: 50,
-      onChange: loadVisibleChunks
-    });
   }
 
   async function handleSearchChange(params: SearchParams) {
@@ -146,10 +121,15 @@
     // Update search params
     currentSearchParams = params;
 
+    // Set filtered total to 0 immediately to prevent virtualizer from
+    // creating virtual items with stale count while cache is empty
+    filteredTotal = 0;
+
     // Clear cache
     occurrenceCache = new Map();
     occurrenceCacheVersion = 0;
     loadingChunks = new Set();
+    lastLoadedRange = { firstChunk: -1, lastChunk: -1 };
 
     // Load first chunk to get the filtered count
     try {
@@ -160,7 +140,7 @@
         fields: DISPLAY_FIELDS,
       });
 
-      // Update filtered total
+      // Update filtered total with actual count
       filteredTotal = searchResult.total;
 
       // Add results to cache
@@ -169,42 +149,29 @@
       });
       occurrenceCacheVersion++;
 
-      // Scroll to top before creating new virtualizer
+      // Scroll to top
       if (scrollElement) {
         scrollElement.scrollTop = 0;
       }
-
-      // Create new virtualizer with filtered count
-      // Svelte's store subscription system will automatically update the template
-      virtualizer = createOccurrenceVirtualizer();
-
-      virtualizerReady = true;
     } catch (e) {
       console.error('[+page.svelte] Error in handleSearchChange:', e);
     }
   }
 
-  $effect(() => {
-    // If we don't yet have an archive, there are no results to virtualize
-    if (!archive) return;
-    // If the scroll element that contains the virtualized results hasn't been
-    // mounted yet, there's nothing to do
-    if (!scrollElement) return;
-    // If we've already created a virtualizer (or another has been created for
-    // search results), don't recreate it
-    if (virtualizer) return;
-
-    // Initialize filteredTotal with full archive count
-    filteredTotal = archive.coreCount;
-    virtualizer = createOccurrenceVirtualizer();
-    virtualizerReady = true;
-  });
-
+  // Set window title and initialize filtered total when archive loads
   $effect(() => {
     if (archive) {
       getCurrentWindow().setTitle(`${archive.name} – ${archive.coreCount} records`);
+      filteredTotal = archive.coreCount;
     }
-  })
+  });
+
+  // Persist view preference to localStorage
+  $effect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('chuck:viewPreference', currentView);
+    }
+  });
 
   async function openArchive() {
     const path = await open();
@@ -213,8 +180,6 @@
       occurrenceCache = new Map();
       occurrenceCacheVersion = 0;
       loadingChunks = new Set();
-      virtualizer = null;
-      virtualizerReady = false;
       currentSearchParams = {};
       lastLoadedRange = { firstChunk: -1, lastChunk: -1 };
       archiveLoadingStatus = 'importing';
@@ -231,13 +196,6 @@
         if (scrollElement) {
           scrollElement.scrollTop = 0;
         }
-
-        // Initialize the new virtualizer with the new archive's data
-        if (scrollElement && archive) {
-          filteredTotal = archive.coreCount;
-          virtualizer = createOccurrenceVirtualizer();
-          virtualizerReady = true;
-        }
       } catch (e) {
         archiveLoadingError = e instanceof Error ? e.message : String(e);
         archiveLoadingStatus = null;
@@ -247,6 +205,14 @@
   }
 
   onMount(() => {
+    // Load saved view preference
+    if (typeof window !== 'undefined') {
+      const savedView = localStorage.getItem('chuck:viewPreference');
+      if (savedView === 'table' || savedView === 'cards') {
+        currentView = savedView;
+      }
+    }
+
     invoke('current_archive')
       .then(result => {
         archive = result as ArchiveInfo;
@@ -349,52 +315,27 @@
   </div>
 {:else if archive}
   <div class="flex flex-row p-4 fixed w-full h-screen">
+    <div class="absolute bottom-10 right-10 z-10">
+      <ViewSwitcher bind:view={currentView} />
+    </div>
     <Filters onSearchChange={handleSearchChange} />
     <main class="overflow-y-auto w-full relative" bind:this={scrollElement}>
-      {#if virtualizerReady && virtualizer}
-        <div class="w-full">
-          <div class="flex items-center py-2 px-2 border-b font-bold">
-            <!-- <div class="w-16">#</div> -->
-            <div class="flex-1">occurrenceID</div>
-            <div class="flex-1">scientificName</div>
-            <div class="w-24">lat</div>
-            <div class="w-24">lng</div>
-            <div class="w-32">eventDate</div>
-            <div class="w-32">eventTime</div>
-          </div>
-          <div class="w-full relative" style="height: {$virtualizer!.getTotalSize()}px;">
-            <!-- ensure this shows new data when we load new records -->
-            {#key occurrenceCacheVersion}
-              <div
-                class="absolute top-0 left-0 w-full"
-                style="transform: translateY({$virtualizer!.getVirtualItems()[0]?.start ?? 0}px);"
-              >
-                {#each $virtualizer!.getVirtualItems() as virtualRow (virtualRow.index)}
-                  {@const occurrence = occurrenceCache.get(virtualRow.index)}
-                <div
-                  class="flex items-center py-2 px-2 border-b"
-                  style="height: {virtualRow.size}px;"
-                >
-                  {#if occurrence}
-                    <!-- <div class="w-16 truncate">{virtualRow.index}</div> -->
-                    <div class="flex-1 truncate">{occurrence.occurrenceID}</div>
-                    <div class="flex-1 truncate">{occurrence.scientificName}</div>
-                    <div class="w-24 truncate">{occurrence.decimalLatitude}</div>
-                    <div class="w-24 truncate">{occurrence.decimalLongitude}</div>
-                    <div class="w-32 truncate">{occurrence.eventDate}</div>
-                    <div class="w-32 truncate">{occurrence.eventTime}</div>
-                  {:else}
-                    <!-- <div class="w-16 truncate">{virtualRow.index}</div> -->
-                    <div class="flex-1 text-gray-400">Loading...</div>
-                  {/if}
-                </div>
-              {/each}
-              </div>
-            {/key}
-          </div>
-        </div>
+      {#if currentView === 'table'}
+        <Table
+          {occurrenceCache}
+          {occurrenceCacheVersion}
+          count={filteredTotal}
+          {scrollElement}
+          onVisibleRangeChange={handleVisibleRangeChange}
+        />
       {:else}
-        <div class="p-4">Loading...</div>
+        <Cards
+          {occurrenceCache}
+          {occurrenceCacheVersion}
+          count={filteredTotal}
+          {scrollElement}
+          onVisibleRangeChange={handleVisibleRangeChange}
+        />
       {/if}
     </main>
   </div>

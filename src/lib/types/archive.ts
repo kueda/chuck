@@ -3,6 +3,96 @@ export interface ArchiveInfo {
   coreCount: number,
 }
 
+export interface Multimedia {
+  occurrenceID: string;
+  type?: string | null;
+  format?: string | null;
+  identifier?: string | null;
+  references?: string | null;
+  title?: string | null;
+  description?: string | null;
+  created?: string | null;
+  creator?: string | null;
+  contributor?: string | null;
+  publisher?: string | null;
+  audience?: string | null;
+  source?: string | null;
+  license?: string | null;
+  rightsHolder?: string | null;
+  datasetID?: string | null;
+}
+
+export interface Audiovisual {
+  occurrenceID: string;
+  identifier?: string | null;
+  type?: string | null;
+  title?: string | null;
+  modified?: string | null;
+  metadataLanguageLiteral?: string | null;
+  available?: string | null;
+  rights?: string | null;
+  owner?: string | null;
+  usageTerms?: string | null;
+  credit?: string | null;
+  attributionLinkURL?: string | null;
+  source?: string | null;
+  description?: string | null;
+  caption?: string | null;
+  comments?: string | null;
+  scientificName?: string | null;
+  commonName?: string | null;
+  lifeStage?: string | null;
+  partOfOrganism?: string | null;
+  locationShown?: string | null;
+  locationCreated?: string | null;
+  continent?: string | null;
+  country?: string | null;
+  countryCode?: string | null;
+  stateProvince?: string | null;
+  locality?: string | null;
+  decimalLatitude?: number | null;
+  decimalLongitude?: number | null;
+  accessURI?: string | null;
+  format?: string | null;
+  extent?: string | null;
+  pixelXDimension?: number | null;
+  pixelYDimension?: number | null;
+  created?: string | null;
+  dateTimeOriginal?: string | null;
+  temporalCoverage?: string | null;
+}
+
+export interface Identification {
+  occurrenceID: string;
+  identificationID?: string | null;
+  identifiedBy?: string | null;
+  identifiedByID?: string | null;
+  dateIdentified?: string | null;
+  identificationRemarks?: string | null;
+  taxonID?: string | null;
+  scientificName?: string | null;
+  taxonRank?: string | null;
+  vernacularName?: string | null;
+  taxonomicStatus?: string | null;
+  higherClassification?: string | null;
+  kingdom?: string | null;
+  phylum?: string | null;
+  class?: string | null;
+  order?: string | null;
+  superfamily?: string | null;
+  family?: string | null;
+  subfamily?: string | null;
+  tribe?: string | null;
+  subtribe?: string | null;
+  genus?: string | null;
+  subgenus?: string | null;
+  infragenericEpithet?: string | null;
+  specificEpithet?: string | null;
+  infraspecificEpithet?: string | null;
+  identificationVerificationStatus?: string | null;
+  identificationCurrent?: boolean | null;
+}
+
 // Attributes are undefined when the client doesn't ask for them, and
 // (hopefully) null when the client asks for them but they are blank
 export interface Occurrence {
@@ -234,6 +324,9 @@ export interface Occurrence {
   level3Name?: string | null;
   recordedByID?: string | null;
   verbatimLabel?: string | null;
+  multimedia?: Multimedia[];
+  audiovisual?: Audiovisual[];
+  identification?: Identification[];
 };
 
 export interface SearchResult {

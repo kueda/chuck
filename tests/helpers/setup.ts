@@ -62,10 +62,10 @@ export async function searchByScientificName(page: Page, scientificName: string)
 }
 
 /**
- * Gets the visible occurrence rows in the virtualizer.
+ * Gets the visible occurrence rows in the virtualizer (excludes header).
  */
 export async function getVisibleOccurrences(page: Page) {
-  return page.locator('main .flex.items-center.py-2.px-2.border-b').all();
+  return page.locator('main .flex.items-center.py-2.px-2.border-b:not(.font-bold)').all();
 }
 
 /**

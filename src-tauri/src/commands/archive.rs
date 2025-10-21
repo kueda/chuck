@@ -1,3 +1,4 @@
+use std::backtrace::Backtrace;
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
@@ -27,6 +28,7 @@ pub struct ArchiveInfo {
 pub struct SearchParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scientific_name: Option<String>,
+    pub order_by: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -97,7 +99,7 @@ pub async fn open_archive(app: tauri::AppHandle, path: String) -> Result<Archive
             Ok(info)
         }
         Ok(Err(e)) => {
-            log::error!("Failed to open archive: {}", e);
+            log::debug!("Failed to open archive: {}", e);
 
             // Emit error event
             app.emit(
@@ -130,7 +132,11 @@ pub async fn open_archive(app: tauri::AppHandle, path: String) -> Result<Archive
 #[tauri::command]
 pub fn current_archive(app: tauri::AppHandle) -> Result<ArchiveInfo> {
     Archive::current(&get_local_data_dir(app)?).map_err(|e| {
-        log::error!("Failed to get current archive: {}", e);
+        log::error!(
+            "Failed to get current archive: {}, backtrace: {}",
+            e,
+            Backtrace::capture()
+        );
         e
     })?.info()
 }
@@ -143,9 +149,16 @@ pub fn search(
     search_params: SearchParams,
     fields: Option<Vec<String>>,
 ) -> Result<SearchResult> {
-    let archive = Archive::current(&get_local_data_dir(app)?)?;
+    let archive = Archive::current(&get_local_data_dir(app)?).map_err(|e| {
+        log::error!(
+            "caught error opening current: {}, backtrace: {}",
+            e,
+            Backtrace::capture()
+        );
+        e
+    })?;
     archive.search(limit, offset, search_params, fields).map_err(|e| {
-        log::error!("caught search error: {}", e);
+        log::error!("caught search error: {}, backtrace: {}", e, Backtrace::capture());
         e
     })
 }

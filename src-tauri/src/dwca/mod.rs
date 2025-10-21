@@ -1,3 +1,3 @@
 mod archive;
 
-pub use archive::Archive;
+pub use archive::{Archive, ExtensionInfo};
