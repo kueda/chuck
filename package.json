@@ -11,9 +11,11 @@
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri",
     "tauri-debug": "RUST_BACKTRACE=1 RUST_LOG=debug tauri dev",
-    "test": "playwright test",
+    "test": "playwright test --project=webkit && playwright test --project=webkit-performance",
+    "test:app": "playwright test --project=webkit",
     "test:ui": "playwright test --ui",
-    "test:headed": "playwright test --headed"
+    "test:headed": "playwright test --headed",
+    "test:performance": "playwright test --project=webkit-performance"
   },
   "license": "MIT",
   "dependencies": {
@@ -23,7 +25,8 @@
     "@tauri-apps/plugin-dialog": "^2.4.0",
     "@tauri-apps/plugin-opener": "^2",
     "lightningcss": "^1.30.2",
-    "lucide-svelte": "^0.546.0"
+    "lucide-svelte": "^0.546.0",
+    "maplibre-gl": "^5.9.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",

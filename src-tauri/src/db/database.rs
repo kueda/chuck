@@ -430,6 +430,72 @@ impl Database {
             results,
         })
     }
+
+    /// Retrieves a single occurrence by ID with all columns and extension data
+    pub fn get_occurrence(
+        &self,
+        core_id_column: &str,
+        occurrence_id: &str,
+    ) -> Result<serde_json::Map<String, serde_json::Value>> {
+        // Build extension subqueries (same pattern as search method)
+        let extension_subqueries: Vec<String> = self.extension_tables
+            .iter()
+            .map(|(table_name, core_id_col)| {
+                format!(
+                    "(SELECT COALESCE(to_json(list({})), '[]') FROM {} WHERE {}.{} = occurrences.{}) as {}",
+                    table_name, table_name, table_name, core_id_col, core_id_col, table_name
+                )
+            })
+            .collect();
+
+        let select_fields = if extension_subqueries.is_empty() {
+            "occurrences.*".to_string()
+        } else {
+            format!("occurrences.*, {}", extension_subqueries.join(", "))
+        };
+
+        // Build query with WHERE clause on core_id_column
+        let query = format!(
+            "SELECT {} FROM occurrences WHERE {} = ?",
+            select_fields, core_id_column
+        );
+
+        let mut stmt = self.conn.prepare(&query)?;
+
+        let result = stmt.query_row([occurrence_id], |row| {
+            let mut map = serde_json::Map::new();
+            let column_count = row.as_ref().column_count();
+
+            for i in 0..column_count {
+                let name = row.as_ref().column_name(i)
+                    .map_err(|_| duckdb::Error::InvalidColumnIndex(i))?;
+                let value = Self::get_column_as_json(&row, i);
+
+                // Parse extension JSON strings
+                let is_extension = self.extension_tables.iter().any(|(tbl, _)| tbl == name);
+                if is_extension {
+                    if let serde_json::Value::String(json_str) = &value {
+                        match serde_json::from_str::<serde_json::Value>(json_str) {
+                            Ok(parsed) => {
+                                map.insert(name.to_string(), parsed);
+                            }
+                            Err(_) => {
+                                map.insert(name.to_string(), serde_json::json!([]));
+                            }
+                        }
+                    } else {
+                        map.insert(name.to_string(), serde_json::json!([]));
+                    }
+                } else {
+                    map.insert(name.to_string(), value);
+                }
+            }
+
+            Ok(map)
+        })?;
+
+        Ok(result)
+    }
 }
 
 #[cfg(test)]
@@ -819,5 +885,65 @@ mod tests {
         };
         let (_, _, _, order_clause) = Database::sql_parts(params, None, &vec![]);
         assert_eq!(order_clause, "");
+    }
+
+    #[test]
+    fn test_get_occurrence_with_extensions() {
+        // Create occurrence and multimedia test data
+        let occurrence_csv = br#"occurrenceID,scientificName,decimalLatitude,decimalLongitude
+1,Species A,34.05,-118.24
+2,Species B,37.77,-122.41
+"#;
+
+        let multimedia_csv = br#"occurrenceID,type,identifier
+1,StillImage,http://example.com/img1.jpg
+1,StillImage,http://example.com/img2.jpg
+"#;
+
+        let temp_dir = std::env::temp_dir().join("chuck_test_get_occurrence");
+        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let occurrence_path = temp_dir.join("occurrence.csv");
+        let multimedia_path = temp_dir.join("multimedia.csv");
+        let db_path = temp_dir.join("test.db");
+
+        std::fs::write(&occurrence_path, occurrence_csv).unwrap();
+        std::fs::write(&multimedia_path, multimedia_csv).unwrap();
+
+        let extensions = vec![ExtensionInfo {
+            row_type: "http://rs.gbif.org/terms/1.0/Multimedia".to_string(),
+            location: multimedia_path,
+            table_name: "multimedia".to_string(),
+            core_id_column: "occurrenceID".to_string(),
+        }];
+
+        let db = Database::create_from_core_files(
+            &vec![occurrence_path],
+            &extensions,
+            &db_path
+        ).unwrap();
+
+        // Get occurrence by ID
+        let occurrence = db.get_occurrence("occurrenceID", "1").unwrap();
+
+        // Verify core fields
+        assert_eq!(
+            occurrence.get("scientificName").and_then(|v| v.as_str()),
+            Some("Species A")
+        );
+        assert_eq!(
+            occurrence.get("decimalLatitude").and_then(|v| v.as_f64()),
+            Some(34.05)
+        );
+
+        // Verify multimedia extension
+        let multimedia = occurrence.get("multimedia").unwrap();
+        assert!(multimedia.is_array());
+        let multimedia_array = multimedia.as_array().unwrap();
+        assert_eq!(multimedia_array.len(), 2);
+
+        // Cleanup
+        std::fs::remove_dir_all(&temp_dir).ok();
     }
 }

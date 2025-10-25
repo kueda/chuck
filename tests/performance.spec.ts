@@ -20,6 +20,7 @@ async function setupMockTauriWithCustomData(
   const customArchive = {
     name: archiveName,
     coreCount: coreCount,
+    coreIdColumn: 'occurrenceID',
   };
 
   // Generate mock occurrences
@@ -63,7 +64,7 @@ async function setupMockTauriWithCustomData(
 
 async function measureViewSwitch(page: Page): Promise<number> {
   // Wait for table view to be ready
-  await expect(page.getByText('occurrenceID')).toBeVisible();
+  await expect(page.locator('.occurrence-table').first()).toBeVisible();
 
   // Measure the view switch
   const duration = await page.evaluate(() => {

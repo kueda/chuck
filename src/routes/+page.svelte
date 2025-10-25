@@ -327,6 +327,7 @@
           count={filteredTotal}
           {scrollElement}
           onVisibleRangeChange={handleVisibleRangeChange}
+          coreIdColumn={archive.coreIdColumn}
         />
       {:else}
         <Cards
@@ -335,6 +336,7 @@
           count={filteredTotal}
           {scrollElement}
           onVisibleRangeChange={handleVisibleRangeChange}
+          coreIdColumn={archive.coreIdColumn}
         />
       {/if}
     </main>

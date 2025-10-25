@@ -150,6 +150,7 @@ impl Archive {
         Ok(crate::commands::archive::ArchiveInfo {
             name: self.name.clone(),
             core_count: self.core_count()?,
+            core_id_column: self.core_id_column.clone(),
         })
     }
 
@@ -171,6 +172,14 @@ impl Archive {
             params,
             fields
         )
+    }
+
+    /// Retrieves a single occurrence by its core ID with all fields and extensions
+    pub fn get_occurrence(
+        &self,
+        occurrence_id: &str,
+    ) -> Result<serde_json::Map<String, serde_json::Value>> {
+        self.db.get_occurrence(&self.core_id_column, occurrence_id)
     }
 }
 

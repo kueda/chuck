@@ -10,6 +10,7 @@
   interface Props extends Pick<VirtualizedListProps, 'count' | 'scrollElement' | 'onVisibleRangeChange'> {
     occurrenceCache: Map<number, Occurrence>;
     occurrenceCacheVersion: number;
+    coreIdColumn: string;
   }
 
   const {
@@ -17,7 +18,8 @@
     occurrenceCacheVersion,
     count,
     scrollElement,
-    onVisibleRangeChange
+    onVisibleRangeChange,
+    coreIdColumn
   }: Props = $props();
 </script>
 
@@ -36,14 +38,14 @@
       between views with different item sizes (e.g., table rows vs cards).
     -->
     {#key data._key}
-      <div class="w-full">
+      <div class="occurrence-table w-full">
         <div class="flex items-center py-2 px-2 border-b font-bold">
-          <div class="flex-1">occurrenceID</div>
-          <div class="flex-1">scientificName</div>
-          <div class="w-24">lat</div>
-          <div class="w-24">lng</div>
-          <div class="w-32">eventDate</div>
-          <div class="w-32">eventTime</div>
+          <div class="table-cell flex-1">occurrenceID</div>
+          <div class="table-cell flex-1">scientificName</div>
+          <div class="table-cell w-24">lat</div>
+          <div class="table-cell w-24">lng</div>
+          <div class="table-cell w-32">eventDate</div>
+          <div class="table-cell w-32">eventTime</div>
         </div>
         <div class="w-full relative" style="height: {data.totalSize}px;">
           <div
@@ -52,13 +54,28 @@
           >
             <VirtualizedOccurrenceList
               virtualItems={data.virtualItems}
+              scrollToIndex={data.scrollToIndex}
               {occurrenceCache}
               {occurrenceCacheVersion}
+              {coreIdColumn}
+              {count}
             >
-              {#snippet children({ virtualRow, occurrence })}
+              {#snippet children({ virtualRow, occurrence, handleOccurrenceClick, selectedOccurrenceIndex })}
               <div
-                class="flex items-center py-2 px-2 border-b"
+                class={{
+                  "occurrence-item occurrence-row flex items-center py-2 px-2 border-b cursor-pointer hover:bg-gray-100": true,
+                  "outline-2 outline-primary-200": virtualRow.index === selectedOccurrenceIndex
+                }}
                 style="height: {virtualRow.size}px;"
+                onclick={() => occurrence && handleOccurrenceClick(occurrence, virtualRow.index)}
+                onkeydown={(e) => {
+                  if (occurrence && (e.key === 'Enter' || e.key === ' ')) {
+                    e.preventDefault();
+                    handleOccurrenceClick(occurrence, virtualRow.index);
+                  }
+                }}
+                role="button"
+                tabindex="0"
               >
                 {#if occurrence}
                   <div class="flex-1 truncate">{occurrence.occurrenceID}</div>

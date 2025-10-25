@@ -192,6 +192,24 @@ export function getInjectionScript(
             };
           }
 
+          case 'get_occurrence': {
+            const { occurrenceId } = args;
+
+            if (!currentSearchResults) {
+              throw new Error('No archive currently open');
+            }
+
+            const occurrence = currentSearchResults.results.find(
+              r => r.occurrenceID === occurrenceId
+            );
+
+            if (!occurrence) {
+              throw new Error('Occurrence not found: ' + occurrenceId);
+            }
+
+            return occurrence;
+          }
+
           default:
             throw new Error('Unknown command: ' + command);
         }

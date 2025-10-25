@@ -1,12 +1,19 @@
+<!--
+  Reasonable defaults for a virtualized list of anything, with a little UI for
+  loading and empty states.
+-->
+
 <script lang="ts">
   import { createVirtualizer, type Virtualizer, type VirtualItem } from '@tanstack/svelte-virtual';
   import { untrack } from 'svelte';
+  import { get } from 'svelte/store';
   import type { Snippet } from 'svelte';
 
   export interface VirtualListData {
     virtualItems: VirtualItem[];
     totalSize: number;
     offsetY: number;
+    scrollToIndex?: (index: number, options?: { align?: 'start' | 'center' | 'end' | 'auto' }) => void;
     _key?: number;
   }
 
@@ -62,6 +69,14 @@
     onVisibleRangeChange({ firstIndex, lastIndex });
   }
 
+  function scrollToIndex(index: number, options?: { align?: 'start' | 'center' | 'end' | 'auto' }) {
+    if (!virtualizer) return;
+    const instance = get(virtualizer);
+    if (instance?.scrollToIndex) {
+      instance.scrollToIndex(index, options);
+    }
+  }
+
   // Initialize virtualizer when dependencies change
   // Recreate the virtualizer when count, lanes, or estimateSize change
   $effect(() => {
@@ -102,6 +117,7 @@
     virtualItems: items,
     totalSize: totalSize,
     offsetY: offsetY,
+    scrollToIndex: scrollToIndex,
     _key: virtualizerVersion
   }}
   {#if count === 0}

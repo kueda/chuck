@@ -14,7 +14,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::archive::open_archive,
             commands::archive::current_archive,
-            commands::archive::search
+            commands::archive::search,
+            commands::archive::get_occurrence
         ])
         .setup(|app| {
             let open_item = MenuItemBuilder::with_id("open", "Open...")

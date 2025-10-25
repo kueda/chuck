@@ -12,6 +12,7 @@ import type {
 export const mockArchive: ArchiveInfo = {
   name: 'Test Darwin Core Archive',
   coreCount: 1000,
+  coreIdColumn: 'occurrenceID',
 };
 
 export const mockOccurrences: Occurrence[] = [
@@ -127,6 +128,7 @@ export const mockSearchResultSmall: SearchResult = {
 export const mockArchive2: ArchiveInfo = {
   name: 'Second Test Archive',
   coreCount: 500,
+  coreIdColumn: 'occurrenceID',
 };
 
 export const mockOccurrences2: Occurrence[] = [
@@ -171,6 +173,7 @@ export const mockSearchResult2: SearchResult = {
 export const mockArchiveLarge: ArchiveInfo = {
   name: 'Large Test Archive - 1M records',
   coreCount: 1000000,
+  coreIdColumn: 'occurrenceID',
 };
 
 export const mockSearchResultLarge: SearchResult = {
@@ -181,6 +184,7 @@ export const mockSearchResultLarge: SearchResult = {
 export const mockArchiveSmall: ArchiveInfo = {
   name: 'Small Test Archive - 1K records',
   coreCount: 1000,
+  coreIdColumn: 'occurrenceID',
 };
 
 export const mockSearchResultSmallScale: SearchResult = {

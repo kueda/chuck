@@ -6,11 +6,12 @@
     Props as VirtualizedListProps
   } from '$lib/components/VirtualizedList.svelte';
   import type { Occurrence } from '$lib/types/archive';
-  import OccurrenceCard from '$lib/components/OccurrenceCard.svelte';
+  import OccurrenceCard, { EST_HEIGHT } from '$lib/components/OccurrenceCard.svelte';
 
   interface Props extends Pick<VirtualizedListProps, 'count' | 'scrollElement' | 'onVisibleRangeChange'> {
     occurrenceCache: Map<number, Occurrence>;
     occurrenceCacheVersion: number;
+    coreIdColumn: string;
   }
 
   let {
@@ -18,7 +19,8 @@
     occurrenceCacheVersion,
     count,
     scrollElement,
-    onVisibleRangeChange
+    onVisibleRangeChange,
+    coreIdColumn
   }: Props = $props();
 
   // Tanstack Virtual needs to now whether the virtualized items are arranged
@@ -64,7 +66,7 @@
 <VirtualizedList
   {count}
   {scrollElement}
-  estimateSize={280}
+  estimateSize={EST_HEIGHT}
   {lanes}
   {onVisibleRangeChange}
 >
@@ -84,21 +86,33 @@
           <div class="grid gap-4 grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
             <VirtualizedOccurrenceList
               virtualItems={data.virtualItems}
+              scrollToIndex={data.scrollToIndex}
               {occurrenceCache}
               {occurrenceCacheVersion}
+              {coreIdColumn}
+              {count}
             >
-              {#snippet children({ virtualRow, occurrence })}
-            <div class="flex" style="height: {virtualRow.size}px;">
-              {#if occurrence}
-                <OccurrenceCard {occurrence} />
-              {:else}
-                <div class="loading-card w-full card preset-filled-surface-100-900 border-surface-200-800
-                  rounded-md border-2 p-4 text-center text-gray-400"
-                  style="height: {virtualRow.size}px;">
-                  Loading...
-                </div>
-              {/if}
-            </div>
+              {#snippet children({ virtualRow, occurrence, handleOccurrenceClick, selectedOccurrenceIndex })}
+              <div class="flex" style="height: {virtualRow.size}px;">
+                {#if occurrence}
+                  <button
+                    type="button"
+                    class={{
+                      "w-full text-left": true,
+                      "outline-2 outline-primary-200": virtualRow.index === selectedOccurrenceIndex
+                    }}
+                    onclick={() => handleOccurrenceClick(occurrence, virtualRow.index)}
+                  >
+                    <OccurrenceCard {occurrence} />
+                  </button>
+                {:else}
+                  <div class="loading-card w-full card preset-filled-surface-100-900 border-surface-200-800
+                    rounded-md border-2 p-4 text-center text-gray-400"
+                    style="height: {virtualRow.size}px;">
+                    Loading...
+                  </div>
+                {/if}
+              </div>
               {/snippet}
             </VirtualizedOccurrenceList>
           </div>

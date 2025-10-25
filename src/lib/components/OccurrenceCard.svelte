@@ -6,7 +6,11 @@
   const mediaItem = occurrence?.multimedia?.find(m => m.identifier);
 </script>
 
-<div class="occurrence-card card preset-filled-surface-100-900 border-surface-200-800
+<script lang="ts" module>
+  export const EST_HEIGHT = 286;
+</script>
+
+<div class="occurrence-item occurrence-card card preset-filled-surface-100-900 border-surface-200-800
   rounded-md border-2 divide-surface-200-800 w-full divide-y flex flex-col">
   <header class="rounded-t-sm">
     <div class="h-[200px] preset-filled-surface-200-800 flex justify-center items-center relative">
@@ -18,13 +22,8 @@
       {occurrence.scientificName || 'Unknown'}
     </div>
     {#if occurrence.eventDate}
-      <div class="text-sm text-surface-600-400">
+      <div class="text-sm text-surface-600-400 truncate">
         <span class="font-semibold">Date:</span> {occurrence.eventDate}
-      </div>
-    {/if}
-    {#if occurrence.recordedBy}
-      <div class="text-sm text-surface-600-400 truncate" title={occurrence.recordedBy}>
-        <span class="font-semibold">Recorded by:</span> {occurrence.recordedBy}
       </div>
     {/if}
   </article>

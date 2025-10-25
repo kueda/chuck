@@ -37,10 +37,6 @@ test.describe('Frontend', () => {
     // Wait for the main content area to appear
     await expect(page.locator('main')).toBeVisible();
 
-    // Check that the header row is visible
-    await expect(page.getByText('occurrenceID')).toBeVisible();
-    await expect(page.getByText('scientificName')).toBeVisible();
-
     // Check that some occurrence data is visible
     const rows = await getVisibleOccurrences(page);
     expect(rows.length).toBeGreaterThan(0);
@@ -142,7 +138,7 @@ test.describe('Frontend', () => {
     ];
 
     for (const header of headers) {
-      await expect(page.getByText(header)).toBeVisible();
+      await expect(page.locator('.table-cell').getByText(header)).toBeVisible();
     }
   });
 
@@ -174,10 +170,6 @@ test.describe('Frontend', () => {
     // Verify the ViewSwitcher is visible and has both options
     await expect(page.getByText('Table', { exact: true })).toBeVisible();
     await expect(page.getByText('Cards', { exact: true })).toBeVisible();
-
-    // Verify we're initially in table view (column headers should be visible)
-    await expect(page.getByText('occurrenceID')).toBeVisible();
-    await expect(page.getByText('scientificName')).toBeVisible();
   });
 
   test('should use default table view on initial load', async ({ page }) => {
@@ -195,8 +187,8 @@ test.describe('Frontend', () => {
     expect(savedView).toBe('table');
 
     // Verify we're in table view (column headers should be visible)
-    await expect(page.getByText('occurrenceID')).toBeVisible();
-    await expect(page.getByText('scientificName')).toBeVisible();
+    await expect(page.locator('.table-cell', { hasText: 'occurrenceID' })).toBeVisible();
+    await expect(page.locator('.table-cell', { hasText: 'scientificName' })).toBeVisible();
   });
 
   test('should switch to cards view and display scientificName on cards', async ({ page }) => {
@@ -207,7 +199,7 @@ test.describe('Frontend', () => {
     await page.waitForTimeout(1000);
 
     // Verify we're initially in table view
-    await expect(page.getByText('occurrenceID')).toBeVisible();
+    await expect(page.locator('.occurrence-table')).toBeVisible();
 
     // Find and click the Cards option in the SegmentedControl
     // The hidden input is what actually gets clicked
@@ -218,9 +210,9 @@ test.describe('Frontend', () => {
     // Wait for view to switch
     await page.waitForTimeout(1000);
 
-    // Verify table headers are no longer visible
-    const tableHeader = page.locator('div.flex.items-center.py-2.px-2.border-b.font-bold');
-    await expect(tableHeader).not.toBeVisible();
+    // Verify table are no longer visible
+    const table = page.locator('.occurrence-table');
+    await expect(table).not.toBeVisible();
 
     // Verify cards are displayed
     const cards = page.locator('.occurrence-card');
@@ -256,8 +248,7 @@ test.describe('Frontend', () => {
       return window.getComputedStyle(el).height;
     });
 
-    // The virtualizer estimates 280px per card
-    expect(cardHeight).toBe('280px');
+    expect(cardHeight).toBe('286px');
 
     // Also verify the actual card dimensions
     const cardBoundingBox = await page.locator('.occurrence-card').first().boundingBox();
@@ -265,7 +256,7 @@ test.describe('Frontend', () => {
     if (cardBoundingBox) {
       // Card should be approximately 280px tall (allowing small variance)
       expect(cardBoundingBox.height).toBeGreaterThanOrEqual(250);
-      expect(cardBoundingBox.height).toBeLessThanOrEqual(280);
+      expect(cardBoundingBox.height).toBeLessThanOrEqual(286);
     }
   });
 

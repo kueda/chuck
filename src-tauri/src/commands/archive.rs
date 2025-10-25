@@ -22,6 +22,9 @@ pub struct ArchiveInfo {
 
     #[serde(rename = "coreCount")]
     pub core_count: usize,
+
+    #[serde(rename = "coreIdColumn")]
+    pub core_id_column: String,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -161,4 +164,13 @@ pub fn search(
         log::error!("caught search error: {}, backtrace: {}", e, Backtrace::capture());
         e
     })
+}
+
+#[tauri::command]
+pub fn get_occurrence(
+    app: tauri::AppHandle,
+    occurrence_id: String,
+) -> Result<serde_json::Map<String, serde_json::Value>> {
+    let archive = Archive::current(&get_local_data_dir(app)?)?;
+    archive.get_occurrence(&occurrence_id)
 }

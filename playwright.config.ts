@@ -22,6 +22,12 @@ export default defineConfig({
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'] },
+      testIgnore: '**/performance.spec.ts',
+    },
+    {
+      name: 'webkit-performance',
+      use: { ...devices['Desktop Safari'] },
+      testMatch: '**/performance.spec.ts',
     },
   ],
 
