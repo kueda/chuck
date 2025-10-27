@@ -35,6 +35,11 @@
   let currentSearchParams = $state<SearchParams>({});
   let filteredTotal = $state<number>(0);
   let currentView = $state<'table' | 'cards'>('table');
+  let lastVisibleRange = $state({ firstIndex: 0, lastIndex: 0, scrollOffsetIndex: 0 });
+
+  // Use a simple object ref that persists across reactivity
+  // const scrollState = { targetIndex: 0, shouldScroll: false };
+  let scrollState = $state({ targetIndex: 0, shouldScroll: false });
   let archiveLoadingStatus = $state<
     null | 'importing' | 'extracting' | 'creatingDatabase'
   >(null);
@@ -93,7 +98,22 @@
 
   // Handler for when visible range changes in virtualizer
   let lastLoadedRange = { firstChunk: -1, lastChunk: -1 };
-  function handleVisibleRangeChange({ firstIndex, lastIndex }: { firstIndex: number; lastIndex: number }) {
+  function handleVisibleRangeChange(
+    {
+      firstIndex,
+      lastIndex,
+      scrollOffsetIndex
+    }: {
+      firstIndex: number,
+      lastIndex: number,
+      scrollOffsetIndex: number | undefined,
+    }
+  ) {
+    // Track the current visible range for view switching
+    if (scrollOffsetIndex && scrollOffsetIndex > 0) {
+      lastVisibleRange = { firstIndex, lastIndex, scrollOffsetIndex };
+    }
+
     // Calculate which chunks we need
     const firstChunk = Math.floor(firstIndex / CHUNK_SIZE);
     const lastChunk = Math.floor(lastIndex / CHUNK_SIZE);
@@ -166,12 +186,25 @@
     }
   });
 
-  // Persist view preference to localStorage
+  // Persist view preference to localStorage and capture scroll position for view switch
+  let previousView: 'table' | 'cards' | null = null;
   $effect(() => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('chuck:viewPreference', currentView);
     }
   });
+
+  function onViewChange() {
+    // When view changes, capture the scroll target
+    if (
+      previousView !== currentView
+      && lastVisibleRange.scrollOffsetIndex > 0
+    ) {
+      scrollState.targetIndex = lastVisibleRange.scrollOffsetIndex;
+      scrollState.shouldScroll = true;
+    }
+    previousView = currentView;
+  }
 
   async function openArchive() {
     const path = await open();
@@ -316,7 +349,7 @@
 {:else if archive}
   <div class="flex flex-row p-4 fixed w-full h-screen">
     <div class="absolute bottom-10 right-10 z-10">
-      <ViewSwitcher bind:view={currentView} />
+      <ViewSwitcher bind:view={currentView} {onViewChange} />
     </div>
     <Filters onSearchChange={handleSearchChange} />
     <main class="overflow-y-auto w-full relative" bind:this={scrollElement}>
@@ -328,6 +361,7 @@
           {scrollElement}
           onVisibleRangeChange={handleVisibleRangeChange}
           coreIdColumn={archive.coreIdColumn}
+          {scrollState}
         />
       {:else}
         <Cards
@@ -337,6 +371,7 @@
           {scrollElement}
           onVisibleRangeChange={handleVisibleRangeChange}
           coreIdColumn={archive.coreIdColumn}
+          {scrollState}
         />
       {/if}
     </main>

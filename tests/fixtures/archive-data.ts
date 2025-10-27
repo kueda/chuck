@@ -76,8 +76,21 @@ function generateMockOccurrences(count: number): Occurrence[] {
     'Pinus ponderosa',
     'Quercus agrifolia',
     'Arctostaphylos manzanita',
+    'Arbutus menziesii',
+    'Chrysolepis chrysophylla',
+    'Juniperus californica',
+    'Heteromeles arbutifolia',
+    'Baccharis pilularis',
+    'Fraxinus dipetala',
+    'Umbellularia californica',
   ];
-  const observers = ['Jane Smith', 'John Doe', 'Bob Johnson', 'Alice Williams'];
+  const observers = [
+    'Mary Bowerman',
+    'John Thomas Howell',
+    'Alice Eastwood',
+    'Helen Sharsmith',
+    'Sara Plummer Lemmon',
+  ];
 
   const occurrences: Occurrence[] = [...mockOccurrences];
 

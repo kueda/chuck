@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import {
   setupMockTauri,
   waitForAppReady,
@@ -19,6 +20,11 @@ test.describe('Frontend', () => {
     // Wait for initial render
     await waitForAppReady(page);
   });
+
+  async function switchToView(page: Page, view: string) {
+    const cardsInput = page.locator(`input[type="radio"][value="${view}"]`);
+    return cardsInput.click({ force: true });
+  }
 
   test('should display welcome message when no archive is open', async ({ page }) => {
     // Check for the welcome text
@@ -202,10 +208,7 @@ test.describe('Frontend', () => {
     await expect(page.locator('.occurrence-table')).toBeVisible();
 
     // Find and click the Cards option in the SegmentedControl
-    // The hidden input is what actually gets clicked
-    const cardsInput = page.locator('input[type="radio"][value="cards"]');
-    await expect(cardsInput).toBeAttached();
-    await cardsInput.click({ force: true });
+    await switchToView(page, 'cards');
 
     // Wait for view to switch
     await page.waitForTimeout(1000);
@@ -236,8 +239,7 @@ test.describe('Frontend', () => {
     await page.waitForTimeout(1000);
 
     // Switch to cards view
-    const cardsInput = page.locator('input[type="radio"][value="cards"]');
-    await cardsInput.click({ force: true });
+    await switchToView(page, 'cards');
 
     // Wait for view to switch
     await page.waitForTimeout(1000);
@@ -248,7 +250,7 @@ test.describe('Frontend', () => {
       return window.getComputedStyle(el).height;
     });
 
-    expect(cardHeight).toBe('286px');
+    expect(cardHeight).toBe('302px');
 
     // Also verify the actual card dimensions
     const cardBoundingBox = await page.locator('.occurrence-card').first().boundingBox();
@@ -292,6 +294,88 @@ test.describe('Frontend', () => {
     expect(finalScrollHeight).toBeLessThan(initialScrollHeight * 0.5);
   });
 
+  test('preserves scroll position when switching from table to cards to table without scroll', async ({ page}) => {
+    await openArchive(page);
+    await page.waitForTimeout(1_000);
+    const main = page.locator('main');
+    const scrollTopInit = await main.evaluate(el => el.scrollTop);
+    expect(scrollTopInit).toEqual(0);
+
+    await switchToView(page, 'cards');
+    await page.waitForSelector('.occurrence-card');
+    const scrollTopAfterSwitch = await main.evaluate(el => el.scrollTop);
+    expect(scrollTopAfterSwitch).toEqual(0);
+
+    await switchToView(page, 'table');
+    await page.waitForSelector('.occurrence-row');
+    const scrollTopAfterSwitchBatch = await main.evaluate(el => el.scrollTop);
+    expect(scrollTopAfterSwitchBatch).toEqual(0);
+  });
+
+  test('should preserve scroll position when switching between table and cards views', async ({ page }) => {
+    // Open the archive
+    await openArchive(page);
+
+    // Wait for initial load in table view
+    await page.waitForTimeout(1000);
+
+    // Scroll down in table view
+    const mainElement = page.locator('main');
+    await mainElement.evaluate((el) => {
+      el.scrollTop = 2000;
+    });
+
+    // Wait for scroll to settle
+    await page.waitForTimeout(500);
+
+    // Get a reference occurrence that should be visible (capture text from first visible row)
+    const firstVisibleRow = page.locator('.occurrence-row').first();
+    const referenceOccurrenceId = await firstVisibleRow.locator('div').first().textContent();
+
+    // Log the scroll position before switching
+    const scrollBeforeSwitch = await mainElement.evaluate(el => el.scrollTop);
+
+    // Switch to cards view
+    await switchToView(page, 'cards');
+
+    // Wait for view to switch and cards to render
+    await page.waitForTimeout(1000);
+
+    // Check scroll position after switch
+    const scrollAfterSwitch = await mainElement.evaluate(el => el.scrollTop);
+
+    // Verify that the reference occurrence is still visible in cards view
+    // The first visible card should contain the same occurrence ID (or be very close)
+    const cards = page.locator('.occurrence-card');
+    await expect(cards.first()).toBeVisible();
+
+    // Get the first few visible cards and check if our reference occurrence is among them
+    const firstCardText = await cards.first().textContent();
+    const secondCardText = await cards.nth(1).textContent();
+    const thirdCardText = await cards.nth(2).textContent();
+
+    // The reference occurrence should be in one of the first few visible cards
+    const referenceIsVisible =
+      firstCardText?.includes(referenceOccurrenceId || '') ||
+      secondCardText?.includes(referenceOccurrenceId || '') ||
+      thirdCardText?.includes(referenceOccurrenceId || '');
+
+    expect(referenceIsVisible).toBe(true);
+
+    // Now switch back to table view
+    await switchToView(page, 'table');
+
+    // Wait for view to switch back
+    await page.waitForTimeout(1000);
+
+    // Verify the reference occurrence is still visible in table view
+    const firstRowAfterSwitch = page.locator('.occurrence-row').first();
+    const firstRowText = await firstRowAfterSwitch.locator('div').first().textContent();
+
+    // Should show the same or very close occurrence
+    expect(firstRowText).toBe(referenceOccurrenceId);
+  });
+
   test('should preserve scroll position when window width changes in cards view', async ({ page }) => {
     // Set initial viewport size to ensure we start with known column count
     await page.setViewportSize({ width: 800, height: 800 });
@@ -303,8 +387,7 @@ test.describe('Frontend', () => {
     await page.waitForTimeout(1000);
 
     // Switch to cards view
-    const cardsInput = page.locator('input[type="radio"][value="cards"]');
-    await cardsInput.click({ force: true });
+    await switchToView(page, 'cards');
 
     // Wait for view to switch and cards to render
     await page.waitForTimeout(1000);
@@ -356,8 +439,7 @@ test.describe('Frontend', () => {
     await page.waitForTimeout(1000);
 
     // Switch to cards view
-    const cardsInput = page.locator('input[type="radio"][value="cards"]');
-    await cardsInput.click({ force: true });
+    await switchToView(page, 'cards');
 
     // Wait for view to switch and cards to render
     await page.waitForTimeout(1000);

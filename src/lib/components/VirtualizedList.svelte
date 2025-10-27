@@ -22,7 +22,14 @@
     scrollElement: Element | undefined;
     estimateSize: number;
     lanes: number;
-    onVisibleRangeChange?: (range: { firstIndex: number; lastIndex: number }) => void;
+    onVisibleRangeChange?: (
+      range: {
+        firstIndex: number,
+        lastIndex: number,
+        scrollOffsetIndex: number | undefined
+      }
+    ) => void;
+    scrollState?: { targetIndex: number; shouldScroll: boolean };
     children: Snippet<[VirtualListData]>;
   }
 
@@ -32,6 +39,7 @@
     estimateSize,
     lanes,
     onVisibleRangeChange,
+    scrollState,
     children
   }: Props = $props();
 
@@ -57,6 +65,14 @@
   // but using this key to wrap the relevant parts of the DOM fixes it.
   let virtualizerVersion = $state(0);
 
+  // Performance optimization: cache scrollOffsetIndex and only recalculate
+  // when scroll position changes significantly, i.e. more than the height of
+  // a virtualized item
+  let lastScrollOffsetIndex: number | undefined = undefined;
+  let lastCalculatedScrollTop = 0;
+  let lastReportedFirstIndex = -1;
+  let lastReportedLastIndex = -1;
+
   function handleChange(instance: Virtualizer<Element, Element>) {
     if (!onVisibleRangeChange) return;
 
@@ -66,9 +82,37 @@
     const firstIndex = items[0].index;
     const lastIndex = items[items.length - 1].index;
 
-    onVisibleRangeChange({ firstIndex, lastIndex });
+    // Only calculate scrollOffsetIndex if scroll position changed significantly
+    // Skip calculation entirely if at scroll position 0 (initial render)
+    let scrollOffsetIndex = lastScrollOffsetIndex;
+    const currentScrollTop = instance.scrollOffset || 0;
+
+    if (
+      // Don't need to preserve scroll position if we're at the top
+      currentScrollTop > 0
+      // Don't need to preserve scroll position if we haven't scrolled more
+      // than the height of an item
+      && Math.abs(currentScrollTop - lastCalculatedScrollTop) > estimateSize
+    ) {
+      const rowHeight = items[0].size;
+      const scrollOffsetRows = Math.floor(currentScrollTop / rowHeight);
+      scrollOffsetIndex = scrollOffsetRows * lanes;
+      lastScrollOffsetIndex = scrollOffsetIndex;
+      lastCalculatedScrollTop = currentScrollTop;
+    }
+
+    // Only call callback if range actually changed
+    if (
+      firstIndex !== lastReportedFirstIndex
+      || lastIndex !== lastReportedLastIndex
+    ) {
+      lastReportedFirstIndex = firstIndex;
+      lastReportedLastIndex = lastIndex;
+      onVisibleRangeChange({ firstIndex, lastIndex, scrollOffsetIndex });
+    }
   }
 
+  // Wrapper for the Tanstack Virtualizer function so we can pass it down to children
   function scrollToIndex(index: number, options?: { align?: 'start' | 'center' | 'end' | 'auto' }) {
     if (!virtualizer) return;
     const instance = get(virtualizer);
@@ -100,6 +144,23 @@
       virtualizerVersion++;
     });
     initialized = true;
+  });
+
+  // Separate effect to handle scroll to index when view switches
+  $effect(() => {
+    if (!scrollState) return;
+    if (!virtualizer || !initialized) return;
+    if (!scrollState.shouldScroll || scrollState.targetIndex === 0) return;
+
+    const { targetIndex } = scrollState;
+    // Scroll to the target index after a delay
+    setTimeout(() => {
+      if (virtualizer && scrollState.shouldScroll) {
+        scrollToIndex(targetIndex, { align: 'start' });
+        // Mark as consumed
+        scrollState.shouldScroll = false;
+      }
+    }, 100);
   });
 </script>
 

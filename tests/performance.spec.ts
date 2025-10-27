@@ -158,9 +158,13 @@ test.describe('Frontend performance of', () => {
     });
 
     test('all scales in sequence', async ({ page }) => {
+      // Print browser console messages
+      // page.on('console', msg => console.log('[BROWSER]', msg.text()));
+
       const results: Array<{ scale: string; count: number; duration: number }> = [];
 
       // Test 1K
+      // console.log('[performance.spec.ts] 1K');
       await setupMockTauriWithCustomData(page, 'Test 1K', 1000, 1000);
       await page.goto('/');
       await waitForAppReady(page);
@@ -169,6 +173,7 @@ test.describe('Frontend performance of', () => {
       results.push({ scale: '1K', count: 1000, duration: duration1k });
 
       // Reload for 100K
+      // console.log('[performance.spec.ts] 100K');
       await setupMockTauriWithCustomData(page, 'Test 100K', 100000, 100000);
       await page.goto('/');
       await waitForAppReady(page);
@@ -177,6 +182,7 @@ test.describe('Frontend performance of', () => {
       results.push({ scale: '100K', count: 100000, duration: duration100k });
 
       // Reload for 1M
+      // console.log('[performance.spec.ts] 1M');
       await setupMockTauriWithCustomData(page, 'Test 1M', 1000000, 1000000);
       await page.goto('/');
       await waitForAppReady(page);

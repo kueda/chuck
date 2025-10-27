@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import VirtualizedList from '$lib/components/VirtualizedList.svelte';
   import VirtualizedOccurrenceList from '$lib/components/VirtualizedOccurrenceList.svelte';
   import type {
@@ -12,6 +13,7 @@
     occurrenceCache: Map<number, Occurrence>;
     occurrenceCacheVersion: number;
     coreIdColumn: string;
+    scrollState: { targetIndex: number; shouldScroll: boolean };
   }
 
   let {
@@ -20,14 +22,18 @@
     count,
     scrollElement,
     onVisibleRangeChange,
-    coreIdColumn
+    coreIdColumn,
+    scrollState
   }: Props = $props();
 
-  // Tanstack Virtual needs to now whether the virtualized items are arranged
+  // Tanstack Virtual needs to know whether the virtualized items are arranged
   // in columns (which it calls lanes) and if so how many, so we're
   // recreating tailwind's breakpoints here to ensure the virtualizer knows
   // how many columns there are and that it gets recreated when the number of
   // columns change
+  //
+  // Note: changing the default here to window.innerWidth seems reasonable,
+  // but seriously impacts performance for large result sets
   let windowWidth = $state(0);
   const lanes = $derived.by(() => {
     if (windowWidth >= 1536) return 6;
@@ -38,9 +44,14 @@
 
   // Track window width so we can responsively tell the virtualizer how many
   // columns there are, which allows it to calculate heights correctly
-  $effect(() => {
+  onMount(() => {
     const updateWidth = () => {
-      windowWidth = window.innerWidth;
+      // Ideally this guard prevents unnecessary updates to windowWidth, the
+      // derived lanes value, and therefore unnecessary recreations of the
+      // virtualizer
+      if (windowWidth !== window.innerWidth) {
+        windowWidth = window.innerWidth;
+      }
     };
 
     // Set initial width
@@ -66,9 +77,13 @@
 <VirtualizedList
   {count}
   {scrollElement}
-  estimateSize={EST_HEIGHT}
+  estimateSize={
+    // Height of the card + gap
+    EST_HEIGHT + 16
+  }
   {lanes}
   {onVisibleRangeChange}
+  {scrollState}
 >
   {#snippet children(data: VirtualListData)}
     <!--
@@ -103,7 +118,7 @@
                     }}
                     onclick={() => handleOccurrenceClick(occurrence, virtualRow.index)}
                   >
-                    <OccurrenceCard {occurrence} />
+                    <OccurrenceCard occurrence={{...occurrence, scientificName: `${virtualRow.index}. ${occurrence.scientificName}`}} />
                   </button>
                 {:else}
                   <div class="loading-card w-full card preset-filled-surface-100-900 border-surface-200-800

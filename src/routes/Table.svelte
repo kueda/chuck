@@ -11,6 +11,7 @@
     occurrenceCache: Map<number, Occurrence>;
     occurrenceCacheVersion: number;
     coreIdColumn: string;
+    scrollState: { targetIndex: number; shouldScroll: boolean };
   }
 
   const {
@@ -19,16 +20,21 @@
     count,
     scrollElement,
     onVisibleRangeChange,
-    coreIdColumn
+    coreIdColumn,
+    scrollState
   }: Props = $props();
 </script>
 
 <VirtualizedList
   {count}
   {scrollElement}
-  estimateSize={40}
+  estimateSize={
+    // Row height and border
+    40 + 1
+  }
   lanes={1}
   {onVisibleRangeChange}
+  {scrollState}
 >
   {#snippet children(data: VirtualListData)}
     <!--
@@ -40,6 +46,7 @@
     {#key data._key}
       <div class="occurrence-table w-full">
         <div class="flex items-center py-2 px-2 border-b font-bold">
+          <div class="table-cell w-10">idx</div>
           <div class="table-cell flex-1">occurrenceID</div>
           <div class="table-cell flex-1">scientificName</div>
           <div class="table-cell w-24">lat</div>
@@ -77,6 +84,7 @@
                 role="button"
                 tabindex="0"
               >
+                <div class="w-10">{virtualRow.index}</div>
                 {#if occurrence}
                   <div class="flex-1 truncate">{occurrence.occurrenceID}</div>
                   <div class="flex-1 truncate">{occurrence.scientificName}</div>

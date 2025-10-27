@@ -2,12 +2,21 @@
   import { SegmentedControl } from '@skeletonlabs/skeleton-svelte';
   import { BookImage, Sheet } from 'lucide-svelte';
 
-  let { view = $bindable('table') }: { view: string } = $props();
+  let {
+    view = $bindable('table'),
+    onViewChange
+  }: {
+    view: string,
+    onViewChange: () => void
+  } = $props();
 </script>
 
 <SegmentedControl
   value={view}
-  onValueChange={(e) => (view = e.value || 'table')}
+  onValueChange={(e) => {
+    onViewChange();
+    return view = e.value || 'table';
+  }}
 >
   <SegmentedControl.Control class="bg-white shadow-lg">
     <SegmentedControl.Indicator />
