@@ -312,6 +312,58 @@ test.describe('Frontend', () => {
     expect(scrollTopAfterSwitchBatch).toEqual(0);
   });
 
+  test('should maintain scroll position when loading chunks in cards view', async ({ page }) => {
+    // Open the archive
+    await openArchive(page);
+
+    // Wait for initial load
+    await page.waitForTimeout(1000);
+
+    // Switch to cards view
+    await switchToView(page, 'cards');
+
+    // Wait for cards to render
+    await page.waitForTimeout(1000);
+
+    const mainElement = page.locator('main');
+
+    // Get initial scroll position
+    const initialScroll = await mainElement.evaluate(el => el.scrollTop);
+    expect(initialScroll).toBe(0);
+
+    // Scroll down to around record 450 (which triggers chunk loading)
+    // With 3 columns and ~302px per row, record 450 is at row 150, around 45,300px
+    // Use wheel events to scroll there realistically
+    await page.mouse.move(400, 400); // Move mouse over the main area
+    for (let i = 0; i < 20; i++) {
+      await page.mouse.wheel(0, 500);
+      await page.waitForTimeout(50);
+    }
+
+    // Wait for chunks to load
+    await page.waitForTimeout(1000);
+
+    // Verify we scrolled significantly
+    const scrollAfterFirst = await mainElement.evaluate(el => el.scrollTop);
+    expect(scrollAfterFirst).toBeGreaterThan(5000);
+
+    // Scroll further down to trigger more chunk loading
+    // This is where the bug would manifest - occurrenceCacheVersion++ would cause
+    // the component to remount (because {#key} included occurrenceCacheVersion)
+    // and reset scroll position to 0
+    for (let i = 0; i < 20; i++) {
+      await page.mouse.wheel(0, 500);
+      await page.waitForTimeout(50);
+    }
+
+    // Wait for chunks to load
+    await page.waitForTimeout(1500);
+
+    // Verify scroll position increased and didn't reset to 0
+    const scrollAfterSecond = await mainElement.evaluate(el => el.scrollTop);
+    expect(scrollAfterSecond).toBeGreaterThan(scrollAfterFirst);
+  });
+
   test('should preserve scroll position when switching between table and cards views', async ({ page }) => {
     // Open the archive
     await openArchive(page);
