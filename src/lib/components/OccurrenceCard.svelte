@@ -10,8 +10,10 @@
   export const EST_HEIGHT = 286;
 </script>
 
-<div class="occurrence-item occurrence-card card preset-filled-surface-100-900 border-surface-200-800
-  rounded-md border-2 divide-surface-200-800 w-full divide-y flex flex-col">
+<div
+  class="occurrence-item occurrence-card card preset-filled-surface-100-900 border-surface-200-800
+  rounded-md border-2 divide-surface-200-800 w-full divide-y flex flex-col"
+>
   <header class="rounded-t-sm">
     <div class="h-[200px] preset-filled-surface-200-800 flex justify-center items-center relative">
       <MediaItem media={mediaItem} />

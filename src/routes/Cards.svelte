@@ -118,7 +118,9 @@
                     }}
                     onclick={() => handleOccurrenceClick(occurrence, virtualRow.index)}
                   >
-                    <OccurrenceCard occurrence={{...occurrence, scientificName: `${virtualRow.index}. ${occurrence.scientificName}`}} />
+                    <OccurrenceCard
+                      occurrence={{...occurrence, scientificName: `${virtualRow.index}. ${occurrence.scientificName}`}}
+                    />
                   </button>
                 {:else}
                   <div class="loading-card w-full card preset-filled-surface-100-900 border-surface-200-800

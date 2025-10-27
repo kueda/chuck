@@ -89,7 +89,15 @@
 -->
 {#each virtualItems as virtualRow (`${virtualRow.index}-${occurrenceCacheVersion}`)}
   {@const occurrence = occurrenceCache.get(virtualRow.index)}
-  {@render children({ virtualRow, occurrence, handleOccurrenceClick, selectedOccurrenceIndex })}
+  <div
+    id={occurrence
+      ?`item-${occurrence[coreIdColumn as keyof Occurrence]}`
+      : ''
+    }
+    class="list-item"
+  >
+    {@render children({ virtualRow, occurrence, handleOccurrenceClick, selectedOccurrenceIndex })}
+  </div>
 {/each}
 
 <OccurrenceDrawer

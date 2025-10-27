@@ -329,8 +329,8 @@ test.describe('Frontend', () => {
     await page.waitForTimeout(500);
 
     // Get a reference occurrence that should be visible (capture text from first visible row)
-    const firstVisibleRow = page.locator('.occurrence-row').first();
-    const referenceOccurrenceId = await firstVisibleRow.locator('div').first().textContent();
+    const firstVisibleRow = page.locator('.list-item').first();
+    const referenceOccurrenceId = await firstVisibleRow.evaluate(el => el.id);
 
     // Log the scroll position before switching
     const scrollBeforeSwitch = await mainElement.evaluate(el => el.scrollTop);
@@ -346,19 +346,19 @@ test.describe('Frontend', () => {
 
     // Verify that the reference occurrence is still visible in cards view
     // The first visible card should contain the same occurrence ID (or be very close)
-    const cards = page.locator('.occurrence-card');
-    await expect(cards.first()).toBeVisible();
+    const cardItems = page.locator('.list-item');
+    await expect(cardItems.first()).toBeVisible();
 
     // Get the first few visible cards and check if our reference occurrence is among them
-    const firstCardText = await cards.first().textContent();
-    const secondCardText = await cards.nth(1).textContent();
-    const thirdCardText = await cards.nth(2).textContent();
+    const firstCardId = await cardItems.first().evaluate(el => el.id);
+    const secondCardId = await cardItems.nth(1).evaluate(el => el.id);
+    const thirdCardId = await cardItems.nth(2).evaluate(el => el.id);
 
     // The reference occurrence should be in one of the first few visible cards
     const referenceIsVisible =
-      firstCardText?.includes(referenceOccurrenceId || '') ||
-      secondCardText?.includes(referenceOccurrenceId || '') ||
-      thirdCardText?.includes(referenceOccurrenceId || '');
+      firstCardId?.includes(referenceOccurrenceId || '') ||
+      secondCardId?.includes(referenceOccurrenceId || '') ||
+      thirdCardId?.includes(referenceOccurrenceId || '');
 
     expect(referenceIsVisible).toBe(true);
 
@@ -369,11 +369,11 @@ test.describe('Frontend', () => {
     await page.waitForTimeout(1000);
 
     // Verify the reference occurrence is still visible in table view
-    const firstRowAfterSwitch = page.locator('.occurrence-row').first();
-    const firstRowText = await firstRowAfterSwitch.locator('div').first().textContent();
+    const firstRowAfterSwitch = page.locator('.list-item').first();
+    const firstRowId = await firstRowAfterSwitch.evaluate(el => el.id);
 
     // Should show the same or very close occurrence
-    expect(firstRowText).toBe(referenceOccurrenceId);
+    expect(firstRowId).toBe(referenceOccurrenceId);
   });
 
   test('should preserve scroll position when window width changes in cards view', async ({ page }) => {
