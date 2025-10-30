@@ -174,3 +174,12 @@ pub fn get_occurrence(
     let archive = Archive::current(&get_local_data_dir(app)?)?;
     archive.get_occurrence(&occurrence_id)
 }
+
+#[tauri::command]
+pub fn get_photo(
+    app: tauri::AppHandle,
+    photo_path: String,
+) -> Result<String> {
+    let archive = Archive::current(&get_local_data_dir(app)?)?;
+    archive.get_photo(&photo_path)
+}

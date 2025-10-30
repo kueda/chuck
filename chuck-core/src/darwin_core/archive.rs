@@ -225,7 +225,7 @@ impl ArchiveBuilder {
         // Create ZIP archive
         let zip_file = File::create(output_path)?;
         let mut zip = ZipWriter::new(zip_file);
-        let options = FileOptions::default()
+        let options: FileOptions<()> = FileOptions::default()
             .compression_method(CompressionMethod::Deflated)
             .unix_permissions(0o644);
 
@@ -299,7 +299,7 @@ impl ArchiveBuilder {
         }
 
         // There's no point in trying to compress JPGs
-        let zip_opts = FileOptions::default()
+        let zip_opts: FileOptions<()> = FileOptions::default()
             .compression_method(CompressionMethod::Stored)
             .unix_permissions(0o644);
 

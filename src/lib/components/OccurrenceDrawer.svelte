@@ -1,9 +1,10 @@
 <script lang="ts">
   import { Dialog, Portal } from '@skeletonlabs/skeleton-svelte';
   import { invoke } from '$lib/tauri-api';
-  import type { Occurrence } from '$lib/types/archive';
+  import type { Occurrence, Multimedia, Audiovisual } from '$lib/types/archive';
   import PhotoViewer from './PhotoViewer.svelte';
   import OccurrenceMap from './OccurrenceMap.svelte';
+  import MediaItem from './MediaItem.svelte';
   import { ArrowLeft, ArrowLeftCircle, ArrowRight, ArrowRightCircle, Calendar, Globe, Heading, MapPin, User, X } from 'lucide-svelte';
 
   interface Props {
@@ -229,14 +230,10 @@
                     {#if photoUrl}
                       <button
                         type="button"
-                        class="aspect-square overflow-hidden rounded border hover:opacity-80 transition-opacity"
+                        class="aspect-square overflow-hidden rounded border hover:opacity-80 transition-opacity relative"
                         onclick={() => openPhotoViewer(photoUrl)}
                       >
-                        <img
-                          src={photoUrl}
-                          alt={media.title || 'Photo'}
-                          class="w-full h-full object-cover"
-                        />
+                        <MediaItem media={media} alt={media.title || 'Photo'} />
                       </button>
                     {/if}
                   {/each}
@@ -245,14 +242,10 @@
                     {#if photoUrl}
                       <button
                         type="button"
-                        class="aspect-square overflow-hidden rounded border hover:opacity-80 transition-opacity"
+                        class="aspect-square overflow-hidden rounded border hover:opacity-80 transition-opacity relative"
                         onclick={() => openPhotoViewer(photoUrl)}
                       >
-                        <img
-                          src={photoUrl}
-                          alt={av.title || 'Photo'}
-                          class="w-full h-full object-cover"
-                        />
+                        <MediaItem media={av} alt={av.title || 'Photo'} />
                       </button>
                     {/if}
                   {/each}

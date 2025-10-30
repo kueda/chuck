@@ -147,13 +147,13 @@ impl PhotoDownloader {
 
                     let file_path = date_subdir.join(&filename);
 
-                    // Get the relative path for use in the hash map
-                    let cmp_count = file_path.components().count();
-                    let rel_path: PathBuf = file_path
-                        .clone()
-                        .components()
-                        .skip(cmp_count.saturating_sub(4)) // Skip more components due to YYYY/MM/DD subdirs
-                        .collect();
+                    // Get the relative path from the archive root (parent of output_dir)
+                    // output_dir is temp_dir/media, so we need the path relative to temp_dir
+                    let archive_root = output_dir.parent().expect("output_dir should have a parent");
+                    let rel_path = file_path
+                        .strip_prefix(archive_root)
+                        .expect("file_path should start with archive_root")
+                        .to_path_buf();
 
                     match Self::download_photo_with_retry(photo_url, file_path, *id).await {
                         Ok(()) => {

@@ -3,6 +3,7 @@ mod commands;
 mod db;
 mod dwca;
 mod error;
+mod photo_cache;
 
 use tauri::menu::{MenuItemBuilder, SubmenuBuilder};
 use tauri::Emitter;
@@ -16,6 +17,8 @@ pub fn run() {
             commands::archive::open_archive,
             commands::archive::current_archive,
             commands::archive::search,
+            commands::archive::get_occurrence,
+            commands::archive::get_photo,
             commands::archive::get_occurrence,
             commands::dwc_download::get_observation_count,
             commands::dwc_download::generate_dwc_archive,

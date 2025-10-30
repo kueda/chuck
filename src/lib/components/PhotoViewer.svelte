@@ -1,6 +1,8 @@
 <script lang="ts">
   import { Dialog, Portal } from '@skeletonlabs/skeleton-svelte';
   import { ChevronLeft, ChevronRight } from 'lucide-svelte';
+  import { invoke } from '@tauri-apps/api/core';
+  import { convertFileSrc } from '@tauri-apps/api/core';
 
   const DEFAULT_ZOOM = 0.5;
 
@@ -22,9 +24,35 @@
   let panY = $state(0);
   let imgElement: HTMLImageElement | null = $state(null);
   let containerElement: HTMLDivElement | null = $state(null);
+  let convertedPhotoUrl = $state<string | null>(null);
 
-  // Computed current photo URL
+  // Check if a path is a local file path (not a URL)
+  function isLocalPath(path: string): boolean {
+    return !path.startsWith('http://') && !path.startsWith('https://');
+  }
+
+  // Computed current photo URL (raw from photos array)
   const currentPhotoUrl = $derived(photos[currentIndex] || null);
+
+  // Convert local paths to asset URLs when currentPhotoUrl changes
+  $effect(() => {
+    if (currentPhotoUrl && isLocalPath(currentPhotoUrl)) {
+      (async () => {
+        try {
+          const cachedPath = await invoke<string>('get_photo', { photoPath: currentPhotoUrl });
+          convertedPhotoUrl = convertFileSrc(cachedPath);
+        } catch (error) {
+          console.error('Failed to load local photo:', currentPhotoUrl, error);
+          convertedPhotoUrl = null;
+        }
+      })();
+    } else {
+      convertedPhotoUrl = currentPhotoUrl;
+    }
+  });
+
+  // Use converted URL for display
+  const displayPhotoUrl = $derived(convertedPhotoUrl);
 
   const isPannable = $derived(() => {
     if (!imgElement || !containerElement) return false;
@@ -51,9 +79,9 @@
     }
   });
 
-  // Reset zoom and pan when currentIndex changes
+  // Reset zoom and pan when displayPhotoUrl changes
   $effect(() => {
-    if (currentPhotoUrl) {
+    if (displayPhotoUrl) {
       zoom = DEFAULT_ZOOM;
       panX = 0;
       panY = 0;
@@ -236,7 +264,7 @@
           </button>
         {/if}
 
-        {#if currentPhotoUrl}
+        {#if displayPhotoUrl}
           <div
             bind:this={containerElement}
             class="overflow-auto w-full h-full flex items-center justify-center"
@@ -250,7 +278,7 @@
           >
             <img
               bind:this={imgElement}
-              src={currentPhotoUrl}
+              src={displayPhotoUrl}
               alt="Full size"
               class="max-w-none"
               style="transform: translate({panX}px, {panY}px) scale({zoom}); cursor: {isDragging ? 'grabbing' : isPannable() ? 'grab' : zoom > 1 ? 'zoom-out' : 'zoom-in'};"

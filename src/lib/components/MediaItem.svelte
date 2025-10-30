@@ -2,6 +2,8 @@
   import { ImageOff } from 'lucide-svelte';
   import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
+  import { invoke } from '@tauri-apps/api/core';
+  import { convertFileSrc } from '@tauri-apps/api/core';
   import type { Multimedia, Audiovisual } from '$lib/types/archive';
 
   let {
@@ -19,6 +21,11 @@
   const altText = $derived(alt || media?.description || '');
   const imageUrl = $derived(media?.identifier);
 
+  // Check if a path is a local file path (not a URL)
+  function isLocalPath(path: string): boolean {
+    return !path.startsWith('http://') && !path.startsWith('https://');
+  }
+
   // For some image providers, we may be able to use a more appropriate image,
   // e.g. a smaller one
   function getImageUrl(url: string): string {
@@ -35,17 +42,36 @@
     if (imageUrl) {
       // Lazy load the image, i.e. only when on screen
       const observer = new IntersectionObserver((entries) => {
-        entries.forEach((entry) => {
+        for (const entry of entries) {
           if (entry.isIntersecting) {
-            const img = new Image();
-            mediumSrc = getImageUrl(imageUrl);
-            img.onload = () => {
-              imageLoaded = true;
-            };
-            img.src = mediumSrc;
             observer.disconnect();
+
+            (async () => {
+              // Check if this is a local file path or a URL
+              if (isLocalPath(imageUrl)) {
+                // Get the cached photo path from Tauri
+                try {
+                  const cachedPath = await invoke<string>('get_photo', { photoPath: imageUrl });
+                  mediumSrc = convertFileSrc(cachedPath);
+                } catch (error) {
+                  console.error('Failed to load local photo:', imageUrl, error);
+                  return;
+                }
+              } else {
+                // Remote URL - use as-is (with potential optimization)
+                mediumSrc = getImageUrl(imageUrl);
+              }
+
+              // Preload the image
+              const img = new Image();
+              img.onload = () => {
+                imageLoaded = true;
+              };
+              img.src = mediumSrc;
+            })();
+            break;
           }
-        });
+        }
       }, {
         rootMargin: '100%'
       });

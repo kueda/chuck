@@ -216,6 +216,11 @@ impl Database {
         Ok(count)
     }
 
+    /// Gets a reference to the database connection for use with PhotoCache
+    pub fn connection(&self) -> &duckdb::Connection {
+        &self.conn
+    }
+
     /// Helper to convert a DuckDB column value to serde_json::Value
     fn get_column_as_json(row: &Row, idx: usize) -> serde_json::Value {
         let col_type = row.as_ref().column_type(idx);

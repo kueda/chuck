@@ -59,6 +59,15 @@ impl Archive {
         // Remove all other archive directories in the base directory
         remove_other_archives(base_dir, &storage_dir)?;
 
+        // Create a hard link to the original archive for lazy photo extraction
+        // This is instant and doesn't copy data, but keeps the file accessible
+        // even if the user deletes the original
+        let archive_copy_path = storage_dir.join("archive.zip");
+        std::fs::hard_link(archive_path, &archive_copy_path).map_err(|e| ChuckError::FileOpen {
+            path: archive_copy_path.clone(),
+            source: e,
+        })?;
+
         progress_callback("extracting");
         extract_archive(archive_path, &storage_dir)?;
 
@@ -72,6 +81,10 @@ impl Archive {
             .unwrap_or("archive");
         let db_path = storage_dir.join(format!("{}.db", db_name));
         let db = Database::create_from_core_files(&core_files, &extensions, &db_path)?;
+
+        // Initialize photo cache table
+        let photo_cache = crate::photo_cache::PhotoCache::new(db.connection());
+        photo_cache.create_table()?;
 
         Ok(Self {
             // archive_path: archive_path.to_path_buf(),
@@ -181,6 +194,52 @@ impl Archive {
     ) -> Result<serde_json::Map<String, serde_json::Value>> {
         self.db.get_occurrence(&self.core_id_column, occurrence_id)
     }
+
+    /// Gets a photo from the cache or extracts it from the archive
+    /// Returns the absolute path to the cached photo file
+    pub fn get_photo(&self, photo_path: &str) -> Result<String> {
+        // Create photo cache
+        let photo_cache = crate::photo_cache::PhotoCache::new(self.db.connection());
+
+        // Check if photo is already cached
+        if let Some(cached_path) = photo_cache.get_cached_photo(photo_path)? {
+            // Update access time and return cached path
+            photo_cache.update_access_time(photo_path)?;
+            return Ok(cached_path);
+        }
+
+        // Photo not cached - extract it from the archive
+        let archive_zip_path = self.storage_dir.join("archive.zip");
+        let cache_dir = self.storage_dir.join("photo_cache");
+        std::fs::create_dir_all(&cache_dir).map_err(|e| ChuckError::DirectoryCreate {
+            path: cache_dir.clone(),
+            source: e,
+        })?;
+
+        // Create a unique filename based on the photo path to avoid conflicts
+        let safe_filename = photo_path.replace(['/', '\\'], "_");
+        let cached_file_path = cache_dir.join(&safe_filename);
+
+        // Extract the photo from the ZIP using the path from the multimedia table
+        let bytes_written = extract_single_file(
+            &archive_zip_path,
+            photo_path,
+            &cached_file_path,
+        )?;
+
+        // Add to cache
+        photo_cache.add_photo(
+            photo_path,
+            cached_file_path.to_str().ok_or_else(|| ChuckError::InvalidFileName(cached_file_path.clone()))?,
+            bytes_written as i64,
+        )?;
+
+        // Evict LRU photos if cache is too large (2GB default)
+        const MAX_CACHE_SIZE: i64 = 2 * 1024 * 1024 * 1024; // 2GB
+        photo_cache.evict_lru(MAX_CACHE_SIZE)?;
+
+        Ok(cached_file_path.to_string_lossy().to_string())
+    }
 }
 
 fn create_storage_dir(archive_path: &Path, base_dir: &Path) -> Result<PathBuf> {
@@ -240,6 +299,29 @@ fn remove_other_archives(base_dir: &Path, current_storage_dir: &Path) -> Result<
     Ok(())
 }
 
+/// Checks if a file path is likely a photo/image file that should be lazily extracted
+fn is_photo_file(path: &Path) -> bool {
+    // Check file extension
+    if let Some(ext) = path.extension() {
+        let ext_lower = ext.to_string_lossy().to_lowercase();
+        if matches!(ext_lower.as_str(), "jpg" | "jpeg" | "png" | "gif" | "bmp" | "tiff" | "tif" | "webp") {
+            return true;
+        }
+    }
+
+    // Check if file is in a photos/images/multimedia directory
+    for component in path.components() {
+        if let Some(name) = component.as_os_str().to_str() {
+            let name_lower = name.to_lowercase();
+            if matches!(name_lower.as_str(), "photos" | "images" | "multimedia" | "media") {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<()> {
     let file = std::fs::File::open(archive_path).map_err(|e| ChuckError::FileOpen {
         path: archive_path.to_path_buf(),
@@ -260,6 +342,9 @@ fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<()> {
                 path: outpath,
                 source: e,
             })?;
+        } else if is_photo_file(&outpath) {
+            // Skip photo files - they'll be extracted on demand
+            continue;
         } else {
             if let Some(p) = outpath.parent() {
                 if !p.exists() {
@@ -292,6 +377,59 @@ fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Extracts a single file from the archive to a target path
+/// Returns the size of the extracted file in bytes
+fn extract_single_file(
+    archive_path: &Path,
+    file_path_in_zip: &str,
+    target_path: &Path,
+) -> Result<u64> {
+    let file = std::fs::File::open(archive_path).map_err(|e| ChuckError::FileOpen {
+        path: archive_path.to_path_buf(),
+        source: e,
+    })?;
+
+    let mut archive = zip::ZipArchive::new(file).map_err(ChuckError::ArchiveExtraction)?;
+
+    // Find the file in the archive by name
+    let mut zip_file = archive
+        .by_name(file_path_in_zip)
+        .map_err(ChuckError::ArchiveExtraction)?;
+
+    // Create parent directories if needed
+    if let Some(p) = target_path.parent() {
+        if !p.exists() {
+            std::fs::create_dir_all(p).map_err(|e| ChuckError::DirectoryCreate {
+                path: p.to_path_buf(),
+                source: e,
+            })?;
+        }
+    }
+
+    // Extract the file
+    let mut outfile = std::fs::File::create(target_path).map_err(|e| ChuckError::FileOpen {
+        path: target_path.to_path_buf(),
+        source: e,
+    })?;
+
+    let bytes_written = std::io::copy(&mut zip_file, &mut outfile).map_err(|e| {
+        ChuckError::FileRead {
+            path: target_path.to_path_buf(),
+            source: e,
+        }
+    })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Some(mode) = zip_file.unix_mode() {
+            std::fs::set_permissions(target_path, std::fs::Permissions::from_mode(mode)).ok();
+        }
+    }
+
+    Ok(bytes_written)
 }
 
 fn parse_meta_xml(storage_dir: &Path) -> Result<(Vec<PathBuf>, String, Vec<ExtensionInfo>)> {
@@ -922,6 +1060,102 @@ mod tests {
 
         let current_archive = Archive::current(fixture.base_dir()).unwrap();
         assert_eq!(current_archive.core_id_column, "gbifID");
+    }
+
+    #[test]
+    fn test_lazy_photo_extraction() {
+        use std::io::Write;
+
+        // Create a test archive with photos
+        let test_name = "lazy_photo_extraction";
+        let temp_dir = std::env::temp_dir().join(format!("chuck_test_{}", test_name));
+        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // Create a simple ZIP archive with photos
+        let archive_path = temp_dir.join("test.zip");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&archive_path).unwrap());
+        let options: zip::write::FileOptions<()> = zip::write::FileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored)
+            .unix_permissions(0o644);
+
+        // Add meta.xml
+        let meta_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<archive xmlns="http://rs.tdwg.org/dwc/text/">
+  <core rowType="http://rs.tdwg.org/dwc/terms/Occurrence" encoding="UTF-8" fieldsTerminatedBy="," linesTerminatedBy="\n" fieldsEnclosedBy='"' ignoreHeaderLines="1">
+    <files>
+      <location>occurrence.csv</location>
+    </files>
+    <id index="0" />
+    <field index="0" term="http://rs.tdwg.org/dwc/terms/occurrenceID"/>
+  </core>
+  <extension rowType="http://rs.gbif.org/terms/1.0/Multimedia" encoding="UTF-8" fieldsTerminatedBy="," linesTerminatedBy="\n" fieldsEnclosedBy='"' ignoreHeaderLines="1">
+    <files>
+      <location>multimedia.csv</location>
+    </files>
+    <coreid index="0" />
+    <field index="0" term="http://rs.tdwg.org/dwc/terms/occurrenceID"/>
+    <field index="1" term="http://purl.org/dc/terms/identifier"/>
+  </extension>
+</archive>"#;
+        zip.start_file("meta.xml", options.clone()).unwrap();
+        zip.write_all(meta_xml).unwrap();
+
+        // Add occurrence.csv
+        let occurrence_csv = b"occurrenceID\n1\n";
+        zip.start_file("occurrence.csv", options.clone()).unwrap();
+        zip.write_all(occurrence_csv).unwrap();
+
+        // Add multimedia.csv with photo reference
+        let multimedia_csv = b"occurrenceID,identifier\n1,media/2024/01/01/test.jpg\n";
+        zip.start_file("multimedia.csv", options.clone()).unwrap();
+        zip.write_all(multimedia_csv).unwrap();
+
+        // Add a photo file
+        let photo_data = b"fake jpeg data";
+        zip.start_file("media/2024/01/01/test.jpg", options).unwrap();
+        zip.write_all(photo_data).unwrap();
+
+        zip.finish().unwrap();
+
+        // Open the archive (photos should NOT be extracted)
+        let base_dir = temp_dir.join("storage");
+        let archive = Archive::open_with_progress(&archive_path, &base_dir, |_| {}).unwrap();
+
+        // Verify photos were not extracted during open
+        let media_dir = archive.storage_dir.join("media");
+        assert!(!media_dir.exists(), "Photos should not be extracted during archive open");
+
+        // Verify archive.zip was created (hard link)
+        let archive_zip = archive.storage_dir.join("archive.zip");
+        assert!(archive_zip.exists(), "archive.zip hard link should exist");
+
+        // Verify photo cache table exists
+        let photo_cache = crate::photo_cache::PhotoCache::new(archive.db.connection());
+        let cache_size = photo_cache.get_cache_size().unwrap();
+        assert_eq!(cache_size, 0, "Cache should be empty initially");
+
+        // Request the photo (should extract on demand)
+        let cached_path = archive.get_photo("media/2024/01/01/test.jpg").unwrap();
+        assert!(std::path::Path::new(&cached_path).exists(), "Photo should be extracted to cache");
+
+        // Verify it's in the cache directory
+        assert!(cached_path.contains("photo_cache"), "Photo should be in photo_cache directory");
+
+        // Verify cache size is updated
+        let cache_size = photo_cache.get_cache_size().unwrap();
+        assert!(cache_size > 0, "Cache size should be non-zero after extraction");
+
+        // Request the same photo again (should come from cache)
+        let cached_path2 = archive.get_photo("media/2024/01/01/test.jpg").unwrap();
+        assert_eq!(cached_path, cached_path2, "Second request should return same cached path");
+
+        // Verify the photo content
+        let content = std::fs::read(&cached_path).unwrap();
+        assert_eq!(content, photo_data, "Cached photo content should match original");
+
+        // Clean up
+        std::fs::remove_dir_all(&temp_dir).ok();
     }
 }
 
