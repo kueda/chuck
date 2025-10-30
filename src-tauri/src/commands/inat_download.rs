@@ -3,7 +3,7 @@ use chuck_core::auth::{fetch_jwt, TokenStorage};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 use std::sync::atomic::{AtomicBool, Ordering};
-use crate::auth::KeyringStorage;
+use crate::inat_auth::KeyringStorage;
 
 #[derive(Debug, Deserialize)]
 pub struct CountParams {
@@ -49,7 +49,7 @@ pub async fn get_observation_count(params: CountParams) -> Result<i32, String> {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "stage", rename_all = "camelCase")]
-pub enum DwcProgress {
+pub enum InatProgress {
     Fetching { current: usize, total: usize },
     DownloadingPhotos { current: usize, total: usize },
     Building { message: String },
@@ -147,7 +147,7 @@ fn convert_observations_to_identifications(
 }
 
 #[tauri::command]
-pub async fn generate_dwc_archive(
+pub async fn generate_inat_archive(
     app: AppHandle,
     params: GenerateParams,
 ) -> Result<(), String> {
@@ -199,7 +199,7 @@ pub async fn generate_dwc_archive(
     let metadata = Metadata { abstract_lines };
 
     // Create archive builder
-    app.emit("dwc-progress", DwcProgress::Building {
+    app.emit("inat-progress", InatProgress::Building {
         message: "Initializing archive...".to_string()
     }).map_err(|e| e.to_string())?;
 
@@ -264,7 +264,7 @@ pub async fn generate_dwc_archive(
                 total_fetched += results.len();
 
                 // Update progress with stable total
-                let _ = app.emit("dwc-progress", DwcProgress::Fetching {
+                let _ = app.emit("inat-progress", InatProgress::Fetching {
                     current: total_fetched,
                     total: total_observations.unwrap_or(0),
                 });
@@ -319,7 +319,7 @@ pub async fn generate_dwc_archive(
                         // Create callback to emit progress events
                         let progress_callback = move |count: usize| {
                             let current = photos_downloaded_clone.fetch_add(count, AtomicOrdering::Relaxed) + count;
-                            let _ = app_handle.emit("dwc-progress", DwcProgress::DownloadingPhotos {
+                            let _ = app_handle.emit("inat-progress", InatProgress::DownloadingPhotos {
                                 current: total_photos_downloaded + current,
                                 total: est_total,
                             });
@@ -367,7 +367,7 @@ pub async fn generate_dwc_archive(
             }
             Err(e) => {
                 log::error!("Failed to fetch observations: {:?}", e);
-                let _ = app.emit("dwc-progress", DwcProgress::Error {
+                let _ = app.emit("inat-progress", InatProgress::Error {
                     message: format!("Failed to fetch observations: {}", e)
                 });
                 return Err(format!("Failed to fetch observations: {}", e));
@@ -381,7 +381,7 @@ pub async fn generate_dwc_archive(
     }
 
     // Build the archive
-    let _ = app.emit("dwc-progress", DwcProgress::Building {
+    let _ = app.emit("inat-progress", InatProgress::Building {
         message: "Finalizing archive...".to_string()
     });
 
@@ -389,14 +389,14 @@ pub async fn generate_dwc_archive(
         .map_err(|e| format!("Failed to build archive: {}", e))?;
 
     // Emit completion
-    app.emit("dwc-progress", DwcProgress::Complete)
+    app.emit("inat-progress", InatProgress::Complete)
         .map_err(|e| e.to_string())?;
 
     Ok(())
 }
 
 #[tauri::command]
-pub fn cancel_dwc_generation() -> Result<(), String> {
+pub fn cancel_inat_archive() -> Result<(), String> {
     CANCEL_FLAG.store(true, Ordering::Relaxed);
     Ok(())
 }

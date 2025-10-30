@@ -2,7 +2,7 @@ use tauri::{AppHandle, command};
 use serde::{Serialize, Deserialize};
 
 use chuck_core::auth::{authenticate_user, fetch_jwt, TokenStorage};
-use super::KeyringStorage;
+use crate::inat_auth::KeyringStorage;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AuthStatus {
@@ -22,7 +22,7 @@ struct UserResult {
 
 /// Initiates OAuth authentication flow and stores the token
 #[command]
-pub async fn authenticate(app: AppHandle) -> Result<AuthStatus, String> {
+pub async fn inat_authenticate(app: AppHandle) -> Result<AuthStatus, String> {
     let storage = KeyringStorage::new(app.clone())
         .map_err(|e| format!("Failed to initialize storage: {}", e))?;
 
@@ -31,12 +31,12 @@ pub async fn authenticate(app: AppHandle) -> Result<AuthStatus, String> {
         .map_err(|e| format!("Authentication failed: {}", e))?;
 
     // Return auth status (username will be fetched when get_auth_status is called)
-    get_auth_status(app).await
+    inat_get_auth_status(app).await
 }
 
 /// Returns the current authentication status
 #[command]
-pub async fn get_auth_status(app: AppHandle) -> Result<AuthStatus, String> {
+pub async fn inat_get_auth_status(app: AppHandle) -> Result<AuthStatus, String> {
     let storage = KeyringStorage::new(app)
         .map_err(|e| format!("Failed to initialize storage: {}", e))?;
 
@@ -65,7 +65,7 @@ pub async fn get_auth_status(app: AppHandle) -> Result<AuthStatus, String> {
 
 /// Signs out by clearing the stored token
 #[command]
-pub async fn sign_out(app: AppHandle) -> Result<(), String> {
+pub async fn inat_sign_out(app: AppHandle) -> Result<(), String> {
     let storage = KeyringStorage::new(app)
         .map_err(|e| format!("Failed to initialize storage: {}", e))?;
 
@@ -76,7 +76,7 @@ pub async fn sign_out(app: AppHandle) -> Result<(), String> {
 /// Fetches a JWT for authenticated API requests
 /// Returns None if not authenticated
 #[command]
-pub async fn get_jwt(app: AppHandle) -> Result<Option<String>, String> {
+pub async fn inat_get_jwt(app: AppHandle) -> Result<Option<String>, String> {
     let storage = KeyringStorage::new(app)
         .map_err(|e| format!("Failed to initialize storage: {}", e))?;
 

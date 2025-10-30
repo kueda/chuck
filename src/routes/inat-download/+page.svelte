@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getCurrentWindow, invoke, listen, showSaveDialog } from '$lib/tauri-api';
-  import DwcProgressOverlay from '$lib/components/DwcProgressOverlay.svelte';
+  import InatProgressOverlay from '$lib/components/InatProgressOverlay.svelte';
   import { ExternalLink } from 'lucide-svelte';
   import { formatETR } from './format-etr';
 
@@ -53,7 +53,7 @@
 
   async function loadAuthStatus() {
     try {
-      authStatus = await invoke<AuthStatus>('get_auth_status');
+      authStatus = await invoke<AuthStatus>('inat_get_auth_status');
     } catch (e) {
       console.error('Failed to load auth status:', e);
     }
@@ -62,7 +62,7 @@
   async function handleSignIn() {
     authLoading = true;
     try {
-      authStatus = await invoke<AuthStatus>('authenticate');
+      authStatus = await invoke<AuthStatus>('inat_authenticate');
     } catch (e) {
       console.error('Authentication failed:', e);
       alert(`Authentication failed: ${e}`);
@@ -74,7 +74,7 @@
   async function handleSignOut() {
     authLoading = true;
     try {
-      await invoke('sign_out');
+      await invoke('inat_sign_out');
       authStatus = { authenticated: false, username: null };
     } catch (e) {
       console.error('Sign out failed:', e);
@@ -218,7 +218,7 @@
       if (identifications) extensions.push('Identifications');
 
       // Call generate command
-      await invoke('generate_dwc_archive', {
+      await invoke('generate_inat_archive', {
         params: {
           output_path: filePath,
           taxon_id: taxonId ? parseInt(taxonId) : null,
@@ -242,7 +242,7 @@
   }
 
   function handleCancelDownload() {
-    invoke('cancel_dwc_generation').catch(e => {
+    invoke('cancel_inat_archive').catch(e => {
       console.error('Failed to cancel:', e);
     });
     showProgress = false;
@@ -273,7 +273,7 @@
     loadAuthStatus();
 
     // Listen for progress events
-    const unlistenProgress = listen<any>('dwc-progress', (event) => {
+    const unlistenProgress = listen<any>('inat-progress', (event) => {
       const progress = event.payload;
 
       if (progress.stage === 'fetching') {
@@ -603,7 +603,7 @@
 </div>
 
 {#if showProgress}
-  <DwcProgressOverlay
+  <InatProgressOverlay
     stage={progressStage}
     observationsCurrent={observationsCurrent}
     observationsTotal={observationsTotal}

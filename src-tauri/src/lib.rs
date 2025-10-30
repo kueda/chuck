@@ -1,9 +1,9 @@
-mod auth;
 mod commands;
 mod db;
 mod dwca;
 mod error;
 mod photo_cache;
+mod inat_auth;
 
 use tauri::menu::{MenuItemBuilder, SubmenuBuilder};
 use tauri::Emitter;
@@ -20,13 +20,17 @@ pub fn run() {
             commands::archive::get_occurrence,
             commands::archive::get_photo,
             commands::archive::get_occurrence,
-            commands::dwc_download::get_observation_count,
-            commands::dwc_download::generate_dwc_archive,
-            commands::dwc_download::cancel_dwc_generation,
-            auth::commands::authenticate,
-            auth::commands::get_auth_status,
-            auth::commands::sign_out,
-            auth::commands::get_jwt,
+            commands::inat_download::get_observation_count,
+            commands::inat_download::generate_inat_archive,
+            commands::inat_download::cancel_inat_archive,
+            // auth::commands::authenticate,
+            commands::inat_auth::inat_authenticate,
+            // auth::commands::get_auth_status,
+            commands::inat_auth::inat_get_auth_status,
+            // auth::commands::sign_out,
+            commands::inat_auth::inat_sign_out,
+            // auth::commands::get_jwt,
+            commands::inat_auth::inat_get_jwt,
         ])
         .setup(|app| {
             let open_item = MenuItemBuilder::with_id("open", "Open...")
@@ -75,11 +79,11 @@ pub fn run() {
                 if event.id() == "open" {
                     app.emit("menu-open", ()).unwrap();
                 } else if event.id() == "download-from-inaturalist" {
-                    // Open new window for DwC-A download
+                    // Open new window for iNat download
                     let window = tauri::WebviewWindowBuilder::new(
                         app,
-                        "dwc-download",
-                        tauri::WebviewUrl::App("dwc-download".into())
+                        "inat-download",
+                        tauri::WebviewUrl::App("inat-download".into())
                     )
                     .title("Download from iNaturalist")
                     .inner_size(700.0, 800.0)
@@ -87,7 +91,7 @@ pub fn run() {
                     .build();
 
                     if let Err(e) = window {
-                        log::error!("Failed to open DwC download window: {}", e);
+                        log::error!("Failed to open iNat download window: {}", e);
                     }
                 }
             });

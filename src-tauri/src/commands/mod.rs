@@ -1,2 +1,3 @@
 pub mod archive;
-pub mod dwc_download;
+pub mod inat_auth;
+pub mod inat_download;

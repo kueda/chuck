@@ -9,7 +9,7 @@ import type { Page } from '@playwright/test';
  * Consider refactoring to use a wrapper or finding a way to mock ES6 imports.
  */
 
-async function setupDwcDownloadMocks(page: Page) {
+async function setupInatDownloadMocks(page: Page) {
   await page.addInitScript(() => {
     let commandMocks = new Map();
     let windowClosed = false;
@@ -40,7 +40,7 @@ async function setupDwcDownloadMocks(page: Page) {
           case 'get_observation_count':
             return 1234;
 
-          case 'generate_dwc_archive':
+          case 'generate_inat_archive':
             // Use custom event sequence if provided, otherwise use default
             const eventsToEmit = progressEventSequence.length > 0
               ? progressEventSequence
@@ -64,20 +64,20 @@ async function setupDwcDownloadMocks(page: Page) {
 
             return null;
 
-          case 'cancel_dwc_generation':
+          case 'cancel_inat_archive':
             return null;
 
           case 'open_archive':
             console.log('[Mock Tauri] Opening archive:', args);
             return null;
 
-          case 'get_auth_status':
+          case 'inat_get_auth_status':
             return { authenticated: false, username: null };
 
-          case 'authenticate':
+          case 'inat_authenticate':
             return { authenticated: true, username: null };
 
-          case 'sign_out':
+          case 'inat_sign_out':
             return null;
 
           default:
@@ -100,7 +100,7 @@ async function setupDwcDownloadMocks(page: Page) {
 
       listen: async (event: string, handler: any) => {
         console.log('[Mock Tauri] Listening for event:', event);
-        if (event === 'dwc-progress') {
+        if (event === 'inat-progress') {
           progressListener = handler;
         }
         return () => {
@@ -128,10 +128,10 @@ async function setupDwcDownloadMocks(page: Page) {
   });
 }
 
-test.describe('DwC Download UI', () => {
+test.describe('iNat Download UI', () => {
   test.beforeEach(async ({ page }) => {
-    await setupDwcDownloadMocks(page);
-    await page.goto('/dwc-download');
+    await setupInatDownloadMocks(page);
+    await page.goto('/inat-download');
     await page.waitForSelector('h1:has-text("Download from iNaturalist")', { timeout: 10000 });
 
     // Reset progress event sequence before each test
