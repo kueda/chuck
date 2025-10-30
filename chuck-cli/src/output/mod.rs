@@ -1,5 +1,4 @@
 pub mod csv;
-pub mod photos;
 pub mod darwin_core;
 
 use inaturalist::models::Observation;
@@ -18,5 +17,4 @@ pub trait ObservationWriter: Send {
 }
 
 pub use csv::CsvOutput;
-pub use photos::PhotoDownloader;
 pub use darwin_core::DarwinCoreOutput;

@@ -123,7 +123,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 None => {
-                    match chuck_core::auth::authenticate_user().await {
+                    let storage = chuck_core::auth::FileStorage::new()
+                        .expect("Failed to initialize file storage");
+                    match chuck_core::auth::authenticate_user(&storage).await {
                         Ok(_) => println!("Authentication successful!"),
                         Err(e) => eprintln!("Authentication failed: {}", e),
                     }

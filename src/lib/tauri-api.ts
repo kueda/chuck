@@ -7,7 +7,7 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { getCurrentWindow as tauriGetCurrentWindow } from '@tauri-apps/api/window';
 import { listen as tauriListen, type EventCallback } from '@tauri-apps/api/event';
-import { open as tauriOpen } from '@tauri-apps/plugin-dialog';
+import { open as tauriOpen, save as tauriSave } from '@tauri-apps/plugin-dialog';
 
 // Check if we're in test mode with mocks available
 const hasMocks = typeof window !== 'undefined' && '__MOCK_TAURI__' in window;
@@ -19,11 +19,18 @@ export async function invoke<T>(command: string, args?: any): Promise<T> {
   return tauriInvoke<T>(command, args);
 }
 
-export async function open(options?: any): Promise<string | string[] | null> {
+export async function showOpenDialog(options?: any): Promise<string | string[] | null> {
   if (hasMocks) {
-    return (window as any).__MOCK_TAURI__.open(options);
+    return (window as any).__MOCK_TAURI__.showOpenDialog(options);
   }
   return tauriOpen(options);
+}
+
+export async function showSaveDialog(options?: any): Promise<string | string[] | null> {
+  if (hasMocks) {
+    return (window as any).__MOCK_TAURI__.showSaveDialog(options);
+  }
+  return tauriSave(options);
 }
 
 export function getCurrentWindow() {

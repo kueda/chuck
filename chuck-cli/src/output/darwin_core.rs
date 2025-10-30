@@ -1,7 +1,7 @@
 use inaturalist::models::{Observation, ShowTaxon};
 use inaturalist::apis::taxa_api;
-use chuck_core::darwin_core::{ArchiveBuilder, Occurrence, Multimedia, Audiovisual, Identification, Metadata};
-use super::{ObservationWriter, PhotoDownloader};
+use chuck_core::darwin_core::{ArchiveBuilder, Occurrence, Multimedia, Audiovisual, Identification, Metadata, PhotoDownloader};
+use super::ObservationWriter;
 use crate::progress::ProgressManager;
 use chuck_core::api::{client::get_config, rate_limiter::get_rate_limiter};
 use std::collections::{HashMap, HashSet};
@@ -74,7 +74,22 @@ impl ObservationWriter for DarwinCoreOutput {
 
                 // Download photos if fetch_photos is enabled
                 let photo_mapping = if self.fetch_photos {
-                    PhotoDownloader::fetch_photos_to_dir(observations, archive.media_dir(), progress_manager).await?
+                    // Prepare progress bar for photo downloads
+                    let photos_count = observations.iter()
+                        .filter_map(|o| o.photos.as_ref())
+                        .flatten()
+                        .count();
+                    progress_manager.prepare_photos_inc(photos_count as u64);
+
+                    // Create callback to increment photos progress bar
+                    let photos_bar = progress_manager.photos_bar.clone();
+                    let progress_callback = move |count: usize| {
+                        if let Some(ref bar) = photos_bar {
+                            bar.inc(count as u64);
+                        }
+                    };
+
+                    PhotoDownloader::fetch_photos_to_dir(observations, archive.media_dir(), progress_callback).await?
                 } else {
                     HashMap::new()
                 };

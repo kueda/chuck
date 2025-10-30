@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Progress } from '@skeletonlabs/skeleton-svelte';
-  import { invoke, getCurrentWindow, listen, open } from '$lib/tauri-api';
+  import { invoke, getCurrentWindow, listen, showOpenDialog } from '$lib/tauri-api';
   import Filters from '$lib/components/Filters.svelte';
   import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
 
@@ -206,34 +206,39 @@
     previousView = currentView;
   }
 
+  function clearArchiveData() {
+    occurrenceCache = new Map();
+    occurrenceCacheVersion = 0;
+    loadingChunks = new Set();
+    currentSearchParams = {};
+    lastLoadedRange = { firstChunk: -1, lastChunk: -1 };
+    archiveLoadingStatus = 'importing';
+    archiveLoadingError = null;
+  }
+
+
   async function openArchive() {
-    const path = await open();
-    if (path) {
-      // Clear existing data before opening new archive
-      occurrenceCache = new Map();
-      occurrenceCacheVersion = 0;
-      loadingChunks = new Set();
-      currentSearchParams = {};
-      lastLoadedRange = { firstChunk: -1, lastChunk: -1 };
-      archiveLoadingStatus = 'importing';
-      archiveLoadingError = null;
+    const path = await showOpenDialog();
+    if (!path) return;
 
-      try {
-        // Open the new archive (progress will be reported via events)
-        archive = await invoke('open_archive', { path });
+    // Clear existing data before opening new archive
+    clearArchiveData();
 
-        // Clear loading status on success
-        archiveLoadingStatus = null;
+    try {
+      // Open the new archive (progress will be reported via events)
+      archive = await invoke('open_archive', { path });
 
-        // Reset scroll position
-        if (scrollElement) {
-          scrollElement.scrollTop = 0;
-        }
-      } catch (e) {
-        archiveLoadingError = e instanceof Error ? e.message : String(e);
-        archiveLoadingStatus = null;
-        console.error('[+page.svelte] Error opening archive:', e);
+      // Clear loading status on success
+      archiveLoadingStatus = null;
+
+      // Reset scroll position
+      if (scrollElement) {
+        scrollElement.scrollTop = 0;
       }
+    } catch (e) {
+      archiveLoadingError = e instanceof Error ? e.message : String(e);
+      archiveLoadingStatus = null;
+      console.error('[+page.svelte] Error opening archive:', e);
     }
   }
 
@@ -272,6 +277,12 @@
     listen<ProgressEvent>('archive-open-progress', (event) => {
       const progress = event.payload;
 
+      // Clear existing data. When manually opening an archive we may have
+      // already done this, but if the backend opens the archive for another
+      // reason (e.g. after downloading one from iNat), we still want to
+      // clear things out
+      clearArchiveData();
+
       switch (progress.status) {
         case 'importing':
           archiveLoadingStatus = 'importing';
@@ -286,6 +297,8 @@
         case 'complete':
           archiveLoadingStatus = null;
           archiveLoadingError = null;
+          // Update archive info with the newly opened archive
+          archive = progress.info;
           break;
         case 'error':
           archiveLoadingStatus = null;

@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
-use crate::progress::ProgressManager;
 
 pub struct PhotoDownloader;
 
@@ -45,7 +44,7 @@ impl PhotoDownloader {
                     last_error = Some(error_msg.clone());
                     if attempt < Self::MAX_RETRIES {
                         let delay = Self::RETRY_BASE_DELAY * (2_u32.pow(attempt as u32 - 1));
-                        eprintln!("Download attempt {} failed for photo {}: {}. Retrying in {:?}...",
+                        log::warn!("Download attempt {} failed for photo {}: {}. Retrying in {:?}...",
                                  attempt, photo_id, error_msg, delay);
                         tokio::time::sleep(delay).await;
                     }
@@ -83,11 +82,14 @@ impl PhotoDownloader {
         Ok(())
     }
     /// Downloads photos to a specific directory and returns a mapping of photo ID to filename
-    pub async fn fetch_photos_to_dir(
+    pub async fn fetch_photos_to_dir<F>(
         observations: &[Observation],
         output_dir: &Path,
-        progress_manager: &ProgressManager,
-    ) -> Result<HashMap<i32, String>, Box<dyn std::error::Error>> {
+        progress_callback: F,
+    ) -> Result<HashMap<i32, String>, Box<dyn std::error::Error>>
+    where
+        F: Fn(usize) + Send + Sync + Clone + 'static
+    {
         // Create a mapping from photo to observation date for subdirectory organization
         let mut photo_to_date = HashMap::new();
         for obs in observations {
@@ -106,9 +108,6 @@ impl PhotoDownloader {
             .cloned()
             .collect::<Vec<_>>();
 
-        // Prepare progress bar for photo downloads
-        progress_manager.prepare_photos_inc(photos.len() as u64);
-
         let mut photo_mapping = HashMap::new();
 
         // Limit concurrent downloads to prevent "too many open files"
@@ -116,10 +115,10 @@ impl PhotoDownloader {
 
         let tasks: Vec<_> = photos.iter().map(|photo| {
             let photo = photo.clone();
-            let photos_bar = progress_manager.photos_bar.clone();
             let output_dir = output_dir.to_path_buf();
             let semaphore = semaphore.clone();
             let photo_to_date = photo_to_date.clone();
+            let progress_callback = progress_callback.clone();
 
             tokio::spawn(async move {
                 let mut result = None;
@@ -141,10 +140,8 @@ impl PhotoDownloader {
 
                     // Create the subdirectory if it doesn't exist
                     if let Err(e) = tokio::fs::create_dir_all(&date_subdir).await {
-                        eprintln!("Failed to create directory {}: {}", date_subdir.display(), e);
-                        if let Some(ref bar) = photos_bar {
-                            bar.inc(1);
-                        }
+                        log::error!("Failed to create directory {}: {}", date_subdir.display(), e);
+                        progress_callback(1);
                         return None;
                     }
 
@@ -165,13 +162,11 @@ impl PhotoDownloader {
                                 rel_path.to_string_lossy().to_string()
                             ));
                         }
-                        Err(e) => eprintln!("Failed to download photo {} after {} retries: {}", id, Self::MAX_RETRIES, e),
+                        Err(e) => log::error!("Failed to download photo {} after {} retries: {}", id, Self::MAX_RETRIES, e),
                     }
                     // Permit is automatically released when _permit goes out of scope
                 }
-                if let Some(ref bar) = photos_bar {
-                    bar.inc(1);
-                }
+                progress_callback(1);
                 result
             })
         }).collect();

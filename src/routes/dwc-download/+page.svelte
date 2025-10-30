@@ -1,0 +1,642 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { getCurrentWindow, invoke, listen, showSaveDialog } from '$lib/tauri-api';
+  import DwcProgressOverlay from '$lib/components/DwcProgressOverlay.svelte';
+  import { ExternalLink } from 'lucide-svelte';
+  import { formatETR } from './format-etr';
+
+  let taxonId = $state<string>('');
+  let placeId = $state<string>('');
+  let user = $state<string>('');
+  let observedDateRange = $state<'all' | 'custom'>('all');
+  let observedD1 = $state<string>('');
+  let observedD2 = $state<string>('');
+  let createdDateRange = $state<'all' | 'custom'>('all');
+  let createdD1 = $state<string>('');
+  let createdD2 = $state<string>('');
+  let fetchPhotos = $state<boolean>(false);
+  let simpleMultimedia = $state<boolean>(true);
+  let audiovisual = $state<boolean>(false);
+  let identifications = $state<boolean>(false);
+
+  let observationCount = $state<number | null>(null);
+  let countLoading = $state<boolean>(false);
+  let countError = $state<string | null>(null);
+
+  // Auth state
+  interface AuthStatus {
+    authenticated: boolean;
+    username: string | null;
+  }
+
+  let authStatus = $state<AuthStatus>({ authenticated: false, username: null });
+  let authLoading = $state<boolean>(false);
+
+  // Progress state
+  let showProgress = $state<boolean>(false);
+  let progressStage = $state<'active' | 'building' | 'complete' | 'error'>('active');
+  let observationsCurrent = $state<number | undefined>(undefined);
+  let observationsTotal = $state<number | undefined>(undefined);
+  let photosCurrent = $state<number | undefined>(undefined);
+  let photosTotal = $state<number | undefined>(undefined);
+  let progressMessage = $state<string | undefined>(undefined);
+
+  // ETR state
+  let downloadStartTime = $state<number | null>(null);
+  let lastETRUpdateTime = $state<number>(0);
+  let estimatedSecondsRemaining = $state<number | null>(null);
+  const ETR_UPDATE_INTERVAL_MS = 2000; // Update display every 2 seconds
+
+  // Success dialog state
+  let showSuccessDialog = $state<boolean>(false);
+  let completedArchivePath = $state<string | null>(null);
+
+  async function loadAuthStatus() {
+    try {
+      authStatus = await invoke<AuthStatus>('get_auth_status');
+    } catch (e) {
+      console.error('Failed to load auth status:', e);
+    }
+  }
+
+  async function handleSignIn() {
+    authLoading = true;
+    try {
+      authStatus = await invoke<AuthStatus>('authenticate');
+    } catch (e) {
+      console.error('Authentication failed:', e);
+      alert(`Authentication failed: ${e}`);
+    } finally {
+      authLoading = false;
+    }
+  }
+
+  async function handleSignOut() {
+    authLoading = true;
+    try {
+      await invoke('sign_out');
+      authStatus = { authenticated: false, username: null };
+    } catch (e) {
+      console.error('Sign out failed:', e);
+      alert(`Sign out failed: ${e}`);
+    } finally {
+      authLoading = false;
+    }
+  }
+
+  function updateETR() {
+    // Only update display every 2 seconds
+    const now = Date.now();
+    if (now - lastETRUpdateTime < ETR_UPDATE_INTERVAL_MS) {
+      return;
+    }
+
+    if (!downloadStartTime) {
+      downloadStartTime = now;
+      estimatedSecondsRemaining = null;
+      return;
+    }
+
+    const elapsedSeconds = (now - downloadStartTime) / 1000;
+    const itemsDownloaded = (observationsCurrent || 0) + (photosCurrent || 0);
+    const totalItems = (observationsTotal || 0) + (photosTotal || 0);
+
+    // Need some progress to estimate
+    if (itemsDownloaded === 0 || totalItems === 0 || elapsedSeconds < 1) {
+      estimatedSecondsRemaining = null;
+      return;
+    }
+
+    const rate = itemsDownloaded / elapsedSeconds;
+    const remainingItems = totalItems - itemsDownloaded;
+
+    // Avoid showing ETR if rate is too slow (might indicate stall)
+    if (rate < 0.1) { // Less than 1 item per 10 seconds
+      estimatedSecondsRemaining = null;
+      return;
+    }
+
+    estimatedSecondsRemaining = remainingItems / rate;
+    lastETRUpdateTime = now;
+  }
+
+  function handleTaxonIdInput(e: Event) {
+    const target = e.target as HTMLInputElement;
+    taxonId = target.value;
+  }
+
+  function handlePlaceIdInput(e: Event) {
+    const target = e.target as HTMLInputElement;
+    placeId = target.value;
+  }
+
+  // Debounce timer
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  const DEBOUNCE_MS = 500;
+
+  async function fetchCount() {
+    countLoading = true;
+    countError = null;
+
+    try {
+      // Validate inputs
+      if (taxonId && !/^\d+$/.test(taxonId)) {
+        countError = 'Taxon ID must be an integer';
+        countLoading = false;
+        return;
+      }
+
+      if (placeId && !/^\d+$/.test(placeId)) {
+        countError = 'Place ID must be an integer';
+        countLoading = false;
+        return;
+      }
+
+      const params = {
+        taxon_id: taxonId ? parseInt(taxonId) : null,
+        place_id: placeId ? parseInt(placeId) : null,
+        user: user || null,
+        d1: observedDateRange === 'custom' && observedD1 ? observedD1 : null,
+        d2: observedDateRange === 'custom' && observedD2 ? observedD2 : null,
+        created_d1: createdDateRange === 'custom' && createdD1 ? createdD1 : null,
+        created_d2: createdDateRange === 'custom' && createdD2 ? createdD2 : null,
+      };
+
+      const count = await invoke<number>('get_observation_count', { params });
+      observationCount = count;
+    } catch (e) {
+      console.error('Failed to fetch count:', e);
+      countError = 'Unable to load observation count';
+      observationCount = null;
+    } finally {
+      countLoading = false;
+    }
+  }
+
+  function scheduleFetchCount() {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+
+    debounceTimer = setTimeout(() => {
+      fetchCount();
+    }, DEBOUNCE_MS);
+  }
+
+  async function handleDownload() {
+    // Open file picker
+    const filePath = await showSaveDialog({
+      defaultPath: 'observations.zip',
+      filters: [{
+        name: 'Darwin Core Archive',
+        extensions: ['zip']
+      }]
+    });
+
+    if (!filePath) {
+      return; // User cancelled
+    }
+
+    // Store path for later (showSaveDialog returns string or string[], but we only expect string for save)
+    completedArchivePath = Array.isArray(filePath) ? filePath[0] : filePath;
+
+    // Show progress overlay
+    showProgress = true;
+    progressStage = 'building';
+    progressMessage = 'Starting...';
+
+    // Reset ETR state
+    downloadStartTime = null;
+    lastETRUpdateTime = 0;
+    estimatedSecondsRemaining = null;
+
+    try {
+      // Build extensions array
+      const extensions: string[] = [];
+      if (simpleMultimedia) extensions.push('SimpleMultimedia');
+      if (audiovisual) extensions.push('Audiovisual');
+      if (identifications) extensions.push('Identifications');
+
+      // Call generate command
+      await invoke('generate_dwc_archive', {
+        params: {
+          output_path: filePath,
+          taxon_id: taxonId ? parseInt(taxonId) : null,
+          place_id: placeId ? parseInt(placeId) : null,
+          user: user || null,
+          d1: observedDateRange === 'custom' && observedD1 ? observedD1 : null,
+          d2: observedDateRange === 'custom' && observedD2 ? observedD2 : null,
+          created_d1: createdDateRange === 'custom' && createdD1 ? createdD1 : null,
+          created_d2: createdDateRange === 'custom' && createdD2 ? createdD2 : null,
+          fetch_photos: fetchPhotos,
+          extensions,
+        }
+      });
+
+      // Success handled by progress event listener
+    } catch (e) {
+      console.error('Failed to generate archive:', e);
+      progressStage = 'error';
+      progressMessage = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  function handleCancelDownload() {
+    invoke('cancel_dwc_generation').catch(e => {
+      console.error('Failed to cancel:', e);
+    });
+    showProgress = false;
+  }
+
+  async function handleOpenInChuck() {
+    console.log('[+page.svelte] completedArchivePath', completedArchivePath);
+    if (!completedArchivePath) return;
+
+    try {
+      await invoke('open_archive', { path: completedArchivePath });
+      showSuccessDialog = false;
+
+      // Close the download window
+      getCurrentWindow().close();
+    } catch (e) {
+      console.error('Failed to open archive:', e);
+      alert(`Failed to open archive: ${e}`);
+    }
+  }
+
+  function handleCloseDialog() {
+    showSuccessDialog = false;
+  }
+
+  onMount(() => {
+    // Load auth status
+    loadAuthStatus();
+
+    // Listen for progress events
+    const unlistenProgress = listen<any>('dwc-progress', (event) => {
+      const progress = event.payload;
+
+      if (progress.stage === 'fetching') {
+        progressStage = 'active';
+        observationsCurrent = progress.current;
+        observationsTotal = progress.total;
+        updateETR();
+      } else if (progress.stage === 'downloadingPhotos') {
+        progressStage = 'active';
+        photosCurrent = progress.current;
+        photosTotal = progress.total;
+        updateETR();
+      } else if (progress.stage === 'building') {
+        progressStage = 'building';
+        progressMessage = progress.message;
+      } else if (progress.stage === 'complete') {
+        progressStage = 'complete';
+        progressMessage = 'Archive created successfully!';
+
+        setTimeout(() => {
+          showProgress = false;
+          showSuccessDialog = true;
+        }, 1000);
+      } else if (progress.stage === 'error') {
+        progressStage = 'error';
+        progressMessage = progress.message;
+      }
+    });
+
+    return () => {
+      unlistenProgress.then(fn => fn());
+    };
+  });
+
+  // Trigger count fetch when filters change
+  $effect(() => {
+    // Track dependencies
+    const deps = [
+      taxonId,
+      placeId,
+      user,
+      observedDateRange,
+      observedD1,
+      observedD2,
+      createdDateRange,
+      createdD1,
+      createdD2,
+    ];
+
+    // Clear previous count while debouncing
+    observationCount = null;
+
+    scheduleFetchCount();
+  });
+</script>
+
+<div class="p-6 max-w-2xl mx-auto">
+  <h1 class="h3 mb-3">Download from iNaturalist</h1>
+  <div class="mb-6">
+    <p>Download iNaturalist observations as a DarwinCore Archive you can open in Chuck.</p>
+  </div>
+
+  <!-- Auth Section -->
+  <div class="mb-6 p-4 border rounded">
+    {#if authStatus.authenticated}
+      <div class="flex items-center justify-between">
+        <div class="text-sm">
+          {#if authStatus.username}
+            <span class="text-green-600">Signed in as {authStatus.username}</span>
+          {:else}
+            <span class="text-green-600">Signed in</span>
+          {/if}
+        </div>
+        <button
+          type="button"
+          class="btn preset-tonal-surface text-sm"
+          disabled={authLoading}
+          onclick={handleSignOut}
+        >
+          {authLoading ? 'Signing out...' : 'Sign Out'}
+        </button>
+      </div>
+    {:else}
+      <div class="flex items-center justify-between">
+        <div class="text-sm text-gray-600">
+          Sign in to access your private observations (optional)
+        </div>
+        <button
+          type="button"
+          class="btn preset-filled-surface text-sm"
+          disabled={authLoading}
+          onclick={handleSignIn}
+        >
+          {authLoading ? 'Signing in...' : 'Sign In'}
+        </button>
+      </div>
+    {/if}
+  </div>
+
+  <div class="mb-6">
+    <h2 class="h4 mb-3">Filters</h2>
+    <div class="space-y-4">
+      <div>
+        <label for="taxon-id" class="block text-sm font-medium mb-1">
+          Taxon ID (integer)
+        </label>
+        <input
+          id="taxon-id"
+          type="text"
+          class="input"
+          value={taxonId}
+          oninput={handleTaxonIdInput}
+          placeholder="e.g., 47126"
+        />
+      </div>
+
+      <div>
+        <label for="place-id" class="block text-sm font-medium mb-1">
+          Place ID (integer)
+        </label>
+        <input
+          id="place-id"
+          type="text"
+          class="input"
+          value={placeId}
+          oninput={handlePlaceIdInput}
+          placeholder="e.g., 97394"
+        />
+      </div>
+
+      <div>
+        <label for="user" class="block text-sm font-medium mb-1">
+          User
+        </label>
+        <input
+          id="user"
+          type="text"
+          class="input"
+          bind:value={user}
+          placeholder="Username or User ID"
+        />
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium mb-2">
+          Observation Date Range
+        </label>
+        <div class="space-y-2">
+          <label class="flex items-center w-fit">
+            <input
+              type="radio"
+              name="observed-range"
+              value="all"
+              checked={observedDateRange === 'all'}
+              onchange={() => observedDateRange = 'all'}
+            />
+            <span class="ml-2">All time</span>
+          </label>
+          <label class="flex items-center w-fit">
+            <input
+              type="radio"
+              name="observed-range"
+              value="custom"
+              checked={observedDateRange === 'custom'}
+              onchange={() => observedDateRange = 'custom'}
+            />
+            <span class="ml-2">Custom range</span>
+          </label>
+          {#if observedDateRange === 'custom'}
+            <div class="ml-6 space-y-2">
+              <div>
+                <label for="observed-d1" class="block text-xs mb-1">From</label>
+                <input
+                  id="observed-d1"
+                  type="date"
+                  class="input"
+                  bind:value={observedD1}
+                />
+              </div>
+              <div>
+                <label for="observed-d2" class="block text-xs mb-1">To</label>
+                <input
+                  id="observed-d2"
+                  type="date"
+                  class="input"
+                  bind:value={observedD2}
+                />
+              </div>
+            </div>
+          {/if}
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium mb-2">
+          Created Date Range
+        </label>
+        <div class="space-y-2">
+          <label class="flex items-center w-fit">
+            <input
+              type="radio"
+              name="created-range"
+              value="all"
+              checked={createdDateRange === 'all'}
+              onchange={() => createdDateRange = 'all'}
+            />
+            <span class="ml-2">All time</span>
+          </label>
+          <label class="flex items-center w-fit">
+            <input
+              type="radio"
+              name="created-range"
+              value="custom"
+              checked={createdDateRange === 'custom'}
+              onchange={() => createdDateRange = 'custom'}
+            />
+            <span class="ml-2">Custom range</span>
+          </label>
+          {#if createdDateRange === 'custom'}
+            <div class="ml-6 space-y-2">
+              <div>
+                <label for="created-d1" class="block text-xs mb-1">From</label>
+                <input
+                  id="created-d1"
+                  type="date"
+                  class="input"
+                  bind:value={createdD1}
+                />
+              </div>
+              <div>
+                <label for="created-d2" class="block text-xs mb-1">To</label>
+                <input
+                  id="created-d2"
+                  type="date"
+                  class="input"
+                  bind:value={createdD2}
+                />
+              </div>
+            </div>
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mb-6">
+    <h2 class="h5 mb-3">Download Options</h2>
+    <div class="space-y-2">
+      <label class="flex items-start w-fit space-x-2">
+        <input name="fetchPhotos" class="checkbox mt-1" type="checkbox" bind:checked={fetchPhotos} />
+        <div>
+          <p>Download photos</p>
+          <p class="text-gray-500">Include all observation photos in the archive itself for backup or offline use</p>
+        </div>
+      </label>
+
+      <div class="mt-3">
+        <h3 class="h6">Extensions</h3>
+        <p class="mb-4 text-gray-500">Files that contain extra data associated with occurrences.</p>
+        <div class="ml-4 space-y-2">
+          {#each [
+            {
+              value: simpleMultimedia,
+              name: "simpleMultimedia",
+              title: "Simple Multimedia",
+              desc: "Photo and sound data with attribution",
+              url: "https://rs.gbif.org/extension/gbif/1.0/multimedia.xml"
+            },
+            {
+              value: audiovisual,
+              name: "audiovisual",
+              title: "Audiovisual Media Description",
+              desc: "Photo and sound data with attribution, taxonomic, and geographic metadata",
+              url: "https://rs.gbif.org/extension/ac/audiovisual_2024_11_07.xml"
+            },
+            {
+              value: identifications,
+              name: "identifications",
+              title: "Identification History",
+              desc: "All identifications associated with the observation",
+              url: "https://rs.gbif.org/extension/dwc/identification_history_2025-07-10.xml"
+            }
+          ] as extInfo }
+            <label class="flex items-start w-fit space-x-2">
+              <input name={extInfo.name} class="checkbox mt-1" type="checkbox" bind:checked={extInfo.value} />
+              <div>
+                <p class="flex flex-wrap space-x-2">
+                  <span>{extInfo.title}</span>
+                  <a
+                    class="anchor flex items-center space-x-1"
+                    href={extInfo.url}
+                    target="_blank"
+                  >
+                    <span>Docs</span>
+                    <ExternalLink size={16} />
+                  </a>
+                </p>
+                <p class="text-gray-500">{extInfo.desc}</p>
+              </div>
+            </label>
+          {/each}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mb-6 p-4 border rounded">
+    {#if countLoading}
+      <div class="text-gray-600">Loading...</div>
+    {:else if countError}
+      <div class="text-red-600">Unable to load observation count</div>
+    {:else if observationCount !== null}
+      <div>{observationCount.toLocaleString()} observations match</div>
+    {:else}
+      <div class="text-gray-500">Enter filters to see observation count</div>
+    {/if}
+  </div>
+
+  <button
+    type="button"
+    class="btn preset-filled w-full"
+    disabled={countLoading || countError !== null || observationCount === null || observationCount === 0}
+    onclick={handleDownload}
+  >
+    Download Archive
+  </button>
+</div>
+
+{#if showProgress}
+  <DwcProgressOverlay
+    stage={progressStage}
+    observationsCurrent={observationsCurrent}
+    observationsTotal={observationsTotal}
+    photosCurrent={photosCurrent}
+    photosTotal={photosTotal}
+    message={progressMessage}
+    estimatedTimeRemaining={formatETR(estimatedSecondsRemaining)}
+    onCancel={handleCancelDownload}
+  />
+{/if}
+
+{#if showSuccessDialog}
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
+      <h2 class="text-xl font-bold mb-4">Archive Created Successfully!</h2>
+      <p class="mb-6">Your Darwin Core Archive has been created. Would you like to open it in Chuck?</p>
+
+      <div class="flex gap-3">
+        <button
+          type="button"
+          class="btn preset-filled flex-1"
+          onclick={handleOpenInChuck}
+        >
+          Open in Chuck
+        </button>
+        <button
+          type="button"
+          class="btn preset-tonal flex-1"
+          onclick={handleCloseDialog}
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}

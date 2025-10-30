@@ -18,7 +18,18 @@ export default defineConfig(async () => ({
     strictPort: true,
     host: host || false,
     hmr: host ? { protocol: "ws", host, port: 1421 } : undefined,
-    watch: { // 3. tell Vite to ignore watching `src-tauri`
-    ignored: ["**/src-tauri/**", "**/chuck-core/**", "**/chuck-cli/**"] }
+    // 3. tell Vite to ignore watching `src-tauri`
+    watch: {
+      ignored: ["**/src-tauri/**", "**/chuck-core/**", "**/chuck-cli/**"]
+    }
+  },
+
+  test: {
+    // For unit tests w/ vitest, we want to ignore the playwright integration
+    // tests in tests/
+    exclude: ['**/node_modules/**', '**/tests/**'],
+
+    // and we apparently need to specify an environment
+    environment: 'jsdom',
   }
 }));

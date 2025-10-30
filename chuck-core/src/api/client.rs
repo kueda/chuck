@@ -40,6 +40,24 @@ async fn create_config() -> Configuration {
     config
 }
 
+/// Create API configuration with optional JWT
+/// Used by Tauri to pass JWT from StrongholdStorage
+pub fn create_config_with_jwt(jwt: Option<String>) -> Configuration {
+    let mut config = Configuration {
+        base_path: "https://api.inaturalist.org/v1".to_string(),
+        ..Configuration::default()
+    };
+
+    if let Some(jwt_token) = jwt {
+        config.api_key = Some(ApiKey {
+            prefix: None,
+            key: jwt_token,
+        });
+    }
+
+    config
+}
+
 /// Refresh JWT token in the provided configuration
 pub async fn refresh_jwt_in_config(config: &RwLock<Configuration>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let oauth_token = load_auth_token()?;

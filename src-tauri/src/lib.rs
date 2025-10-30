@@ -1,9 +1,10 @@
+mod auth;
 mod commands;
 mod db;
 mod dwca;
 mod error;
 
-use tauri::menu::MenuItemBuilder;
+use tauri::menu::{MenuItemBuilder, SubmenuBuilder};
 use tauri::Emitter;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -15,11 +16,21 @@ pub fn run() {
             commands::archive::open_archive,
             commands::archive::current_archive,
             commands::archive::search,
-            commands::archive::get_occurrence
+            commands::archive::get_occurrence,
+            commands::dwc_download::get_observation_count,
+            commands::dwc_download::generate_dwc_archive,
+            commands::dwc_download::cancel_dwc_generation,
+            auth::commands::authenticate,
+            auth::commands::get_auth_status,
+            auth::commands::sign_out,
+            auth::commands::get_jwt,
         ])
         .setup(|app| {
             let open_item = MenuItemBuilder::with_id("open", "Open...")
                 .accelerator("CmdOrCtrl+O")
+                .build(app)?;
+
+            let download_item = MenuItemBuilder::with_id("download-from-inaturalist", "Download from iNaturalist")
                 .build(app)?;
 
             // Get the existing menu and add to the File submenu
@@ -33,11 +44,48 @@ pub fn run() {
                         break
                     }
                 }
+
+                // Create Tools submenu if it doesn't exist, or add to existing
+                let mut tools_submenu_exists = false;
+                for item in menu.items()? {
+                    if let Some(submenu) = item.as_submenu() {
+                        if let Ok(text) = submenu.text() {
+                            if text == "Tools" {
+                                submenu.append(&download_item)?;
+                                tools_submenu_exists = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // If Tools submenu doesn't exist, create it
+                if !tools_submenu_exists {
+                    let tools_submenu = SubmenuBuilder::new(app, "Tools")
+                        .item(&download_item)
+                        .build()?;
+                    menu.append(&tools_submenu)?;
+                }
             }
 
             app.on_menu_event(move |app, event| {
                 if event.id() == "open" {
                     app.emit("menu-open", ()).unwrap();
+                } else if event.id() == "download-from-inaturalist" {
+                    // Open new window for DwC-A download
+                    let window = tauri::WebviewWindowBuilder::new(
+                        app,
+                        "dwc-download",
+                        tauri::WebviewUrl::App("dwc-download".into())
+                    )
+                    .title("Download from iNaturalist")
+                    .inner_size(700.0, 800.0)
+                    .resizable(true)
+                    .build();
+
+                    if let Err(e) = window {
+                        log::error!("Failed to open DwC download window: {}", e);
+                    }
                 }
             });
 

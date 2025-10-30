@@ -35,7 +35,7 @@ export async function setupMockTauri(
 export async function waitForAppReady(page: Page) {
   // Wait for either the "Open Archive" button or the main content
   await page.waitForSelector('button:has-text("Open Archive"), main', {
-    timeout: 10000,
+    timeout: 10_000,
   });
 }
 

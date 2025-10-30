@@ -8,13 +8,13 @@ use std::io::prelude::*;
 use std::net::TcpListener;
 use url::Url;
 
-use crate::auth::{save_auth_token, AuthError, AuthToken};
+use crate::auth::{TokenStorage, AuthError, AuthToken};
 
 const INATURALIST_AUTH_URL: &str = "https://www.inaturalist.org/oauth/authorize";
 const INATURALIST_TOKEN_URL: &str = "https://www.inaturalist.org/oauth/token";
 const REDIRECT_URI: &str = "http://localhost:8080/callback";
 
-pub async fn authenticate_user() -> Result<AuthToken, AuthError> {
+pub async fn authenticate_user<S: TokenStorage>(storage: &S) -> Result<AuthToken, AuthError> {
     println!("Starting iNaturalist authentication...");
 
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
@@ -70,7 +70,7 @@ pub async fn authenticate_user() -> Result<AuthToken, AuthError> {
         token_type: "Bearer".to_string(),
     };
 
-    save_auth_token(&auth_token)?;
+    storage.save_token(&auth_token)?;
     println!("Authentication successful! Token saved.");
 
     Ok(auth_token)

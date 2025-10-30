@@ -90,7 +90,8 @@ export function getMockTauriAPIs(
 
     // Mock @tauri-apps/plugin-dialog
     __TAURI_PLUGIN_DIALOG__: {
-      open: async () => '/mock/path/to/test-archive.zip',
+      showOpenDialog: async () => '/mock/path/to/test-archive.zip',
+      showSaveDialog: async () => '/mock/path/to/test-archive.zip',
     },
 
     // Mock @tauri-apps/api/window
@@ -218,6 +219,8 @@ export function getInjectionScript(
       // Mock dialog.open function
       const mockOpen = async () => '/mock/path/to/test-archive.zip';
 
+      const mockSave = async () => '/mock/path/to/test-archive.zip';
+
       // Mock window functions
       const mockGetCurrentWindow = () => ({
         setTitle: (title) => {
@@ -256,7 +259,8 @@ export function getInjectionScript(
       // Store mocks globally for module interception
       window.__MOCK_TAURI__ = {
         invoke: mockInvoke,
-        open: mockOpen,
+        showOpenDialog: mockOpen,
+        showSaveDialog: mockSave,
         getCurrentWindow: mockGetCurrentWindow,
         listen: mockListen,
         triggerMenuOpen: triggerMenuOpen,

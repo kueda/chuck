@@ -5,6 +5,7 @@ pub mod audiovisual;
 pub mod identification;
 pub mod meta;
 pub mod conversions;
+pub mod photos;
 
 pub use archive::ArchiveBuilder;
 pub use occurrence::Occurrence;
@@ -12,3 +13,4 @@ pub use multimedia::Multimedia;
 pub use audiovisual::Audiovisual;
 pub use identification::Identification;
 pub use meta::Metadata;
+pub use photos::PhotoDownloader;
