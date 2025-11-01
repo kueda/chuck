@@ -205,5 +205,50 @@ export const mockSearchResultSmallScale: SearchResult = {
   results: generateMockOccurrences(100),
 };
 
+// Archive with gbifID as core ID column (instead of occurrenceID)
+export const mockArchiveWithGbifID: ArchiveInfo = {
+  name: 'GBIF Test Archive',
+  coreCount: 100,
+  coreIdColumn: 'gbifID',
+};
+
+export const mockOccurrencesWithGbifID: Occurrence[] = [
+  {
+    gbifID: 'GBIF-001',
+    scientificName: 'Lynx rufus',
+    decimalLatitude: 37.7749,
+    decimalLongitude: -122.4194,
+    eventDate: '2024-03-15',
+    eventTime: '14:30:00',
+    recordedBy: 'Field Biologist',
+    basisOfRecord: 'HumanObservation',
+  },
+  {
+    gbifID: 'GBIF-002',
+    scientificName: 'Odocoileus hemionus',
+    decimalLatitude: 38.5816,
+    decimalLongitude: -121.4944,
+    eventDate: '2024-03-16',
+    eventTime: '08:15:00',
+    recordedBy: 'Wildlife Observer',
+    basisOfRecord: 'HumanObservation',
+  },
+  {
+    gbifID: 'GBIF-003',
+    scientificName: 'Vulpes vulpes',
+    decimalLatitude: 34.0522,
+    decimalLongitude: -118.2437,
+    eventDate: '2024-03-17',
+    eventTime: '19:45:00',
+    recordedBy: 'Field Biologist',
+    basisOfRecord: 'HumanObservation',
+  },
+];
+
+export const mockSearchResultWithGbifID: SearchResult = {
+  total: 3,
+  results: mockOccurrencesWithGbifID,
+};
+
 // Export types for use in other test files
 export type { ArchiveInfo, Occurrence, SearchResult };

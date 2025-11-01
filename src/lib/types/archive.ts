@@ -97,6 +97,7 @@ export interface Identification {
 // Attributes are undefined when the client doesn't ask for them, and
 // (hopefully) null when the client asks for them but they are blank
 export interface Occurrence {
+  id?: string | number | null;
   occurrenceID?: string | null;
   basisOfRecord?: string | null;
   recordedBy?: string | null;

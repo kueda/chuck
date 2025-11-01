@@ -13,7 +13,6 @@
 
   const CHUNK_SIZE = 500;
   const DISPLAY_FIELDS = [
-    'occurrenceID',
     'scientificName',
     'decimalLatitude',
     'decimalLongitude',
@@ -59,6 +58,12 @@
   });
   let archiveLoadingError = $state<string | null>(null);
 
+  let displayFields = $derived(
+    archive
+      ? [archive.coreIdColumn, ...DISPLAY_FIELDS]
+      : DISPLAY_FIELDS
+  )
+
   // Load a chunk of results from the backend and add them to the cache
   async function loadChunk(chunkIndex: number) {
     if (loadingChunks.has(chunkIndex)) {
@@ -79,7 +84,7 @@
         limit: CHUNK_SIZE,
         offset: offset,
         searchParams: currentSearchParams,
-        fields: DISPLAY_FIELDS,
+        fields: displayFields,
       });
 
       // Add results to cache
@@ -157,7 +162,7 @@
         limit: CHUNK_SIZE,
         offset: 0,
         searchParams: params,
-        fields: DISPLAY_FIELDS,
+        fields: displayFields,
       });
 
       // Update filtered total with actual count

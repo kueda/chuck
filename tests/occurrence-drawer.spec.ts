@@ -4,6 +4,10 @@ import {
   waitForAppReady,
   openArchive,
 } from './helpers/setup';
+import {
+  mockArchiveWithGbifID,
+  mockSearchResultWithGbifID,
+} from './fixtures/archive-data';
 
 test.describe('OccurrenceDrawer Keyboard Navigation', () => {
   test.beforeEach(async ({ page }) => {
@@ -148,5 +152,55 @@ test.describe('OccurrenceDrawer Keyboard Navigation', () => {
     // The occurrence at index 20 should now be scrolled into view
     const occurrenceAtIndex20 = page.locator('main .occurrence-item').nth(20);
     await expect(occurrenceAtIndex20).toBeInViewport();
+  });
+});
+
+test.describe('OccurrenceDrawer with non-occurrenceID core columns', () => {
+  test('should show occurrence details when clicking row in gbifID archive', async ({ page }) => {
+    // Setup with gbifID archive
+    await setupMockTauri(page, mockArchiveWithGbifID, mockSearchResultWithGbifID);
+    await page.goto('/');
+    await waitForAppReady(page);
+    await openArchive(page);
+
+    // Verify table header shows gbifID column
+    await expect(page.locator('.table-cell:has-text("gbifID")')).toBeVisible();
+
+    // Click first occurrence row
+    const firstOccurrence = page.locator('main .occurrence-item').first();
+    await firstOccurrence.click();
+
+    // Wait for drawer to open
+    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+
+    // Verify drawer shows the correct occurrence details
+    await expect(page.locator('header div:has-text("gbifID:")').first()).toBeVisible();
+    await expect(page.locator('[role="dialog"]').getByText('GBIF-001').first()).toBeVisible();
+    await expect(page.locator('[role="dialog"]').getByText('Lynx rufus').first()).toBeVisible();
+  });
+
+  test('should navigate between occurrences in gbifID archive', async ({ page }) => {
+    // Setup with gbifID archive
+    await setupMockTauri(page, mockArchiveWithGbifID, mockSearchResultWithGbifID);
+    await page.goto('/');
+    await waitForAppReady(page);
+    await openArchive(page);
+
+    // Click first occurrence
+    const firstOccurrence = page.locator('main .occurrence-item').first();
+    await firstOccurrence.click();
+    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+
+    // Verify first occurrence
+    await expect(page.locator('[role="dialog"]').getByText('GBIF-001').first()).toBeVisible();
+
+    // Click Next button
+    const nextButton = page.locator('button:has-text("Next")');
+    await nextButton.click();
+    await page.waitForTimeout(500);
+
+    // Verify second occurrence
+    await expect(page.locator('[role="dialog"]').getByText('GBIF-002').first()).toBeVisible();
+    await expect(page.locator('[role="dialog"]').getByText('Odocoileus hemionus').first()).toBeVisible();
   });
 });

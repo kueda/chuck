@@ -200,8 +200,10 @@ export function getInjectionScript(
               throw new Error('No archive currently open');
             }
 
+            // Use dynamic core ID column from current archive
+            const coreIdColumn = currentArchive?.coreIdColumn || 'occurrenceID';
             const occurrence = currentSearchResults.results.find(
-              r => r.occurrenceID === occurrenceId
+              r => r[coreIdColumn] === occurrenceId
             );
 
             if (!occurrence) {
