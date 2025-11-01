@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use sha2::{Digest, Sha256};
+use std::time::{SystemTime, UNIX_EPOCH};
 use crate::error::{ChuckError, Result};
 use crate::commands::archive::SearchParams;
 use crate::db::Database;
@@ -243,25 +243,20 @@ impl Archive {
 }
 
 fn create_storage_dir(archive_path: &Path, base_dir: &Path) -> Result<PathBuf> {
-    let mut file = std::fs::File::open(archive_path).map_err(|e| ChuckError::FileOpen {
-        path: archive_path.to_path_buf(),
-        source: e,
-    })?;
-
     let fname = archive_path
         .file_name()
         .and_then(|s| s.to_str())
         .ok_or_else(|| ChuckError::InvalidFileName(archive_path.to_path_buf()))?;
 
-    let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher).map_err(|e| ChuckError::FileRead {
-        path: archive_path.to_path_buf(),
-        source: e,
-    })?;
+    // Generate unique ID using timestamp (microseconds since epoch)
+    // SystemTimeError is extremely unlikely (only if clock is before Unix epoch)
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("System clock should be after Unix epoch")
+        .as_micros();
 
-    let file_hash = hasher.finalize();
-    let file_hash_string = format!("{}-{:x}", fname, file_hash);
-    let target_dir = base_dir.join(file_hash_string);
+    let unique_dir_name = format!("{}-{:x}", fname, timestamp);
+    let target_dir = base_dir.join(unique_dir_name);
 
     std::fs::create_dir_all(&target_dir).map_err(|e| ChuckError::DirectoryCreate {
         path: target_dir.clone(),
