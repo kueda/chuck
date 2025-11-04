@@ -27,6 +27,7 @@ futures = "0.3.31"
 inaturalist = { git = "https://github.com/kueda/rust-inaturalist.git", branch = "complete-get-observations" }
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service"] }
 log = { workspace = true }
+rayon = "1.10"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 roxmltree = "0.20"
 serde = { workspace = true }

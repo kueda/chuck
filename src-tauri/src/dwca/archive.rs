@@ -1,8 +1,13 @@
+use rayon::prelude::*;
+use std::collections::HashSet;
+use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::error::{ChuckError, Result};
+
 use crate::commands::archive::SearchParams;
 use crate::db::Database;
+use crate::error::{ChuckError, Result};
 
 /// Information about an extension in a DarwinCore Archive
 #[derive(Debug, Clone)]
@@ -23,6 +28,15 @@ const SUPPORTED_ROW_TYPES: &[&str] = &[
     "http://rs.tdwg.org/ac/terms/Multimedia",             // Audiovisual
     "http://rs.tdwg.org/dwc/terms/Identification",        // Identification
 ];
+
+#[derive(Debug)]
+struct ZipFileInfo {
+    index: usize,
+    path: PathBuf,
+    is_dir: bool,
+    #[cfg(unix)]
+    unix_mode: Option<u32>,
+}
 
 /// Represents a Darwin Core Archive
 pub struct Archive {
@@ -294,81 +308,71 @@ fn remove_other_archives(base_dir: &Path, current_storage_dir: &Path) -> Result<
     Ok(())
 }
 
-/// Checks if a file path is likely a photo/image file that should be lazily extracted
-fn is_photo_file(path: &Path) -> bool {
-    // Check file extension
-    if let Some(ext) = path.extension() {
-        let ext_lower = ext.to_string_lossy().to_lowercase();
-        if matches!(ext_lower.as_str(), "jpg" | "jpeg" | "png" | "gif" | "bmp" | "tiff" | "tif" | "webp") {
-            return true;
-        }
-    }
-
-    // Check if file is in a photos/images/multimedia directory
-    for component in path.components() {
-        if let Some(name) = component.as_os_str().to_str() {
-            let name_lower = name.to_lowercase();
-            if matches!(name_lower.as_str(), "photos" | "images" | "multimedia" | "media") {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
 fn extract_archive(archive_path: &Path, target_dir: &Path) -> Result<()> {
-    let file = std::fs::File::open(archive_path).map_err(|e| ChuckError::FileOpen {
-        path: archive_path.to_path_buf(),
-        source: e,
-    })?;
+    let files_to_extract = get_files_to_extract(archive_path, target_dir)?;
+    let archive_path = Arc::new(archive_path.to_path_buf());
+    let errors: Arc<Mutex<Vec<ChuckError>>> = Arc::new(Mutex::new(Vec::new()));
 
-    let mut archive = zip::ZipArchive::new(file).map_err(ChuckError::ArchiveExtraction)?;
-
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i).map_err(ChuckError::ArchiveExtraction)?;
-        let outpath = match file.enclosed_name() {
-            Some(path) => target_dir.join(path),
-            None => continue,
-        };
-
-        if file.is_dir() {
-            std::fs::create_dir_all(&outpath).map_err(|e| ChuckError::DirectoryCreate {
-                path: outpath,
-                source: e,
-            })?;
-        } else if is_photo_file(&outpath) {
-            // Skip photo files - they'll be extracted on demand
-            continue;
-        } else {
-            if let Some(p) = outpath.parent() {
-                if !p.exists() {
+    // Extract files in parallel
+    files_to_extract.par_iter().for_each(|file_info| {
+        let result = (|| -> Result<()> {
+            if file_info.is_dir {
+                std::fs::create_dir_all(&file_info.path).map_err(|e| ChuckError::DirectoryCreate {
+                    path: file_info.path.clone(),
+                    source: e,
+                })?;
+            } else {
+                // Create parent directories if needed
+                if let Some(p) = file_info.path.parent() {
                     std::fs::create_dir_all(p).map_err(|e| ChuckError::DirectoryCreate {
                         path: p.to_path_buf(),
                         source: e,
                     })?;
                 }
-            }
 
-            let mut outfile =
-                std::fs::File::create(&outpath).map_err(|e| ChuckError::FileOpen {
-                    path: outpath.clone(),
+                // Open a new archive instance for this thread
+                let file = std::fs::File::open(&*archive_path).map_err(|e| ChuckError::FileOpen {
+                    path: archive_path.as_ref().clone(),
                     source: e,
                 })?;
-            std::io::copy(&mut file, &mut outfile).map_err(|e| ChuckError::FileRead {
-                path: outpath.clone(),
-                source: e,
-            })?;
 
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                if let Some(mode) = file.unix_mode() {
-                    std::fs::set_permissions(&outpath, std::fs::Permissions::from_mode(mode))
-                        .ok();
+                let mut archive = zip::ZipArchive::new(file).map_err(ChuckError::ArchiveExtraction)?;
+                let zip_file = archive.by_index(file_info.index).map_err(ChuckError::ArchiveExtraction)?;
+
+                let outfile = std::fs::File::create(&file_info.path).map_err(|e| ChuckError::FileOpen {
+                    path: file_info.path.clone(),
+                    source: e,
+                })?;
+
+                // Use buffered I/O with 64KB buffers for better performance
+                let mut reader = BufReader::with_capacity(64 * 1024, zip_file);
+                let mut writer = BufWriter::with_capacity(64 * 1024, outfile);
+                std::io::copy(&mut reader, &mut writer).map_err(|e| ChuckError::FileRead {
+                    path: file_info.path.clone(),
+                    source: e,
+                })?;
+
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if let Some(mode) = file_info.unix_mode {
+                        std::fs::set_permissions(&file_info.path, std::fs::Permissions::from_mode(mode))
+                            .ok();
+                    }
                 }
             }
+            Ok(())
+        })();
+
+        if let Err(e) = result {
+            errors.lock().unwrap().push(e);
         }
+    });
+
+    // Check for errors
+    let errors = Arc::try_unwrap(errors).unwrap().into_inner().unwrap();
+    if let Some(err) = errors.into_iter().next() {
+        return Err(err);
     }
 
     Ok(())
@@ -389,7 +393,7 @@ fn extract_single_file(
     let mut archive = zip::ZipArchive::new(file).map_err(ChuckError::ArchiveExtraction)?;
 
     // Find the file in the archive by name
-    let mut zip_file = archive
+    let zip_file = archive
         .by_name(file_path_in_zip)
         .map_err(ChuckError::ArchiveExtraction)?;
 
@@ -403,13 +407,16 @@ fn extract_single_file(
         }
     }
 
-    // Extract the file
-    let mut outfile = std::fs::File::create(target_path).map_err(|e| ChuckError::FileOpen {
+    // Extract the file with buffered I/O
+    let outfile = std::fs::File::create(target_path).map_err(|e| ChuckError::FileOpen {
         path: target_path.to_path_buf(),
         source: e,
     })?;
 
-    let bytes_written = std::io::copy(&mut zip_file, &mut outfile).map_err(|e| {
+    // Use buffered I/O with 64KB buffers for better performance
+    let mut reader = BufReader::with_capacity(64 * 1024, zip_file);
+    let mut writer = BufWriter::with_capacity(64 * 1024, outfile);
+    let bytes_written = std::io::copy(&mut reader, &mut writer).map_err(|e| {
         ChuckError::FileRead {
             path: target_path.to_path_buf(),
             source: e,
@@ -419,12 +426,94 @@ fn extract_single_file(
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Some(mode) = zip_file.unix_mode() {
+        if let Some(mode) = reader.get_ref().unix_mode() {
             std::fs::set_permissions(target_path, std::fs::Permissions::from_mode(mode)).ok();
         }
     }
 
     Ok(bytes_written)
+}
+
+/// Metadata of files in the archive that we need to extract
+fn get_files_to_extract(archive_path: &Path, target_dir: &Path) -> Result<Vec<ZipFileInfo>> {
+    // Phase 1: Extract meta.xml first to determine which files we need
+    let meta_path = target_dir.join("meta.xml");
+    extract_single_file(archive_path, "meta.xml", meta_path.as_path())?;
+
+    // Parse meta.xml to determine needed files
+    let needed_files = get_needed_files_from_meta(target_dir)?;
+
+    // Phase 2: Collect information about files to extract
+    let file = std::fs::File::open(archive_path).map_err(|e| ChuckError::FileOpen {
+        path: archive_path.to_path_buf(),
+        source: e,
+    })?;
+
+    let mut archive = zip::ZipArchive::new(file).map_err(ChuckError::ArchiveExtraction)?;
+
+    let files_to_extract: Vec<ZipFileInfo> = (0..archive.len())
+        .filter_map(|i| {
+            let file = archive.by_index(i).ok()?;
+            let path = file.enclosed_name()?.to_path_buf();
+            let outpath = target_dir.join(&path);
+
+            // Only extract files we actually need
+            if !file.is_dir() && !needed_files.contains(path.to_str()?) {
+                return None;
+            }
+
+            Some(ZipFileInfo {
+                index: i,
+                path: outpath,
+                is_dir: file.is_dir(),
+                #[cfg(unix)]
+                unix_mode: file.unix_mode(),
+            })
+        })
+        .collect();
+    Ok(files_to_extract)
+}
+
+/// Parses meta.xml to determine which files we need to extract
+/// Returns a HashSet of file paths (relative to archive root)
+fn get_needed_files_from_meta(storage_dir: &Path) -> Result<std::collections::HashSet<String>> {
+    let meta_path = storage_dir.join("meta.xml");
+    let contents = std::fs::read_to_string(&meta_path).map_err(|e| ChuckError::FileRead {
+        path: meta_path.clone(),
+        source: e,
+    })?;
+
+    let doc = roxmltree::Document::parse(&contents).map_err(|e| ChuckError::XmlParse {
+        path: meta_path,
+        source: e,
+    })?;
+
+    let mut needed_files = HashSet::new();
+
+    // Get core files
+    if let Some(core_node) = doc.descendants().find(|n| n.has_tag_name("core")) {
+        for location_node in core_node.descendants().filter(|n| n.has_tag_name("location")) {
+            if let Some(text) = location_node.text() {
+                needed_files.insert(text.to_string());
+            }
+        }
+    }
+
+    // Get extension files (only for supported types)
+    for ext_node in doc.descendants().filter(|n| n.has_tag_name("extension")) {
+        if let Some(row_type) = ext_node.attribute("rowType") {
+            // Only include supported extension types
+            if SUPPORTED_ROW_TYPES.contains(&row_type) {
+                for location_node in ext_node.descendants().filter(|n| n.has_tag_name("location")) {
+                    if let Some(text) = location_node.text() {
+                        needed_files.insert(text.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(needed_files)
 }
 
 fn parse_meta_xml(storage_dir: &Path) -> Result<(Vec<PathBuf>, String, Vec<ExtensionInfo>)> {
