@@ -139,24 +139,35 @@
     }
   }
 
+  function handleColumnHeaderClick(column: string) {
+    if (!archive) return;
+
+    // Toggle between ASC and DESC (no "clear" state since results are always sorted)
+    let newDirection: 'ASC' | 'DESC' = 'ASC';
+
+    if (currentSearchParams.order_by === column) {
+      // Same column - toggle direction
+      newDirection = currentSearchParams.order === 'ASC' ? 'DESC' : 'ASC';
+    }
+    // Different column - start with ASC
+
+    const params: SearchParams = {
+      ...currentSearchParams,
+      order_by: column,
+      order: newDirection,
+    };
+
+    handleSearchChange(params);
+  }
+
   async function handleSearchChange(params: SearchParams) {
     if (!scrollElement) return;
     if (!archive) return;
 
-    // Update search params
+    // Update search params immediately so subsequent clicks see the new value
     currentSearchParams = params;
 
-    // Set filtered total to 0 immediately to prevent virtualizer from
-    // creating virtual items with stale count while cache is empty
-    filteredTotal = 0;
-
-    // Clear cache
-    occurrenceCache = new Map();
-    occurrenceCacheVersion = 0;
-    loadingChunks = new Set();
-    lastLoadedRange = { firstChunk: -1, lastChunk: -1 };
-
-    // Load first chunk to get the filtered count
+    // Load first chunk with new params to get the filtered count
     try {
       const searchResult = await invoke<SearchResult>('search', {
         limit: CHUNK_SIZE,
@@ -165,13 +176,20 @@
         fields: displayFields,
       });
 
-      // Update filtered total with actual count
+      // Now that we have the results, update the rest atomically
       filteredTotal = searchResult.total;
+
+      // Clear cache
+      occurrenceCache = new Map();
+      loadingChunks = new Set();
+      lastLoadedRange = { firstChunk: -1, lastChunk: -1 };
 
       // Add results to cache
       searchResult.results.forEach((occurrence, i) => {
         occurrenceCache.set(i, occurrence);
       });
+
+      // Increment version to force re-render (don't reset to 0!)
       occurrenceCacheVersion++;
 
       // Scroll to top
@@ -188,6 +206,12 @@
     if (archive) {
       getCurrentWindow().setTitle(`${archive.name} – ${archive.coreCount} records`);
       filteredTotal = archive.coreCount;
+
+      // Set default sort to Core ID
+      currentSearchParams = {
+        order_by: archive.coreIdColumn,
+        order: 'ASC',
+      };
     }
   });
 
@@ -369,7 +393,12 @@
     <div class="absolute bottom-10 right-10 z-10">
       <ViewSwitcher bind:view={currentView} {onViewChange} />
     </div>
-    <Filters onSearchChange={handleSearchChange} />
+    <Filters
+      onSearchChange={handleSearchChange}
+      availableColumns={archive?.availableColumns ?? []}
+      initialSortBy={currentSearchParams.order_by}
+      initialSortDirection={currentSearchParams.order}
+    />
     <main class="overflow-y-auto w-full relative" bind:this={scrollElement}>
       {#if currentView === 'table'}
         <Table
@@ -380,6 +409,9 @@
           onVisibleRangeChange={handleVisibleRangeChange}
           coreIdColumn={archive.coreIdColumn}
           {scrollState}
+          currentSortColumn={currentSearchParams.order_by}
+          currentSortDirection={currentSearchParams.order}
+          onColumnHeaderClick={handleColumnHeaderClick}
         />
       {:else}
         <Cards

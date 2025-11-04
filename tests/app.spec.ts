@@ -59,6 +59,119 @@ test.describe('Frontend', () => {
     await expect(page.locator('main')).toBeVisible();
   });
 
+  test('should display sort controls in filters sidebar', async ({ page }) => {
+    await openArchive(page);
+
+    // Check for sort by dropdown
+    const sortBySelect = page.locator('select#sortBy');
+    await expect(sortBySelect).toBeVisible();
+
+    // Check that dropdown has options
+    const options = await sortBySelect.locator('option').count();
+    expect(options).toBeGreaterThan(1); // At least "None" and one column
+
+    // Select a column to reveal direction dropdown
+    await sortBySelect.selectOption({ index: 1 }); // Select first non-None option
+
+    // Check for sort direction dropdown (should appear after selecting a column)
+    const sortDirectionSelect = page.locator('select').filter({ hasText: 'DESC' });
+    await expect(sortDirectionSelect).toBeVisible();
+  });
+
+  test('should sort when clicking column headers', async ({ page }) => {
+    await openArchive(page);
+    await page.waitForTimeout(1000);
+
+    // Get the first scientificName before sorting (with default occurrenceID sort, first row is TEST-001)
+    // scientificName column is the 2nd column (index 1)
+    const firstRow = page.locator('.occurrence-item').first();
+    await expect(firstRow).toBeVisible();
+
+    const firstNameBefore = await firstRow.locator('.table-cell').nth(1).textContent();
+    expect(firstNameBefore).toBe('Quercus lobata');
+
+    // Click on scientificName header to sort ASC
+    const header = page.locator('.occurrence-table .font-bold').filter({ hasText: 'scientificName' });
+    await header.click();
+    await page.waitForTimeout(1000);
+
+    // Should show ascending sort icon
+    await expect(header.locator('svg')).toBeVisible(); // Arrow icon
+
+    // Get the first scientificName after sorting
+    const firstRowAfterSort = page.locator('.occurrence-item').first();
+    const firstNameAfter = await firstRowAfterSort.locator('.table-cell').nth(1).textContent();
+
+    // The order should have changed - when sorted alphabetically ASC,
+    // the first name should be something like "Arbutus" or "Arctostaphylos" (alphabetically before "Quercus")
+    expect(firstNameAfter).not.toBe('Quercus lobata');
+
+    // Click again to toggle to descending
+    await header.click();
+    await page.waitForTimeout(1000);
+
+    // Should still show sort icon (DESC now)
+    await expect(header.locator('svg')).toBeVisible();
+
+    // Verify order reversed - should be something alphabetically last
+    const firstRowDesc = page.locator('.occurrence-item').first();
+    const firstNameDesc = await firstRowDesc.locator('.table-cell').nth(1).textContent();
+    expect(firstNameDesc).not.toBe(firstNameAfter); // Should be different from ASC
+
+    // Click third time to toggle back to ASC
+    await header.click();
+    await page.waitForTimeout(1000);
+
+    // Should still show sort icon (back to ASC)
+    await expect(header.locator('svg')).toBeVisible();
+  });
+
+  test('should default to Core ID sort when opening archive', async ({ page }) => {
+    await openArchive(page);
+
+    // Check that the Core ID column header shows sort icon
+    const idHeader = page.locator('.occurrence-table .font-bold').first();
+    await expect(idHeader.locator('svg')).toBeVisible();
+
+    // Verify sort dropdown shows the core ID column selected
+    const sortBySelect = page.locator('select#sortBy');
+    const selectedValue = await sortBySelect.inputValue();
+    expect(selectedValue).toBeTruthy(); // Should have a value (the core ID column)
+  });
+
+  test('should maintain results when changing sort after scrolling', async ({ page }) => {
+    // Load an archive with 100+ records
+    await openArchive(page);
+
+    // Wait for initial results to load
+    await page.waitForTimeout(1000);
+
+    // Get the main scrollable element
+    const mainElement = page.locator('main');
+
+    // Scroll the page down a bit
+    await mainElement.hover();
+    await page.mouse.wheel(0, 500);
+
+    // Wait for scroll to settle and chunks to load
+    await page.waitForTimeout(1000);
+
+    // Change the Sort By dropdown
+    const sortBySelect = page.locator('select#sortBy');
+    await sortBySelect.selectOption('eventDate');
+
+    // Wait for sort to apply
+    await page.waitForTimeout(1000);
+
+    // Verify the sort actually changed by checking the selected value
+    const selectedValue = await sortBySelect.inputValue();
+    expect(selectedValue).toBe('eventDate');
+
+    // Assert that there are still rows in the table other than the header
+    const rows = await getVisibleOccurrences(page);
+    expect(rows.length).toBeGreaterThan(0);
+  });
+
   test('should filter results by scientific name', async ({ page }) => {
     // Open the archive first
     await openArchive(page);
@@ -144,7 +257,7 @@ test.describe('Frontend', () => {
     ];
 
     for (const header of headers) {
-      await expect(page.locator('.table-cell').getByText(header)).toBeVisible();
+      await expect(page.locator('.table-header-cell').getByText(header)).toBeVisible();
     }
   });
 
@@ -193,8 +306,8 @@ test.describe('Frontend', () => {
     expect(savedView).toBe('table');
 
     // Verify we're in table view (column headers should be visible)
-    await expect(page.locator('.table-cell', { hasText: 'occurrenceID' })).toBeVisible();
-    await expect(page.locator('.table-cell', { hasText: 'scientificName' })).toBeVisible();
+    await expect(page.locator('.table-header-cell', { hasText: 'occurrenceID' })).toBeVisible();
+    await expect(page.locator('.table-header-cell', { hasText: 'scientificName' })).toBeVisible();
   });
 
   test('should switch to cards view and display scientificName on cards', async ({ page }) => {

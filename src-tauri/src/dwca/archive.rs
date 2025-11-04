@@ -174,10 +174,13 @@ impl Archive {
 
     /// Returns archive information
     pub fn info(&self) -> Result<crate::commands::archive::ArchiveInfo> {
+        let available_columns = self.db.get_available_columns()?;
+
         Ok(crate::commands::archive::ArchiveInfo {
             name: self.name.clone(),
             core_count: self.core_count()?,
             core_id_column: self.core_id_column.clone(),
+            available_columns,
         })
     }
 
@@ -190,7 +193,7 @@ impl Archive {
         fields: Option<Vec<String>>,
     ) -> Result<crate::commands::archive::SearchResult> {
         let params = SearchParams {
-            order_by: Some(self.core_id_column.clone()),
+            order_by: search_params.order_by.clone().or(Some(self.core_id_column.clone())),
             ..search_params
         };
         self.db.search(
@@ -591,7 +594,6 @@ fn parse_meta_xml(storage_dir: &Path) -> Result<(Vec<PathBuf>, String, Vec<Exten
 
             // Only process supported extension types
             if !SUPPORTED_ROW_TYPES.contains(&row_type) {
-                log::debug!("Skipping unsupported extension type: {}", row_type);
                 return None;
             }
 
@@ -1240,6 +1242,35 @@ mod tests {
 
         // Clean up
         std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_archive_info_includes_available_columns() {
+        let meta_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<archive xmlns="http://rs.tdwg.org/dwc/text/">
+  <core rowType="http://rs.tdwg.org/dwc/terms/Occurrence">
+    <files><location>occurrence.csv</location></files>
+    <id index="0"/>
+  </core>
+</archive>"#;
+
+        let csv_content = b"id,scientificName,eventDate\n\
+                            1,Test species,2023-01-01\n";
+
+        let files = &[
+            ("meta.xml", &meta_xml[..]),
+            ("occurrence.csv", &csv_content[..]),
+        ];
+
+        let fixture = ZippedArchiveFixture::new("info_columns", Some(files));
+        let archive = Archive::open(fixture.archive_path(), fixture.base_dir()).unwrap();
+
+        let info = archive.info().unwrap();
+
+        assert!(info.available_columns.len() >= 3);
+        assert!(info.available_columns.contains(&"id".to_string()));
+        assert!(info.available_columns.contains(&"scientificName".to_string()));
+        assert!(info.available_columns.contains(&"eventDate".to_string()));
     }
 }
 

@@ -15,6 +15,7 @@ test.describe('OccurrenceDrawer Keyboard Navigation', () => {
     await page.goto('/');
     await waitForAppReady(page);
     await openArchive(page);
+    await page.waitForSelector('.table-cell:has-text("TEST-001")', { timeout: 5000 });
   });
 
   test('should navigate to next occurrence with right arrow key', async ({ page }) => {
@@ -156,15 +157,19 @@ test.describe('OccurrenceDrawer Keyboard Navigation', () => {
 });
 
 test.describe('OccurrenceDrawer with non-occurrenceID core columns', () => {
-  test('should show occurrence details when clicking row in gbifID archive', async ({ page }) => {
+  test.beforeEach(async ({ page }) => {
     // Setup with gbifID archive
     await setupMockTauri(page, mockArchiveWithGbifID, mockSearchResultWithGbifID);
     await page.goto('/');
     await waitForAppReady(page);
     await openArchive(page);
+    await page.waitForSelector('.table-cell:has-text("GBIF-001")', { timeout: 5000 });
+  })
+
+  test('should show occurrence details when clicking row in gbifID archive', async ({ page }) => {
 
     // Verify table header shows gbifID column
-    await expect(page.locator('.table-cell:has-text("gbifID")')).toBeVisible();
+    await expect(page.locator('.table-header-cell:has-text("gbifID")')).toBeVisible();
 
     // Click first occurrence row
     const firstOccurrence = page.locator('main .occurrence-item').first();
@@ -180,12 +185,6 @@ test.describe('OccurrenceDrawer with non-occurrenceID core columns', () => {
   });
 
   test('should navigate between occurrences in gbifID archive', async ({ page }) => {
-    // Setup with gbifID archive
-    await setupMockTauri(page, mockArchiveWithGbifID, mockSearchResultWithGbifID);
-    await page.goto('/');
-    await waitForAppReady(page);
-    await openArchive(page);
-
     // Click first occurrence
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();

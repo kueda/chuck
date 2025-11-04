@@ -21,6 +21,7 @@ async function setupMockTauriWithCustomData(
     name: archiveName,
     coreCount: coreCount,
     coreIdColumn: 'occurrenceID',
+    availableColumns: ['occurrenceID', 'scientificName', 'decimalLatitude', 'decimalLongitude', 'eventDate', 'eventTime'],
   };
 
   // Generate mock occurrences

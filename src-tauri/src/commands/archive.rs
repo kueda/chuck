@@ -25,6 +25,9 @@ pub struct ArchiveInfo {
 
     #[serde(rename = "coreIdColumn")]
     pub core_id_column: String,
+
+    #[serde(rename = "availableColumns")]
+    pub available_columns: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -32,6 +35,7 @@ pub struct SearchParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scientific_name: Option<String>,
     pub order_by: Option<String>,
+    pub order: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

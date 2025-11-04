@@ -13,6 +13,7 @@ export const mockArchive: ArchiveInfo = {
   name: 'Test Darwin Core Archive',
   coreCount: 1000,
   coreIdColumn: 'occurrenceID',
+  availableColumns: ['occurrenceID', 'scientificName', 'decimalLatitude', 'decimalLongitude', 'eventDate', 'eventTime'],
 };
 
 export const mockOccurrences: Occurrence[] = [
@@ -142,6 +143,7 @@ export const mockArchive2: ArchiveInfo = {
   name: 'Second Test Archive',
   coreCount: 500,
   coreIdColumn: 'occurrenceID',
+  availableColumns: ['occurrenceID', 'scientificName', 'decimalLatitude', 'decimalLongitude', 'eventDate', 'eventTime'],
 };
 
 export const mockOccurrences2: Occurrence[] = [
@@ -187,6 +189,7 @@ export const mockArchiveLarge: ArchiveInfo = {
   name: 'Large Test Archive - 1M records',
   coreCount: 1000000,
   coreIdColumn: 'occurrenceID',
+  availableColumns: ['occurrenceID', 'scientificName', 'decimalLatitude', 'decimalLongitude', 'eventDate', 'eventTime'],
 };
 
 export const mockSearchResultLarge: SearchResult = {
@@ -198,6 +201,7 @@ export const mockArchiveSmall: ArchiveInfo = {
   name: 'Small Test Archive - 1K records',
   coreCount: 1000,
   coreIdColumn: 'occurrenceID',
+  availableColumns: ['occurrenceID', 'scientificName', 'decimalLatitude', 'decimalLongitude', 'eventDate', 'eventTime'],
 };
 
 export const mockSearchResultSmallScale: SearchResult = {
@@ -210,6 +214,7 @@ export const mockArchiveWithGbifID: ArchiveInfo = {
   name: 'GBIF Test Archive',
   coreCount: 100,
   coreIdColumn: 'gbifID',
+  availableColumns: ['gbifID', 'scientificName', 'decimalLatitude', 'decimalLongitude', 'eventDate', 'eventTime'],
 };
 
 export const mockOccurrencesWithGbifID: Occurrence[] = [

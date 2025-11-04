@@ -151,6 +151,9 @@ export function getInjectionScript(
       const mockInvoke = async (command, args) => {
         console.log('[Mock Tauri] invoke called:', command, args);
 
+        // Simulate a non-instant response for all commands
+        await new Promise(resolve => setTimeout(resolve, 100));
+
         switch (command) {
           case 'open_archive':
             openCount++;
@@ -183,6 +186,34 @@ export function getInjectionScript(
                 r.scientificName?.toLowerCase()
                   .includes(searchParams.scientific_name.toLowerCase())
               );
+            }
+
+            // Apply sorting if specified
+            if (searchParams?.order_by) {
+              const orderBy = searchParams.order_by;
+              const direction = searchParams.order || 'ASC';
+
+              filteredResults = [...filteredResults].sort((a, b) => {
+                const aVal = a[orderBy];
+                const bVal = b[orderBy];
+
+                // Handle null/undefined
+                if (aVal == null && bVal == null) return 0;
+                if (aVal == null) return 1;
+                if (bVal == null) return -1;
+
+                // Compare values
+                let comparison = 0;
+                if (typeof aVal === 'string' && typeof bVal === 'string') {
+                  comparison = aVal.localeCompare(bVal);
+                } else if (typeof aVal === 'number' && typeof bVal === 'number') {
+                  comparison = aVal - bVal;
+                } else {
+                  comparison = String(aVal).localeCompare(String(bVal));
+                }
+
+                return direction === 'DESC' ? -comparison : comparison;
+              });
             }
 
             const paginatedResults = filteredResults.slice(offset, offset + limit);

@@ -11,6 +11,7 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
     await page.goto('/');
     await waitForAppReady(page);
     await openArchive(page);
+    await page.waitForSelector('.table-cell:has-text("TEST-001")', { timeout: 5000 });
   });
 
   test('should display photo counter when multiple photos exist', async ({ page }) => {

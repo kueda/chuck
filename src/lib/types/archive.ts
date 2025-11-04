@@ -2,6 +2,7 @@ export interface ArchiveInfo {
   name: string,
   coreCount: number,
   coreIdColumn: string,
+  availableColumns: string[],
 }
 
 export interface Multimedia {

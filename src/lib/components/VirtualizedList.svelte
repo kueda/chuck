@@ -181,6 +181,7 @@
     scrollToIndex: scrollToIndex,
     _key: virtualizerVersion
   }}
+
   {#if count === 0}
     <div class="w-full h-full flex justify-center items-center">
       <p>No results</p>

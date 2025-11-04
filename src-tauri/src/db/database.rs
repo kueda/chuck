@@ -216,6 +216,21 @@ impl Database {
         Ok(count)
     }
 
+    /// Returns a list of all column names in the occurrences table
+    pub fn get_available_columns(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT column_name FROM information_schema.columns \
+             WHERE table_name = 'occurrences' \
+             ORDER BY column_name"
+        )?;
+
+        let columns: Vec<String> = stmt.query_map([], |row| {
+            row.get(0)
+        })?.collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(columns)
+    }
+
     /// Gets a reference to the database connection for use with PhotoCache
     pub fn connection(&self) -> &duckdb::Connection {
         &self.conn
@@ -343,7 +358,18 @@ impl Database {
         // Build ORDER clause
         let order_clause = if let Some(order_by) = search_params.order_by {
             if Occurrence::FIELD_NAMES.contains(&order_by.as_str()) {
-                format!(" ORDER BY {}", order_by)
+                let direction = search_params.order
+                    .as_ref()
+                    .and_then(|d| {
+                        let upper = d.to_uppercase();
+                        if upper == "ASC" || upper == "DESC" {
+                            Some(upper)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_else(|| "ASC".to_string());
+                format!(" ORDER BY {} {}", order_by, direction)
             } else {
                 String::new()
             }
@@ -680,6 +706,7 @@ mod tests {
         let search_result = db.search(10, 0, SearchParams {
             scientific_name: Some("foo".to_string()),
             order_by: Some("occurrenceID".to_string()),
+            order: None,
         }, None).unwrap();
 
         // Should return 4 results: "Foobar", "foo", "Foo", "Barfoo"
@@ -887,6 +914,7 @@ mod tests {
         let params = crate::commands::archive::SearchParams {
             scientific_name: None,
             order_by: Some("foo".to_string()),
+            order: None,
         };
         let (_, _, _, order_clause) = Database::sql_parts(params, None, &vec![]);
         assert_eq!(order_clause, "");
@@ -947,6 +975,143 @@ mod tests {
         assert!(multimedia.is_array());
         let multimedia_array = multimedia.as_array().unwrap();
         assert_eq!(multimedia_array.len(), 2);
+
+        // Cleanup
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_get_available_columns() {
+        // Create a temporary directory for test database
+        let temp_dir = std::env::temp_dir().join("chuck_test_available_columns");
+        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
+
+        // Create test CSV file
+        let csv_path = temp_dir.join("test.csv");
+        std::fs::write(
+            &csv_path,
+            "id,scientificName,decimalLatitude,eventDate\n\
+             1,Species A,10.5,2023-01-01\n\
+             2,Species B,20.3,2023-01-02\n"
+        ).unwrap();
+
+        // Create database from CSV
+        let db = Database::create_from_core_files(
+            &[csv_path],
+            &[],
+            &db_path,
+        ).unwrap();
+
+        // Test getting available columns
+        let columns = db.get_available_columns().unwrap();
+
+        assert_eq!(columns.len(), 4);
+        assert!(columns.contains(&"id".to_string()));
+        assert!(columns.contains(&"scientificName".to_string()));
+        assert!(columns.contains(&"decimalLatitude".to_string()));
+        assert!(columns.contains(&"eventDate".to_string()));
+
+        // Cleanup
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_search_with_order() {
+        use crate::commands::archive::SearchParams;
+
+        let temp_dir = std::env::temp_dir().join("chuck_test_search_order");
+        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
+
+        let csv_path = temp_dir.join("test.csv");
+        std::fs::write(
+            &csv_path,
+            "id,scientificName\n\
+             3,Zebra\n\
+             1,Apple\n\
+             2,Banana\n"
+        ).unwrap();
+
+        let db = Database::create_from_core_files(&[csv_path], &[], &db_path).unwrap();
+
+        // Test ASC order
+        let params_asc = SearchParams {
+            scientific_name: None,
+            order_by: Some("scientificName".to_string()),
+            order: Some("ASC".to_string()),
+        };
+        let result_asc = db.search(10, 0, params_asc, Some(vec!["scientificName".to_string()])).unwrap();
+        let first_name = result_asc.results[0].get("scientificName").unwrap().as_str().unwrap();
+        assert_eq!(first_name, "Apple");
+
+        // Test DESC order
+        let params_desc = SearchParams {
+            scientific_name: None,
+            order_by: Some("scientificName".to_string()),
+            order: Some("DESC".to_string()),
+        };
+        let result_desc = db.search(10, 0, params_desc, Some(vec!["scientificName".to_string()])).unwrap();
+        let first_name_desc = result_desc.results[0].get("scientificName").unwrap().as_str().unwrap();
+        assert_eq!(first_name_desc, "Zebra");
+
+        // Cleanup
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_search_with_numeric_order() {
+        use crate::commands::archive::SearchParams;
+
+        let temp_dir = std::env::temp_dir().join("chuck_test_numeric_order");
+        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
+
+        let csv_path = temp_dir.join("test.csv");
+        std::fs::write(
+            &csv_path,
+            "occurrenceID,scientificName,decimalLatitude\n\
+             1,Species A,10.5\n\
+             2,Species B,-5.3\n\
+             3,Species C,2.1\n\
+             4,Species D,-15.7\n"
+        ).unwrap();
+
+        let db = Database::create_from_core_files(&[csv_path], &[], &db_path).unwrap();
+
+        // Test ASC order - should be numeric ordering
+        let params_asc = SearchParams {
+            scientific_name: None,
+            order_by: Some("decimalLatitude".to_string()),
+            order: Some("ASC".to_string()),
+        };
+        let result_asc = db.search(10, 0, params_asc, Some(vec!["occurrenceID".to_string(), "decimalLatitude".to_string()])).unwrap();
+
+        // If sorted numerically: -15.7, -5.3, 2.1, 10.5 (ids: 4, 2, 3, 1)
+        // If sorted alphabetically: -15.7, -5.3, 10.5, 2.1 (ids: 4, 2, 1, 3)
+        // Values come back as numbers, so use as_i64()
+        let first_id = result_asc.results[0].get("occurrenceID").unwrap().as_i64().unwrap();
+        let second_id = result_asc.results[1].get("occurrenceID").unwrap().as_i64().unwrap();
+        let third_id = result_asc.results[2].get("occurrenceID").unwrap().as_i64().unwrap();
+        let fourth_id = result_asc.results[3].get("occurrenceID").unwrap().as_i64().unwrap();
+
+        assert_eq!(first_id, 4, "Expected -15.7 first (numeric sort)");
+        assert_eq!(second_id, 2, "Expected -5.3 second (numeric sort)");
+        assert_eq!(third_id, 3, "Expected 2.1 third (numeric sort)");
+        assert_eq!(fourth_id, 1, "Expected 10.5 fourth (numeric sort)");
+
+        // Test DESC order
+        let params_desc = SearchParams {
+            scientific_name: None,
+            order_by: Some("decimalLatitude".to_string()),
+            order: Some("DESC".to_string()),
+        };
+        let result_desc = db.search(10, 0, params_desc, Some(vec!["occurrenceID".to_string(), "decimalLatitude".to_string()])).unwrap();
+        let first_id_desc = result_desc.results[0].get("occurrenceID").unwrap().as_i64().unwrap();
+        assert_eq!(first_id_desc, 1, "Expected 10.5 first in DESC order");
 
         // Cleanup
         std::fs::remove_dir_all(&temp_dir).ok();
