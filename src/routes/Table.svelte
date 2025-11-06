@@ -40,11 +40,6 @@
     { field: 'eventDate', label: 'eventDate' },
     { field: 'eventTime', label: 'eventTime' },
   ]);
-
-  function getSortIcon(column: string) {
-    if (currentSortColumn !== column) return null;
-    return currentSortDirection === 'ASC' ? ArrowUpIcon : ArrowDownIcon;
-  }
 </script>
 
 <VirtualizedList
@@ -71,8 +66,12 @@
               onclick={() => onColumnHeaderClick(column.field)}
             >
               <span>{column.label}</span>
-              {#if getSortIcon(column.field)}
-                <svelte:component this={getSortIcon(column.field)} size={14} />
+              {#if currentSortColumn === column.field}
+                {#if currentSortDirection === 'ASC'}
+                  <ArrowUpIcon size={14} />
+                {:else}
+                  <ArrowDownIcon size={14} />
+                {/if}
               {/if}
             </button>
           {/each}
