@@ -132,6 +132,7 @@
     <Dialog.Positioner class="fixed inset-0 z-50 flex justify-end">
       <Dialog.Content
         class="h-screen w-[70%] bg-white dark:bg-gray-800 shadow-xl overflow-y-auto animate-slide-in-right"
+        data-testid="occurrence-drawer"
         tabindex={0}
         onkeydown={(e) => {
           // Only handle arrow keys when PhotoViewer is not open

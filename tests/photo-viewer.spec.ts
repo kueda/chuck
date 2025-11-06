@@ -20,7 +20,7 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
     await firstOccurrence.click();
 
     // Wait for drawer
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
 
     // Click first photo to open PhotoViewer
     const photo = page.locator('section:has(h2:has-text("Media")) button').first();
@@ -42,7 +42,7 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
 
     const photos = page.locator('section:has(h2:has-text("Media")) button');
     const photoCount = await photos.count();
@@ -70,7 +70,7 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
 
     const photos = page.locator('section:has(h2:has-text("Media")) button');
     const photoCount = await photos.count();
@@ -98,7 +98,7 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
 
     const photos = page.locator('section:has(h2:has-text("Media")) button');
     const photoCount = await photos.count();
@@ -127,7 +127,7 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
 
     const photos = page.locator('section:has(h2:has-text("Media")) button');
     const photoCount = await photos.count();
@@ -156,7 +156,7 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
 
     const photo = page.locator('section:has(h2:has-text("Media")) button').first();
     const hasPhotos = await photo.count() > 0;
@@ -198,7 +198,7 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
 
     const photo = page.locator('section:has(h2:has-text("Media")) button').first();
     const hasPhotos = await photo.count() > 0;
@@ -245,7 +245,7 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
 
     const photo = page.locator('section:has(h2:has-text("Media")) button').first();
     const hasPhotos = await photo.count() > 0;
@@ -275,7 +275,7 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
 
     const photo = page.locator('section:has(h2:has-text("Media")) button').first();
     const hasPhotos = await photo.count() > 0;

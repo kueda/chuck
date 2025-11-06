@@ -87,20 +87,20 @@ test.describe('Frontend', () => {
     const firstRow = page.locator('.occurrence-item').first();
     await expect(firstRow).toBeVisible();
 
-    const firstNameBefore = await firstRow.locator('.table-cell').nth(1).textContent();
+    const firstNameBefore = await firstRow.locator('.table-cell').nth(2).textContent();
     expect(firstNameBefore).toBe('Quercus lobata');
 
     // Click on scientificName header to sort ASC
-    const header = page.locator('.occurrence-table .font-bold').filter({ hasText: 'scientificName' });
+    const header = page.locator('.table-header-cell').filter({ hasText: 'scientificName' });
     await header.click();
     await page.waitForTimeout(1000);
 
-    // Should show ascending sort icon
-    await expect(header.locator('svg')).toBeVisible(); // Arrow icon
+    // Should show ascending sort icon (within the button, not the column settings icon)
+    await expect(header.locator('svg').first()).toBeVisible(); // Arrow icon
 
     // Get the first scientificName after sorting
     const firstRowAfterSort = page.locator('.occurrence-item').first();
-    const firstNameAfter = await firstRowAfterSort.locator('.table-cell').nth(1).textContent();
+    const firstNameAfter = await firstRowAfterSort.locator('.table-cell').nth(2).textContent();
 
     // The order should have changed - when sorted alphabetically ASC,
     // the first name should be something like "Arbutus" or "Arctostaphylos" (alphabetically before "Quercus")
@@ -111,11 +111,11 @@ test.describe('Frontend', () => {
     await page.waitForTimeout(1000);
 
     // Should still show sort icon (DESC now)
-    await expect(header.locator('svg')).toBeVisible();
+    await expect(header.locator('svg').first()).toBeVisible();
 
     // Verify order reversed - should be something alphabetically last
     const firstRowDesc = page.locator('.occurrence-item').first();
-    const firstNameDesc = await firstRowDesc.locator('.table-cell').nth(1).textContent();
+    const firstNameDesc = await firstRowDesc.locator('.table-cell').nth(2).textContent();
     expect(firstNameDesc).not.toBe(firstNameAfter); // Should be different from ASC
 
     // Click third time to toggle back to ASC
@@ -123,15 +123,15 @@ test.describe('Frontend', () => {
     await page.waitForTimeout(1000);
 
     // Should still show sort icon (back to ASC)
-    await expect(header.locator('svg')).toBeVisible();
+    await expect(header.locator('svg').first()).toBeVisible();
   });
 
   test('should default to Core ID sort when opening archive', async ({ page }) => {
     await openArchive(page);
 
     // Check that the Core ID column header shows sort icon
-    const idHeader = page.locator('.occurrence-table .font-bold').first();
-    await expect(idHeader.locator('svg')).toBeVisible();
+    const idHeader = page.locator('.table-header-cell').first();
+    await expect(idHeader.locator('svg').first()).toBeVisible();
 
     // Verify sort dropdown shows the core ID column selected
     const sortBySelect = page.locator('select#sortBy');

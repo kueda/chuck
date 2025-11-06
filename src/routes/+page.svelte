@@ -11,15 +11,9 @@
 
   import type { SearchParams } from '$lib/components/Filters.svelte';
   import type { ArchiveInfo, Occurrence, SearchResult } from '$lib/types/archive';
+  import { getColumnPreferences, saveColumnPreferences } from '$lib/utils/columnPreferences';
 
   const CHUNK_SIZE = 500;
-  const DISPLAY_FIELDS = [
-    'scientificName',
-    'decimalLatitude',
-    'decimalLongitude',
-    'eventDate',
-    'eventTime'
-  ];
 
   let archive = $state<ArchiveInfo>();
   // Map is not a reactive data structure in Svelte, so we use
@@ -63,11 +57,51 @@
   });
   let archiveLoadingError = $state<string | null>(null);
 
-  let displayFields = $derived(
-    archive
-      ? [archive.coreIdColumn, ...DISPLAY_FIELDS]
-      : DISPLAY_FIELDS
-  )
+  // Column visibility state
+  let visibleColumns = $state<string[]>([]);
+
+  // Derived displayFields based on visible columns
+  let displayFields = $derived(visibleColumns)
+
+  // Initialize visible columns when archive loads
+  $effect(() => {
+    if (archive) {
+      const columns = getColumnPreferences(
+        archive.name,
+        archive.coreIdColumn,
+        archive.availableColumns
+      );
+      visibleColumns = columns;
+    }
+  });
+
+  // Handle column visibility changes
+  function handleVisibleColumnsChange(newColumns: string[]) {
+    if (!archive) return;
+
+    // Save preferences
+    saveColumnPreferences(archive.name, newColumns);
+
+    // Preserve scroll position
+    scrollState.targetIndex = lastVisibleRange.firstIndex;
+    scrollState.shouldScroll = true;
+
+    // Update visible columns
+    visibleColumns = newColumns;
+
+    // Clear cache and reload
+    occurrenceCache = new Map();
+    loadingChunks = new Set();
+    lastLoadedRange = { firstChunk: -1, lastChunk: -1 };
+    occurrenceCacheVersion++;
+
+    // Trigger reload of visible chunks
+    const firstChunk = Math.floor(lastVisibleRange.firstIndex / CHUNK_SIZE);
+    const lastChunk = Math.floor(lastVisibleRange.lastIndex / CHUNK_SIZE);
+    for (let chunk = firstChunk; chunk <= lastChunk; chunk++) {
+      loadChunk(chunk);
+    }
+  }
 
   // Load a chunk of results from the backend and add them to the cache
   async function loadChunk(chunkIndex: number) {
@@ -418,10 +452,14 @@
           {scrollElement}
           onVisibleRangeChange={handleVisibleRangeChange}
           coreIdColumn={archive.coreIdColumn}
+          archiveName={archive.name}
+          availableColumns={archive.availableColumns}
+          {visibleColumns}
           {scrollState}
           currentSortColumn={currentSearchParams.order_by}
           currentSortDirection={currentSearchParams.order}
           onColumnHeaderClick={handleColumnHeaderClick}
+          onVisibleColumnsChange={handleVisibleColumnsChange}
         />
       {:else if currentView === 'cards'}
         <Cards

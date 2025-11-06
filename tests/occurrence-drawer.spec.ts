@@ -24,7 +24,7 @@ test.describe('OccurrenceDrawer Keyboard Navigation', () => {
     await firstOccurrence.click();
 
     // Wait for drawer to open
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
 
     // Get initial occurrence ID from header
     const initialId = await page.locator('header div:has-text("occurrenceID:")').textContent();
@@ -48,7 +48,7 @@ test.describe('OccurrenceDrawer Keyboard Navigation', () => {
     await secondOccurrence.click();
 
     // Wait for drawer to open
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
 
     // Get initial occurrence ID
     const initialId = await page.locator('header div:has-text("occurrenceID:")').textContent();
@@ -72,7 +72,7 @@ test.describe('OccurrenceDrawer Keyboard Navigation', () => {
     await firstOccurrence.click();
 
     // Wait for drawer
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
 
     // Click a photo to open PhotoViewer (if photos exist)
     const photo = page.locator('section:has(h2:has-text("Media")) button').first();
@@ -103,7 +103,7 @@ test.describe('OccurrenceDrawer Keyboard Navigation', () => {
     await firstOccurrence.click();
 
     // Wait for drawer to open
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
 
     // Verify recordedBy is visible
     await expect(page.locator('[role="dialog"]').getByText('Jane Smith').first()).toBeVisible();
@@ -113,7 +113,7 @@ test.describe('OccurrenceDrawer Keyboard Navigation', () => {
     // Click first occurrence to open drawer
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
 
     // Click Next button multiple times to navigate far enough that we need to scroll
     const nextButton = page.locator('button:has-text("Next")');
@@ -141,7 +141,7 @@ test.describe('OccurrenceDrawer Keyboard Navigation', () => {
     // Click an occurrence that's now in view (somewhere in the middle of the list)
     const middleOccurrence = page.locator('main .occurrence-item').nth(30);
     await middleOccurrence.click();
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
 
     // Click Previous button multiple times to navigate back up
     const prevButton = page.locator('button:has-text("Prev")');
@@ -176,7 +176,7 @@ test.describe('OccurrenceDrawer with non-occurrenceID core columns', () => {
     await firstOccurrence.click();
 
     // Wait for drawer to open
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
 
     // Verify drawer shows the correct occurrence details
     await expect(page.locator('header div:has-text("gbifID:")').first()).toBeVisible();
@@ -188,7 +188,7 @@ test.describe('OccurrenceDrawer with non-occurrenceID core columns', () => {
     // Click first occurrence
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
 
     // Verify first occurrence
     await expect(page.locator('[role="dialog"]').getByText('GBIF-001').first()).toBeVisible();
