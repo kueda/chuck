@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::commands::archive::SearchParams;
+use crate::search_params::SearchParams;
 use crate::db::Database;
 use crate::error::{ChuckError, Result};
 
@@ -210,6 +210,110 @@ impl Archive {
         occurrence_id: &str,
     ) -> Result<serde_json::Map<String, serde_json::Value>> {
         self.db.get_occurrence(&self.core_id_column, occurrence_id)
+    }
+
+    /// Query occurrences within a bounding box for tile generation
+    /// Returns (core_id, latitude, longitude, scientificName) tuples
+    ///
+    /// Uses grid-based sampling at low zoom levels to reduce data volume while
+    /// preserving spatial extent (showing where observations exist across the tile)
+    pub fn query_tile(
+        &self,
+        west: f64,
+        south: f64,
+        east: f64,
+        north: f64,
+        zoom: u8,
+        search_params: SearchParams,
+    ) -> Result<Vec<(i64, f64, f64, Option<String>)>> {
+        let conn = self.db.connection();
+
+        let (
+            _,
+            where_clause,
+            mut where_interpolations,
+            _
+        ) = Database::sql_parts(search_params, None, &vec![]);
+
+        // Determine grid cell size based on zoom level
+        // At low zoom, use coarse grid to reduce points while preserving spatial extent
+        // At high zoom, return all points (no sampling)
+        let grid_size = match zoom {
+            0..=2 => Some(1.0),    // ~111km cells - very coarse sampling
+            3..=5 => Some(0.1),    // ~11km cells - moderate sampling
+            6..=8 => Some(0.01),   // ~1km cells - fine sampling
+            _ => None              // No sampling at zoom 9+
+        };
+
+        let query = if let Some(grid) = grid_size {
+            // Grid-based sampling: pick one point per grid cell
+            format!(
+                "SELECT
+                    ANY_VALUE({}) as core_id,
+                    ANY_VALUE(decimalLatitude) as decimalLatitude,
+                    ANY_VALUE(decimalLongitude) as decimalLongitude,
+                    ANY_VALUE(scientificName) as scientificName
+                 FROM occurrences
+                 {}
+                     decimalLatitude BETWEEN ? AND ?
+                     AND decimalLongitude BETWEEN ? AND ?
+                     AND decimalLatitude IS NOT NULL
+                     AND decimalLongitude IS NOT NULL
+                 GROUP BY
+                     FLOOR(decimalLatitude / {}),
+                     FLOOR(decimalLongitude / {})",
+                self.core_id_column,
+                if where_clause.len() == 0 {
+                    String::from("WHERE")
+                } else {
+                    format!("{where_clause} AND")
+                },
+                grid,
+                grid
+            )
+        } else {
+            // No sampling at high zoom - return all points
+            format!(
+                "SELECT {}, decimalLatitude, decimalLongitude, scientificName
+                 FROM occurrences
+                 {}
+                     decimalLatitude BETWEEN ? AND ?
+                     AND decimalLongitude BETWEEN ? AND ?
+                     AND decimalLatitude IS NOT NULL
+                     AND decimalLongitude IS NOT NULL",
+                self.core_id_column,
+                if where_clause.len() == 0 {
+                    String::from("WHERE")
+                } else {
+                    format!("{where_clause} AND")
+                }
+            )
+        };
+        // log::debug!("query_tile, query: {}", query);
+
+        let mut stmt = conn.prepare(&query).map_err(ChuckError::Database)?;
+        where_interpolations.push(Box::new(south));
+        where_interpolations.push(Box::new(north));
+        where_interpolations.push(Box::new(west));
+        where_interpolations.push(Box::new(east));
+        let select_param_refs: Vec<&dyn duckdb::ToSql> = where_interpolations
+            .iter()
+            .map(|p| p.as_ref())
+            .collect();
+        let rows = stmt
+            // .query_map([south, north, west, east], |row| {
+            .query_map(select_param_refs.as_slice(), |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, f64>(1)?,
+                    row.get::<_, f64>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })
+            .map_err(ChuckError::Database)?;
+
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(ChuckError::Database)
     }
 
     /// Gets a photo from the cache or extracts it from the archive

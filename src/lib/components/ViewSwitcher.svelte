@@ -1,6 +1,6 @@
 <script lang="ts">
   import { SegmentedControl } from '@skeletonlabs/skeleton-svelte';
-  import { BookImage, Sheet } from 'lucide-svelte';
+  import { BookImage, MapIcon, Sheet } from 'lucide-svelte';
 
   let {
     view = $bindable('table'),
@@ -34,6 +34,15 @@
         <div class="flex flex-row gap-1 justify-center items-center">
           <BookImage size={20} />
           Cards
+        </div>
+      </SegmentedControl.ItemText>
+      <SegmentedControl.ItemHiddenInput />
+    </SegmentedControl.Item>
+    <SegmentedControl.Item value="map">
+      <SegmentedControl.ItemText>
+        <div class="flex flex-row gap-1 justify-center items-center">
+          <MapIcon size={20} />
+          Map
         </div>
       </SegmentedControl.ItemText>
       <SegmentedControl.ItemHiddenInput />

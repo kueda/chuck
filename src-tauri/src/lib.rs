@@ -4,32 +4,30 @@ mod dwca;
 mod error;
 mod photo_cache;
 mod inat_auth;
+pub mod tile_server;
+mod search_params;
 
 use tauri::menu::{MenuItemBuilder, SubmenuBuilder};
-use tauri::Emitter;
+use tauri::{Emitter};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(crate::tile_server::init())
         .invoke_handler(tauri::generate_handler![
             commands::archive::open_archive,
             commands::archive::current_archive,
             commands::archive::search,
             commands::archive::get_occurrence,
             commands::archive::get_photo,
-            commands::archive::get_occurrence,
             commands::inat_download::get_observation_count,
             commands::inat_download::generate_inat_archive,
             commands::inat_download::cancel_inat_archive,
-            // auth::commands::authenticate,
             commands::inat_auth::inat_authenticate,
-            // auth::commands::get_auth_status,
             commands::inat_auth::inat_get_auth_status,
-            // auth::commands::sign_out,
             commands::inat_auth::inat_sign_out,
-            // auth::commands::get_jwt,
             commands::inat_auth::inat_get_jwt,
         ])
         .setup(|app| {

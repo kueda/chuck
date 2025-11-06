@@ -5,12 +5,13 @@ use chuck_core::darwin_core::Occurrence;
 
 use crate::error::{ChuckError, Result};
 use crate::dwca::ExtensionInfo;
+use crate::search_params::SearchParams;
 
 // Most DwC attributes are strings, but a few should have different types to
 // enable better queries
 const TYPE_OVERRIDES: [(&str, &str); 4] = [
     ("decimalLatitude", "DOUBLE"),
-    ("decimalLonglongitude", "DOUBLE"),
+    ("decimalLongitude", "DOUBLE"),
     ("eventDate", "DATE"),
     ("gbifID", "BIGINT"),
 ];
@@ -104,6 +105,14 @@ impl Database {
                     return Err(e.into());
                 }
             }
+        }
+
+        // Create indices on coordinate columns for fast spatial queries
+        if column_names.contains(&"decimalLatitude".to_string()) {
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_lat ON occurrences(decimalLatitude)", [])?;
+        }
+        if column_names.contains(&"decimalLongitude".to_string()) {
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_lng ON occurrences(decimalLongitude)", [])?;
         }
 
         // Create extension tables
@@ -300,7 +309,7 @@ impl Database {
     }
 
     pub fn sql_parts(
-        search_params: crate::commands::archive::SearchParams,
+        search_params: SearchParams,
         fields: Option<Vec<String>>,
         extension_tables: &Vec<(String, String)>,
     ) -> (String, String, Vec<Box<dyn duckdb::ToSql>>, String) {
@@ -384,7 +393,7 @@ impl Database {
         &self,
         limit: usize,
         offset: usize,
-        search_params: crate::commands::archive::SearchParams,
+        search_params: SearchParams,
         fields: Option<Vec<String>>,
     ) -> Result<crate::commands::archive::SearchResult> {
         let (
@@ -647,8 +656,6 @@ mod tests {
             &fixture.db_path
         ).unwrap();
 
-        use crate::commands::archive::SearchParams;
-
         // Test searching for all records
         let search_result = db.search(10, 0, SearchParams::default(), None).unwrap();
         assert_eq!(search_result.total, 3);
@@ -687,8 +694,6 @@ mod tests {
 
     #[test]
     fn test_search_by_scientific_name() {
-        use crate::commands::archive::SearchParams;
-
         // Create test data with various scientific names
         let csv_data = br#"occurrenceID,basisOfRecord,recordedBy,eventDate,decimalLatitude,decimalLongitude,scientificName,taxonRank,taxonomicStatus,vernacularName,kingdom,phylum,class,order,family,genus,specificEpithet,infraspecificEpithet,taxonID,occurrenceRemarks,establishmentMeans,georeferencedDate,georeferenceProtocol,coordinateUncertaintyInMeters,coordinatePrecision,geodeticDatum,accessRights,license,informationWithheld,modified,captive,eventTime,verbatimEventDate,verbatimLocality
 1,obs,John,2024-01-01,0,0,Foobar,species,accepted,,,,,,,,,,,,,,,,,,,,,,,,,
@@ -739,8 +744,6 @@ mod tests {
 
     #[test]
     fn test_search_with_field_selection() {
-        use crate::commands::archive::SearchParams;
-
         // Create test data
         let csv_data = br#"occurrenceID,basisOfRecord,recordedBy,eventDate,decimalLatitude,decimalLongitude,scientificName
 1,obs,John,2024-01-01,0,0,Test species
@@ -768,8 +771,6 @@ mod tests {
 
     #[test]
     fn test_create_with_extensions() {
-        use crate::commands::archive::SearchParams;
-
         // Create occurrence CSV
         let occurrence_csv = br#"occurrenceID,scientificName
 1,Species A
@@ -911,7 +912,7 @@ mod tests {
 
     #[test]
     fn test_sql_parts_only_allows_known_order_by() {
-        let params = crate::commands::archive::SearchParams {
+        let params = crate::search_params::SearchParams {
             scientific_name: None,
             order_by: Some("foo".to_string()),
             order: None,
@@ -1019,8 +1020,6 @@ mod tests {
 
     #[test]
     fn test_search_with_order() {
-        use crate::commands::archive::SearchParams;
-
         let temp_dir = std::env::temp_dir().join("chuck_test_search_order");
         std::fs::remove_dir_all(&temp_dir).ok();
         std::fs::create_dir_all(&temp_dir).unwrap();
@@ -1063,8 +1062,6 @@ mod tests {
 
     #[test]
     fn test_search_with_numeric_order() {
-        use crate::commands::archive::SearchParams;
-
         let temp_dir = std::env::temp_dir().join("chuck_test_numeric_order");
         std::fs::remove_dir_all(&temp_dir).ok();
         std::fs::create_dir_all(&temp_dir).unwrap();

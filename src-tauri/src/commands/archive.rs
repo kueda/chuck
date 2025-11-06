@@ -1,10 +1,11 @@
 use std::backtrace::Backtrace;
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
+use serde::{Serialize};
 use tauri::{Emitter, Manager};
 
 use crate::dwca::Archive;
 use crate::error::{ChuckError, Result};
+use crate::search_params::SearchParams;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "status", rename_all = "camelCase")]
@@ -28,14 +29,6 @@ pub struct ArchiveInfo {
 
     #[serde(rename = "availableColumns")]
     pub available_columns: Vec<String>,
-}
-
-#[derive(Debug, Default, Deserialize, Serialize)]
-pub struct SearchParams {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub scientific_name: Option<String>,
-    pub order_by: Option<String>,
-    pub order: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

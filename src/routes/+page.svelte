@@ -6,6 +6,7 @@
   import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
 
   import Cards from './Cards.svelte';
+  import MapView from './Map.svelte';
   import Table from './Table.svelte';
 
   import type { SearchParams } from '$lib/components/Filters.svelte';
@@ -33,12 +34,16 @@
   let scrollElement: Element | undefined = $state(undefined);
   let currentSearchParams = $state<SearchParams>({});
   let filteredTotal = $state<number>(0);
-  let currentView = $state<'table' | 'cards'>('table');
+  let currentView = $state<'table' | 'cards' | 'map'>('table');
   let lastVisibleRange = $state({ firstIndex: 0, lastIndex: 0, scrollOffsetIndex: 0 });
 
   // Use a simple object ref that persists across reactivity
   // const scrollState = { targetIndex: 0, shouldScroll: false };
   let scrollState = $state({ targetIndex: 0, shouldScroll: false });
+
+  // Map state preservation
+  let mapCenter = $state<[number, number]>([0, 0]);
+  let mapZoom = $state(2);
   let archiveLoadingStatus = $state<
     null | 'importing' | 'extracting' | 'creatingDatabase'
   >(null);
@@ -216,7 +221,7 @@
   });
 
   // Persist view preference to localStorage and capture scroll position for view switch
-  let previousView: 'table' | 'cards' | null = null;
+  let previousView: 'table' | 'cards' | 'map' | null = null;
   $effect(() => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('chuck:viewPreference', currentView);
@@ -233,6 +238,11 @@
       scrollState.shouldScroll = true;
     }
     previousView = currentView;
+  }
+
+  function handleMapMove(center: [number, number], zoom: number) {
+    mapCenter = center;
+    mapZoom = zoom;
   }
 
   function clearArchiveData() {
@@ -275,7 +285,7 @@
     // Load saved view preference
     if (typeof window !== 'undefined') {
       const savedView = localStorage.getItem('chuck:viewPreference');
-      if (savedView === 'table' || savedView === 'cards') {
+      if (savedView === 'table' || savedView === 'cards' || savedView === 'map') {
         currentView = savedView;
       }
     }
@@ -413,7 +423,7 @@
           currentSortDirection={currentSearchParams.order}
           onColumnHeaderClick={handleColumnHeaderClick}
         />
-      {:else}
+      {:else if currentView === 'cards'}
         <Cards
           {occurrenceCache}
           {occurrenceCacheVersion}
@@ -422,6 +432,14 @@
           onVisibleRangeChange={handleVisibleRangeChange}
           coreIdColumn={archive.coreIdColumn}
           {scrollState}
+        />
+      {:else if currentView === 'map'}
+        <MapView
+          coreIdColumn={archive.coreIdColumn}
+          params={currentSearchParams}
+          center={mapCenter}
+          zoom={mapZoom}
+          onMapMove={handleMapMove}
         />
       {/if}
     </main>
