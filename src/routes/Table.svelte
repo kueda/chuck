@@ -135,109 +135,109 @@
   Note: We only key on count, not occurrenceCacheVersion, to avoid remounting when
   chunks load during normal scrolling. This prevents scroll position resets.
 -->
-{#key count}
-<VirtualizedList
-  {count}
-  {scrollElement}
-  estimateSize={
-    // Row height and border
-    40 + 1
-  }
-  lanes={1}
-  {onVisibleRangeChange}
-  {scrollState}
->
-  {#snippet children(data: VirtualListData)}
-    {#key data._key}
-      <div class="occurrence-table w-full overflow-x-auto">
-        <div class="flex items-center py-2 px-2 border-b font-bold min-w-max">
-          <div class="table-header-cell flex flex-row w-8 shrink-0">
-            <Popover>
-              <Popover.Trigger>
-                <button type="button" class="hover:bg-gray-100 p-1 rounded">
-                  <Columns3Cog size={16} />
-                </button>
-              </Popover.Trigger>
-              <Portal>
-                <Popover.Positioner>
-                  <Popover.Content class="card p-4 bg-surface-100-900 shadow-lg max-h-96 overflow-y-auto w-64">
-                    <div class="mb-2">
-                      <input
-                        type="text"
-                        placeholder="Search columns..."
-                        class="input w-full"
-                        autocapitalize="off"
-                        autocorrect="off"
-                        bind:value={searchText}
-                      />
-                    </div>
-                    <div class="space-y-1">
-                      {#each filteredColumns as column}
-                        <label class="flex items-center gap-2 hover:bg-gray-100 p-2 rounded cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={isColumnVisible(column)}
-                            onchange={() => toggleColumn(column)}
-                            disabled={visibleColumns.length === 1 && isColumnVisible(column)}
-                            class="checkbox"
-                          />
-                          <span class="text-sm">{column}</span>
-                        </label>
-                      {/each}
-                    </div>
-                  </Popover.Content>
-                </Popover.Positioner>
-              </Portal>
-            </Popover>
-          </div>
-          <div
-            class="flex items-center border-2 border-transparent"
-            use:dndzone={{
-              items: dndColumns,
-              flipDurationMs: 200,
-              type: 'column',
-              dragDisabled: false,
-              dropTargetStyle: {},
-              dropTargetClasses: ["border-dashed", "border-gray-200!"]
-            }}
-            onconsider={handleDndConsider}
-            onfinalize={handleDndFinalize}
-          >
-            {#each dndColumns as column, index (column.id)}
-              <div
-                class="
-                  table-header-cell
-                  text-left
-                  hover:bg-gray-100
-                  items-center
-                  gap-1
-                  flex
-                  flex-row
-                  flex-nowrap
-                  shrink-0
-                  {getColumnWidthClass(column.field)} p-1 {draggedColumnIndex === index ? 'opacity-40' : ''}
-                "
-              >
-                <span class="truncate flex-1 cursor-grab active:cursor-grabbing">{column.label}</span>
-                <button
-                  class="sort-button cursor-pointer shrink-0 w-4 h-4 flex items-center justify-center"
-                  onclick={(e) => handleSortClick(column.field, e)}
-                  type="button"
-                >
-                  {#if currentSortColumn === column.field}
-                    {#if currentSortDirection === 'ASC'}
-                      <ArrowUpIcon size={14} />
-                    {:else}
-                      <ArrowDownIcon size={14} />
-                    {/if}
-                  {:else}
-                    <ArrowUpDown size={14} class="text-gray-300 hover:text-neutral-500" />
-                  {/if}
-                </button>
+<div class="occurrence-table w-full relative">
+  <div class="flex items-center py-2 px-2 border-b font-bold min-w-max sticky top-0 bg-white z-10 shadow-sm overflow-x-auto">
+    <div class="table-header-cell flex flex-row w-8 shrink-0">
+      <Popover>
+        <Popover.Trigger>
+          <button type="button" class="hover:bg-gray-100 p-1 rounded">
+            <Columns3Cog size={16} />
+          </button>
+        </Popover.Trigger>
+        <Portal>
+          <Popover.Positioner>
+            <Popover.Content class="card p-4 bg-surface-100-900 shadow-lg max-h-96 overflow-y-auto w-64">
+              <div class="mb-2">
+                <input
+                  type="text"
+                  placeholder="Search columns..."
+                  class="input w-full"
+                  autocapitalize="off"
+                  autocorrect="off"
+                  bind:value={searchText}
+                />
               </div>
-            {/each}
-          </div>
+              <div class="space-y-1">
+                {#each filteredColumns as column}
+                  <label class="flex items-center gap-2 hover:bg-gray-100 p-2 rounded cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isColumnVisible(column)}
+                      onchange={() => toggleColumn(column)}
+                      disabled={visibleColumns.length === 1 && isColumnVisible(column)}
+                      class="checkbox"
+                    />
+                    <span class="text-sm">{column}</span>
+                  </label>
+                {/each}
+              </div>
+            </Popover.Content>
+          </Popover.Positioner>
+        </Portal>
+      </Popover>
+    </div>
+    <div
+      class="flex items-center border-2 border-transparent"
+      use:dndzone={{
+        items: dndColumns,
+        flipDurationMs: 200,
+        type: 'column',
+        dragDisabled: false,
+        dropTargetStyle: {},
+        dropTargetClasses: ["border-dashed", "border-gray-200!"]
+      }}
+      onconsider={handleDndConsider}
+      onfinalize={handleDndFinalize}
+    >
+      {#each dndColumns as column, index (column.id)}
+        <div
+          class="
+            table-header-cell
+            text-left
+            hover:bg-gray-100
+            items-center
+            gap-1
+            flex
+            flex-row
+            flex-nowrap
+            shrink-0
+            {getColumnWidthClass(column.field)} p-1 {draggedColumnIndex === index ? 'opacity-40' : ''}
+          "
+        >
+          <span class="truncate flex-1 cursor-grab active:cursor-grabbing">{column.label}</span>
+          <button
+            class="sort-button cursor-pointer shrink-0 w-4 h-4 flex items-center justify-center"
+            onclick={(e) => handleSortClick(column.field, e)}
+            type="button"
+          >
+            {#if currentSortColumn === column.field}
+              {#if currentSortDirection === 'ASC'}
+                <ArrowUpIcon size={14} />
+              {:else}
+                <ArrowDownIcon size={14} />
+              {/if}
+            {:else}
+              <ArrowUpDown size={14} class="text-gray-300 hover:text-neutral-500" />
+            {/if}
+          </button>
         </div>
+      {/each}
+    </div>
+  </div>
+  {#key count}
+  <VirtualizedList
+    {count}
+    {scrollElement}
+    estimateSize={
+      // Row height and border
+      40 + 1
+    }
+    lanes={1}
+    {onVisibleRangeChange}
+    {scrollState}
+  >
+    {#snippet children(data: VirtualListData)}
+      {#key data._key}
         <div class="w-full relative" style="height: {data.totalSize}px;">
           <div
             class="absolute top-0 left-0 w-full"
@@ -283,8 +283,8 @@
             </VirtualizedOccurrenceList>
           </div>
         </div>
-      </div>
-    {/key}
-  {/snippet}
-</VirtualizedList>
-{/key}
+      {/key}
+    {/snippet}
+  </VirtualizedList>
+  {/key}
+</div>

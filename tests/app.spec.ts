@@ -766,4 +766,50 @@ test.describe('Frontend', () => {
     const afterClearCount = await afterClearRows.count();
     expect(afterClearCount).toEqual(initialCount);
   });
+
+  test('should keep header row sticky when scrolling in table view', async ({ page }) => {
+    await openArchive(page);
+    await page.waitForTimeout(1000);
+
+    // Get the header row element
+    const headerRow = page.locator('.occurrence-table > div').first();
+    await expect(headerRow).toBeVisible();
+
+    // Check that the header has sticky positioning
+    const position = await headerRow.evaluate((el) => {
+      return window.getComputedStyle(el).position;
+    });
+    expect(position).toBe('sticky');
+
+    // Check that top is set to 0
+    const top = await headerRow.evaluate((el) => {
+      return window.getComputedStyle(el).top;
+    });
+    expect(top).toBe('0px');
+
+    // Get initial header position
+    const headerBefore = await headerRow.boundingBox();
+    expect(headerBefore).not.toBeNull();
+
+    // Scroll down in table view
+    const mainElement = page.locator('main');
+    await mainElement.evaluate((el) => {
+      el.scrollTop = 2000;
+    });
+
+    // Wait for scroll to settle
+    await page.waitForTimeout(500);
+
+    // Get header position after scroll
+    const headerAfter = await headerRow.boundingBox();
+    expect(headerAfter).not.toBeNull();
+
+    // Header should still be visible and at the same Y position (sticky)
+    if (headerBefore && headerAfter) {
+      expect(headerAfter.y).toBe(headerBefore.y);
+    }
+
+    // Verify header is still visible
+    await expect(headerRow).toBeVisible();
+  });
 });
