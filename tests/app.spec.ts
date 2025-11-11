@@ -730,4 +730,40 @@ test.describe('Frontend', () => {
     // All results should have been loaded
     expect(loadingCountAfterReset).toBe(0);
   });
+
+  test('should show correct row count after clearing search filter in table view', async ({ page }) => {
+    // Open the archive
+    await openArchive(page);
+
+    // Wait for initial load
+    await page.waitForTimeout(1000);
+
+    // Record initial row count
+    const initialRows = page.locator('main .occurrence-item');
+    const initialCount = await initialRows.count();
+    expect(initialCount).toBeGreaterThan(10);
+
+    // Search for something (even if mocks don't filter properly, we can still test the clear behavior)
+    await searchByScientificName(page, 'Allium unifolium');
+    await page.waitForTimeout(1000);
+
+    // Record search row count
+    const searchRows = page.locator('main .occurrence-item');
+    const searchCount = await searchRows.count();
+    expect(searchCount).toEqual(1);
+
+    // Check that there are no "Loading..." rows after search
+    const loadingRowsAfterSearch = page.locator('main .occurrence-item:has-text("Loading...")');
+    const loadingCountAfterSearch = await loadingRowsAfterSearch.count();
+    expect(loadingCountAfterSearch).toBe(0);
+
+    // Clear the search
+    await searchByScientificName(page, '');
+    await page.waitForTimeout(1000);
+
+    // After clearing, we should be back to initial conditions
+    const afterClearRows = page.locator('main .occurrence-item');
+    const afterClearCount = await afterClearRows.count();
+    expect(afterClearCount).toEqual(initialCount);
+  });
 });

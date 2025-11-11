@@ -125,6 +125,17 @@
   }
 </script>
 
+<!--
+  Force VirtualizedList to remount when count changes.
+  This solves a Svelte 5 reactivity issue where TanStack Virtual's virtualizer
+  doesn't properly recreate when count changes rapidly (e.g., 1000 → 0 → 5 during search).
+  Without this, the virtualizer renders virtual items based on stale count values,
+  showing "Loading..." placeholders for items that don't exist.
+
+  Note: We only key on count, not occurrenceCacheVersion, to avoid remounting when
+  chunks load during normal scrolling. This prevents scroll position resets.
+-->
+{#key count}
 <VirtualizedList
   {count}
   {scrollElement}
@@ -276,3 +287,4 @@
     {/key}
   {/snippet}
 </VirtualizedList>
+{/key}
