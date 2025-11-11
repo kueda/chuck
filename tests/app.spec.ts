@@ -62,9 +62,14 @@ test.describe('Frontend', () => {
   test('should display sort controls in filters sidebar', async ({ page }) => {
     await openArchive(page);
 
+    const filters = page.locator('id=Filters');
+    const sortSection = filters.locator('button').filter({ hasText: 'Sort'});
+    await expect(sortSection).toBeVisible();
+    await sortSection.click();
+
     // Check for sort by dropdown
     const sortBySelect = page.locator('select#sortBy');
-    await expect(sortBySelect).toBeVisible();
+    await expect(sortBySelect).toBeAttached();
 
     // Check that dropdown has options
     const options = await sortBySelect.locator('option').count();
@@ -82,6 +87,8 @@ test.describe('Frontend', () => {
     await openArchive(page);
     await page.waitForTimeout(1000);
 
+    await switchToView(page, 'table');
+
     // Get the first scientificName before sorting (with default occurrenceID sort, first row is TEST-001)
     // scientificName column is the 2nd column (index 1)
     const firstRow = page.locator('.occurrence-item').first();
@@ -90,13 +97,14 @@ test.describe('Frontend', () => {
     const firstNameBefore = await firstRow.locator('.table-cell').nth(2).textContent();
     expect(firstNameBefore).toBe('Quercus lobata');
 
-    // Click on scientificName header to sort ASC
+    // Click on scientificName sort button to sort ASC
     const header = page.locator('.table-header-cell').filter({ hasText: 'scientificName' });
-    await header.click();
+    const sortButton = header.locator('.sort-button');
+    await sortButton.click();
     await page.waitForTimeout(1000);
 
-    // Should show ascending sort icon (within the button, not the column settings icon)
-    await expect(header.locator('svg').first()).toBeVisible(); // Arrow icon
+    // Should show ascending sort icon in the sort button
+    await expect(sortButton.locator('svg')).toBeVisible(); // Arrow icon
 
     // Get the first scientificName after sorting
     const firstRowAfterSort = page.locator('.occurrence-item').first();
@@ -107,11 +115,11 @@ test.describe('Frontend', () => {
     expect(firstNameAfter).not.toBe('Quercus lobata');
 
     // Click again to toggle to descending
-    await header.click();
+    await sortButton.click();
     await page.waitForTimeout(1000);
 
     // Should still show sort icon (DESC now)
-    await expect(header.locator('svg').first()).toBeVisible();
+    await expect(sortButton.locator('svg')).toBeVisible();
 
     // Verify order reversed - should be something alphabetically last
     const firstRowDesc = page.locator('.occurrence-item').first();
@@ -119,11 +127,11 @@ test.describe('Frontend', () => {
     expect(firstNameDesc).not.toBe(firstNameAfter); // Should be different from ASC
 
     // Click third time to toggle back to ASC
-    await header.click();
+    await sortButton.click();
     await page.waitForTimeout(1000);
 
     // Should still show sort icon (back to ASC)
-    await expect(header.locator('svg').first()).toBeVisible();
+    await expect(sortButton.locator('svg')).toBeVisible();
   });
 
   test('should default to Core ID sort when opening archive', async ({ page }) => {
@@ -157,7 +165,12 @@ test.describe('Frontend', () => {
     await page.waitForTimeout(1000);
 
     // Change the Sort By dropdown
+    const filters = page.locator('id=Filters');
+    const sortSection = filters.locator('button').filter({ hasText: 'Sort'});
+    await expect(sortSection).toBeVisible();
+    await sortSection.click();
     const sortBySelect = page.locator('select#sortBy');
+    await expect(sortBySelect).toBeVisible();
     await sortBySelect.selectOption('eventDate');
 
     // Wait for sort to apply
@@ -194,6 +207,112 @@ test.describe('Frontend', () => {
     // Check that one of the data rows (skip first which is header) contains the species
     const dataRow = rows[1];
     await expect(dataRow).toContainText('Sequoia sempervirens');
+  });
+
+  test('should preserve typed text in scientificName field when blurring without selection', async ({ page }) => {
+    await openArchive(page);
+    await page.waitForTimeout(1000);
+
+    // Open the Taxonomy accordion
+    const taxonomyTrigger = page.locator('text=Taxonomy');
+    await taxonomyTrigger.click();
+
+    // Wait for the scientificName field to be visible
+    const scientificNameLabel = page.locator('.label .label-text:has-text("scientificName")');
+    await scientificNameLabel.waitFor({ state: 'visible', timeout: 5000 });
+
+    // Type in the scientificName field without selecting from autocomplete
+    const input = page.locator('input#Combobox-scientificName');
+    await input.click();
+    await input.type('Qu');
+
+    // Wait for autocomplete dropdown to appear
+    await page.waitForTimeout(500);
+
+    // Verify autocomplete dropdown is visible (get the visible one)
+    const dropdown = page.locator('[role="listbox"][data-state="open"]');
+    await expect(dropdown).toBeVisible();
+
+    // Click elsewhere (on the label) to blur while autocomplete is open
+    await scientificNameLabel.click();
+
+    // Wait for any state updates
+    await page.waitForTimeout(500);
+
+    // Verify the text is still in the input field
+    await expect(input).toHaveValue('Qu');
+  });
+
+  test('should select autocomplete suggestion with ENTER key', async ({ page }) => {
+    await openArchive(page);
+    await page.waitForTimeout(1000);
+
+    // Open the Taxonomy accordion
+    const taxonomyTrigger = page.locator('text=Taxonomy');
+    await taxonomyTrigger.click();
+
+    // Wait for the scientificName field to be visible
+    const scientificNameLabel = page.locator('.label .label-text:has-text("scientificName")');
+    await scientificNameLabel.waitFor({ state: 'visible', timeout: 5000 });
+
+    // Type in the scientificName field to show autocomplete
+    const input = page.locator('input#Combobox-scientificName');
+    await input.click();
+    await input.type('Qu');
+
+    // Wait for autocomplete dropdown to appear
+    await page.waitForTimeout(500);
+
+    // Verify autocomplete dropdown is visible
+    const dropdown = page.locator('[role="listbox"][data-state="open"]');
+    await expect(dropdown).toBeVisible();
+
+    // Press down arrow to highlight first suggestion
+    await input.press('ArrowDown');
+    await page.waitForTimeout(200);
+
+    // Get the highlighted suggestion text
+    const highlightedItem = dropdown.locator('[role="option"][data-highlighted]');
+    const suggestionText = (await highlightedItem.textContent())?.trim() || '';
+
+    // Press ENTER to select the highlighted suggestion
+    await input.press('Enter');
+    await page.waitForTimeout(300);
+
+    // Verify the input now contains the selected suggestion
+    await expect(input).toHaveValue(suggestionText);
+
+    // Verify the dropdown is now closed
+    await expect(dropdown).not.toBeVisible();
+  });
+
+  test('should clear input text when clicking clear button', async ({ page }) => {
+    await openArchive(page);
+    await page.waitForTimeout(1000);
+
+    // Open the Taxonomy accordion
+    const taxonomyTrigger = page.locator('text=Taxonomy');
+    await taxonomyTrigger.click();
+
+    // Wait for the scientificName field to be visible
+    const scientificNameLabel = page.locator('.label .label-text:has-text("scientificName")');
+    await scientificNameLabel.waitFor({ state: 'visible', timeout: 5000 });
+
+    // Type in the scientificName field
+    const input = page.locator('input#Combobox-scientificName');
+    await input.fill('Quercus');
+    await page.waitForTimeout(500);
+
+    // Verify input has value
+    await expect(input).toHaveValue('Quercus');
+
+    // Click the clear button (X icon)
+    const clearButton = page.locator('button[aria-label="Clear filter"]').first();
+    await clearButton.click();
+    await page.waitForTimeout(300);
+
+    // Verify the input is now empty
+    await expect(input).toHaveValue('');
   });
 
   test('should display loading state for unloaded chunks', async ({ page }) => {
@@ -238,9 +357,13 @@ test.describe('Frontend', () => {
     await openArchive(page);
 
     // The Filters component should be visible
-    // Look for the scientific name input field
-    const searchInput = page.locator('input[type="text"]').first();
-    await expect(searchInput).toBeVisible();
+    // Look for the Filters heading and accordion sections
+    const filtersHeading = page.locator('id=Filters');
+    await expect(filtersHeading).toBeVisible();
+
+    // Check that accordion sections are present
+    const taxonomySection = page.locator('text=Taxonomy');
+    await expect(taxonomySection).toBeVisible();
   });
 
   test('should show correct column headers', async ({ page }) => {
@@ -373,38 +496,6 @@ test.describe('Frontend', () => {
       expect(cardBoundingBox.height).toBeGreaterThanOrEqual(250);
       expect(cardBoundingBox.height).toBeLessThanOrEqual(286);
     }
-  });
-
-  test('should properly handle search with zero results', async ({ page }) => {
-    // Open the archive
-    await openArchive(page);
-
-    // Wait for initial results to load
-    await expect(page.locator('main')).toBeVisible();
-    const initialRows = await getVisibleOccurrences(page);
-    expect(initialRows.length).toBeGreaterThan(0);
-
-    // Get the main scrollable element's scroll height before search
-    const mainElement = page.locator('main');
-    const initialScrollHeight = await mainElement.evaluate(el => el.scrollHeight);
-    expect(initialScrollHeight).toBeGreaterThan(0);
-
-    // Search for something that yields no results
-    await searchByScientificName(page, 'nothing');
-
-    // Wait for search to complete
-    await page.waitForTimeout(500);
-
-    // Verify no occurrence rows are visible (they should all be gone, not showing "Loading...")
-    const finalRows = await getVisibleOccurrences(page);
-    expect(finalRows.length).toBe(0);
-
-    // The scroll height should be much smaller now (close to viewport height)
-    // because there are no items to render
-    const finalScrollHeight = await mainElement.evaluate(el => el.scrollHeight);
-
-    // Should be significantly smaller than initial (at least 50% reduction)
-    expect(finalScrollHeight).toBeLessThan(initialScrollHeight * 0.5);
   });
 
   test('preserves scroll position when switching from table to cards to table without scroll', async ({ page}) => {

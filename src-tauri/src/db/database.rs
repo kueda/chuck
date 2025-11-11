@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
-use duckdb::Row;
+use duckdb::{params, Row};
 use chuck_core::darwin_core::Occurrence;
 
 use crate::error::{ChuckError, Result};
@@ -30,6 +30,7 @@ impl Database {
         core_files: &[PathBuf],
         extensions: &[ExtensionInfo],
         db_path: &Path,
+        core_id_column: &str,
     ) -> Result<Self> {
         if core_files.is_empty() {
             return Err(ChuckError::NoCoreFiles);
@@ -107,11 +108,16 @@ impl Database {
             }
         }
 
+        // Drop columns that are entirely null or empty strings
+        Self::drop_empty_columns(&conn, core_id_column)?;
+
         // Create indices on coordinate columns for fast spatial queries
-        if column_names.contains(&"decimalLatitude".to_string()) {
+        // (Do this after dropping columns in case lat/lng were dropped)
+        let updated_columns = Self::get_column_names(&conn, "occurrences")?;
+        if updated_columns.contains(&"decimalLatitude".to_string()) {
             conn.execute("CREATE INDEX IF NOT EXISTS idx_lat ON occurrences(decimalLatitude)", [])?;
         }
-        if column_names.contains(&"decimalLongitude".to_string()) {
+        if updated_columns.contains(&"decimalLongitude".to_string()) {
             conn.execute("CREATE INDEX IF NOT EXISTS idx_lng ON occurrences(decimalLongitude)", [])?;
         }
 
@@ -119,6 +125,68 @@ impl Database {
         let extension_tables = Self::create_extension_tables(&conn, extensions)?;
 
         Ok(Self { conn, extension_tables })
+    }
+
+    /// Helper to get column names for a table
+    fn get_column_names(conn: &duckdb::Connection, table_name: &str) -> Result<Vec<String>> {
+        let mut stmt = conn.prepare(&format!(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = '{}' ORDER BY column_name",
+            table_name
+        ))?;
+        let columns: Vec<String> = stmt.query_map([], |row| {
+            row.get(0)
+        })?.collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(columns)
+    }
+
+    /// Drops columns from the occurrences table that contain only NULL or empty strings
+    fn drop_empty_columns(conn: &duckdb::Connection, core_id_column: &str) -> Result<()> {
+        // Get all column names
+        let column_names = Self::get_column_names(conn, "occurrences")?;
+
+        // Check each column to see if it's entirely empty
+        for column_name in &column_names {
+            // Skip the core ID column
+            if column_name == core_id_column {
+                continue;
+            }
+
+            // Get the column type to determine how to check for emptiness
+            let type_override = TYPE_OVERRIDES.iter()
+                .find(|(col, _)| col == &column_name.as_str())
+                .map(|(_, typ)| *typ);
+
+            // Quote column name to handle reserved keywords like "order"
+            let quoted_column = format!("\"{}\"", column_name);
+
+            let query = match type_override {
+                Some("DOUBLE") | Some("BIGINT") => {
+                    // For numeric types, just check for NULL
+                    format!("SELECT COUNT(*) FROM occurrences WHERE {} IS NOT NULL", quoted_column)
+                }
+                Some("DATE") => {
+                    // For date types, just check for NULL
+                    format!("SELECT COUNT(*) FROM occurrences WHERE {} IS NOT NULL", quoted_column)
+                }
+                _ => {
+                    // For VARCHAR (default), check for NULL and empty strings
+                    format!(
+                        "SELECT COUNT(*) FROM occurrences WHERE {} IS NOT NULL AND {} != ''",
+                        quoted_column, quoted_column
+                    )
+                }
+            };
+
+            let count: usize = conn.query_row(&query, [], |row| row.get(0))?;
+
+            // If no non-empty values, drop the column
+            if count == 0 {
+                log::info!("Dropping empty column: {}", column_name);
+                conn.execute(&format!("ALTER TABLE occurrences DROP COLUMN {}", quoted_column), [])?;
+            }
+        }
+
+        Ok(())
     }
 
     /// Creates tables for DarwinCore Archive extensions
@@ -351,13 +419,52 @@ impl Database {
             format!("{}, {}", core_select_fields, extension_subqueries.join(", "))
         };
 
-        // Build dynamic WHERE clause and SELECT fields
+        // Build dynamic WHERE clause from filters HashMap
         let mut where_clauses = Vec::new();
         let mut where_interpolations: Vec<Box<dyn duckdb::ToSql>> = Vec::new();
-        if let Some(ref name) = search_params.scientific_name {
-            where_clauses.push("scientificName ILIKE ?");
-            where_interpolations.push(Box::new(format!("%{}%", name)));
+
+        for (column_name, filter_value) in &search_params.filters {
+            // Validate column name against allowlist
+            if Occurrence::FIELD_NAMES.contains(&column_name.as_str()) {
+                // Check if this column has a type override
+                let type_override = TYPE_OVERRIDES.iter()
+                    .find(|(col, _)| col == &column_name.as_str())
+                    .map(|(_, typ)| *typ);
+
+                match type_override {
+                    Some("DOUBLE") | Some("BIGINT") => {
+                        // For numeric types, use range matching (e.g., "3" matches 3.0 to 3.9999...)
+                        if let Ok(lower_bound) = filter_value.parse::<f64>() {
+                            // Calculate upper bound by incrementing at the precision level
+                            // "3" -> [3.0, 4.0), "3.1" -> [3.1, 3.2), "3.14" -> [3.14, 3.15)
+                            let decimal_places = filter_value
+                                .split('.')
+                                .nth(1)
+                                .map(|s| s.len())
+                                .unwrap_or(0);
+                            let increment = 10_f64.powi(-(decimal_places as i32));
+                            let upper_bound = lower_bound + increment;
+
+                            where_clauses.push(format!("{} >= ? AND {} < ?", column_name, column_name));
+                            where_interpolations.push(Box::new(lower_bound));
+                            where_interpolations.push(Box::new(upper_bound));
+                        }
+                        // If parse fails, skip this filter
+                    }
+                    Some("DATE") => {
+                        // For date types, cast to string and use prefix matching
+                        where_clauses.push(format!("CAST({} AS VARCHAR) LIKE ?", column_name));
+                        where_interpolations.push(Box::new(format!("{}%", filter_value)));
+                    }
+                    _ => {
+                        // For VARCHAR (default), use ILIKE with substring matching
+                        where_clauses.push(format!("{} ILIKE ?", column_name));
+                        where_interpolations.push(Box::new(format!("%{}%", filter_value)));
+                    }
+                }
+            }
         }
+
         let where_clause = if where_clauses.is_empty() {
             String::new()
         } else {
@@ -469,6 +576,47 @@ impl Database {
             total,
             results,
         })
+    }
+
+    /// Get autocomplete suggestions for a column
+    pub fn get_autocomplete_suggestions(
+        &self,
+        column_name: &str,
+        search_term: &str,
+        limit: usize,
+    ) -> Result<Vec<String>> {
+        // Validate column name against allowlist
+        if !Occurrence::FIELD_NAMES.contains(&column_name) {
+            return Err(crate::error::ChuckError::Database(
+                duckdb::Error::InvalidColumnName(column_name.to_string())
+            ));
+        }
+
+        // Check if column has a non-VARCHAR type override
+        if let Some((_, column_type)) = TYPE_OVERRIDES.iter().find(|(col, _)| col == &column_name) {
+            return Err(crate::error::ChuckError::AutocompleteNotAvailable {
+                column: column_name.to_string(),
+                column_type: column_type.to_string(),
+            });
+        }
+
+        let query = format!(
+            "SELECT DISTINCT {} FROM occurrences WHERE {} IS NOT NULL AND {} ILIKE ? ORDER BY {} LIMIT ?",
+            column_name, column_name, column_name, column_name
+        );
+
+        let mut stmt = self.conn.prepare(&query)?;
+        let search_pattern = format!("%{}%", search_term);
+        let mut rows = stmt.query(params![search_pattern, limit as i64])?;
+
+        let mut suggestions = Vec::new();
+        while let Some(row) = rows.next()? {
+            if let Ok(Some(value)) = row.get::<_, Option<String>>(0) {
+                suggestions.push(value);
+            }
+        }
+
+        Ok(suggestions)
     }
 
     /// Retrieves a single occurrence by ID with all columns and extension data
@@ -594,7 +742,8 @@ mod tests {
         let result1 = Database::create_from_core_files(
             &fixture.csv_paths,
             &vec![],
-            &fixture.db_path
+            &fixture.db_path,
+            "id"
         );
         assert!(result1.is_ok());
         let db1 = result1.unwrap();
@@ -604,7 +753,8 @@ mod tests {
         let result2 = Database::create_from_core_files(
             &fixture.csv_paths,
             &vec![],
-            &fixture.db_path
+            &fixture.db_path,
+            "id"
         );
 
         assert!(result2.is_ok());
@@ -627,7 +777,8 @@ mod tests {
         let result = Database::create_from_core_files(
             &fixture.csv_paths,
             &vec![],
-            &fixture.db_path
+            &fixture.db_path,
+            "id"
         );
         assert!(result.is_ok());
         let db = result.unwrap();
@@ -653,7 +804,8 @@ mod tests {
         let db = Database::create_from_core_files(
             &fixture.csv_paths,
             &vec![],
-            &fixture.db_path
+            &fixture.db_path,
+            "occurrenceID"
         ).unwrap();
 
         // Test searching for all records
@@ -705,11 +857,13 @@ mod tests {
 
         let fixture = TestFixture::new("search_scientific_name", vec![csv_data]);
 
-        let db = Database::create_from_core_files(&fixture.csv_paths, &vec![], &fixture.db_path).unwrap();
+        let db = Database::create_from_core_files(&fixture.csv_paths, &vec![], &fixture.db_path, "occurrenceID").unwrap();
 
         // Search for "foo" (case-insensitive partial match)
+        let mut filters = HashMap::new();
+        filters.insert("scientificName".to_string(), "foo".to_string());
         let search_result = db.search(10, 0, SearchParams {
-            scientific_name: Some("foo".to_string()),
+            filters,
             order_by: Some("occurrenceID".to_string()),
             order: None,
         }, None).unwrap();
@@ -750,7 +904,7 @@ mod tests {
 "#;
 
         let fixture = TestFixture::new("search_field_selection", vec![csv_data]);
-        let db = Database::create_from_core_files(&fixture.csv_paths, &vec![], &fixture.db_path).unwrap();
+        let db = Database::create_from_core_files(&fixture.csv_paths, &vec![], &fixture.db_path, "occurrenceID").unwrap();
 
         // Search with specific fields
         let search_result = db.search(10, 0, SearchParams::default(), Some(vec![
@@ -809,7 +963,8 @@ mod tests {
         let db = Database::create_from_core_files(
             &vec![occurrence_path],
             &extensions,
-            &db_path
+            &db_path,
+            "occurrenceID"
         ).unwrap();
 
         // Verify occurrences table was created
@@ -895,7 +1050,8 @@ mod tests {
         let _db = Database::create_from_core_files(
             &vec![occurrence_path],
             &extensions,
-            &db_path
+            &db_path,
+            "occurrenceID"
         ).unwrap();
 
         // Reopen the database with extension info
@@ -913,7 +1069,7 @@ mod tests {
     #[test]
     fn test_sql_parts_only_allows_known_order_by() {
         let params = crate::search_params::SearchParams {
-            scientific_name: None,
+            filters: HashMap::new(),
             order_by: Some("foo".to_string()),
             order: None,
         };
@@ -955,7 +1111,8 @@ mod tests {
         let db = Database::create_from_core_files(
             &vec![occurrence_path],
             &extensions,
-            &db_path
+            &db_path,
+            "occurrenceID"
         ).unwrap();
 
         // Get occurrence by ID
@@ -1003,6 +1160,7 @@ mod tests {
             &[csv_path],
             &[],
             &db_path,
+            "id"
         ).unwrap();
 
         // Test getting available columns
@@ -1034,11 +1192,11 @@ mod tests {
              2,Banana\n"
         ).unwrap();
 
-        let db = Database::create_from_core_files(&[csv_path], &[], &db_path).unwrap();
+        let db = Database::create_from_core_files(&[csv_path], &[], &db_path, "id").unwrap();
 
         // Test ASC order
         let params_asc = SearchParams {
-            scientific_name: None,
+            filters: HashMap::new(),
             order_by: Some("scientificName".to_string()),
             order: Some("ASC".to_string()),
         };
@@ -1048,7 +1206,7 @@ mod tests {
 
         // Test DESC order
         let params_desc = SearchParams {
-            scientific_name: None,
+            filters: HashMap::new(),
             order_by: Some("scientificName".to_string()),
             order: Some("DESC".to_string()),
         };
@@ -1077,11 +1235,11 @@ mod tests {
              4,Species D,-15.7\n"
         ).unwrap();
 
-        let db = Database::create_from_core_files(&[csv_path], &[], &db_path).unwrap();
+        let db = Database::create_from_core_files(&[csv_path], &[], &db_path, "id").unwrap();
 
         // Test ASC order - should be numeric ordering
         let params_asc = SearchParams {
-            scientific_name: None,
+            filters: HashMap::new(),
             order_by: Some("decimalLatitude".to_string()),
             order: Some("ASC".to_string()),
         };
@@ -1102,7 +1260,7 @@ mod tests {
 
         // Test DESC order
         let params_desc = SearchParams {
-            scientific_name: None,
+            filters: HashMap::new(),
             order_by: Some("decimalLatitude".to_string()),
             order: Some("DESC".to_string()),
         };
@@ -1112,5 +1270,132 @@ mod tests {
 
         // Cleanup
         std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_search_with_decimal_latitude_range_filter() {
+        // Create test data with various decimalLatitude values
+        let csv_data = br#"occurrenceID,scientificName,decimalLatitude,decimalLongitude
+1,Species A,3.0,0.0
+2,Species B,3.1,0.0
+3,Species C,3.14,0.0
+4,Species D,3.141,0.0
+5,Species E,30.0,0.0
+6,Species F,301.3,0.0
+7,Species G,2.9,0.0
+"#;
+
+        let fixture = TestFixture::new("search_decimal_latitude_range", vec![csv_data]);
+        let db = Database::create_from_core_files(&fixture.csv_paths, &vec![], &fixture.db_path, "occurrenceID").unwrap();
+
+        // Test 1: Search for "3" should match 3.0-3.9999 (ids: 1, 2, 3, 4)
+        let mut filters = HashMap::new();
+        filters.insert("decimalLatitude".to_string(), "3".to_string());
+        let search_result = db.search(10, 0, SearchParams {
+            filters: filters.clone(),
+            order_by: Some("occurrenceID".to_string()),
+            order: None,
+        }, None).unwrap();
+
+        assert_eq!(search_result.total, 4, "Search for '3' should match 3.0, 3.1, 3.14, 3.141");
+        let ids: Vec<i64> = search_result.results.iter()
+            .map(|r| r.get("occurrenceID").and_then(|v| v.as_i64()).unwrap())
+            .collect();
+        assert_eq!(ids, vec![1, 2, 3, 4], "Should match records with lat 3.x");
+
+        // Test 2: Search for "3.1" should match 3.1-3.19999 (ids: 2, 3, 4)
+        let mut filters = HashMap::new();
+        filters.insert("decimalLatitude".to_string(), "3.1".to_string());
+        let search_result = db.search(10, 0, SearchParams {
+            filters: filters.clone(),
+            order_by: Some("occurrenceID".to_string()),
+            order: None,
+        }, None).unwrap();
+
+        assert_eq!(search_result.total, 3, "Search for '3.1' should match 3.1, 3.14, 3.141");
+        let ids: Vec<i64> = search_result.results.iter()
+            .map(|r| r.get("occurrenceID").and_then(|v| v.as_i64()).unwrap())
+            .collect();
+        assert_eq!(ids, vec![2, 3, 4], "Should match records with lat 3.1x");
+
+        // Test 3: Search for "3.14" should match 3.14-3.149999 (ids: 3, 4)
+        let mut filters = HashMap::new();
+        filters.insert("decimalLatitude".to_string(), "3.14".to_string());
+        let search_result = db.search(10, 0, SearchParams {
+            filters: filters.clone(),
+            order_by: Some("occurrenceID".to_string()),
+            order: None,
+        }, None).unwrap();
+
+        assert_eq!(search_result.total, 2, "Search for '3.14' should match 3.14, 3.141");
+        let ids: Vec<i64> = search_result.results.iter()
+            .map(|r| r.get("occurrenceID").and_then(|v| v.as_i64()).unwrap())
+            .collect();
+        assert_eq!(ids, vec![3, 4], "Should match records with lat 3.14x");
+
+        // Test 4: Search for "30" should NOT match "3.x" (should only match 30.x)
+        let mut filters = HashMap::new();
+        filters.insert("decimalLatitude".to_string(), "30".to_string());
+        let search_result = db.search(10, 0, SearchParams {
+            filters: filters.clone(),
+            order_by: Some("occurrenceID".to_string()),
+            order: None,
+        }, None).unwrap();
+
+        assert_eq!(search_result.total, 1, "Search for '30' should only match 30.0");
+        let ids: Vec<i64> = search_result.results.iter()
+            .map(|r| r.get("occurrenceID").and_then(|v| v.as_i64()).unwrap())
+            .collect();
+        assert_eq!(ids, vec![5], "Should match only record with lat 30.0");
+    }
+
+    #[test]
+    fn test_get_autocomplete_suggestions_rejects_non_varchar_columns() {
+        // Create test data
+        let csv_data = br#"occurrenceID,scientificName,decimalLatitude,decimalLongitude
+1,Species A,3.0,0.0
+"#;
+
+        let fixture = TestFixture::new("autocomplete_type_check", vec![csv_data]);
+        let db = Database::create_from_core_files(&fixture.csv_paths, &vec![], &fixture.db_path, "occurrenceID").unwrap();
+
+        // Test that VARCHAR column works
+        let result = db.get_autocomplete_suggestions("scientificName", "Spec", 10);
+        assert!(result.is_ok(), "scientificName (VARCHAR) should work for autocomplete");
+
+        // Test that DOUBLE column is rejected with informative error
+        let result = db.get_autocomplete_suggestions("decimalLatitude", "3", 10);
+        assert!(result.is_err(), "decimalLatitude (DOUBLE) should be rejected");
+
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("decimalLatitude") && err_msg.contains("not available for autocomplete"),
+            "Error should mention column name and that it's not available for autocomplete. Got: {}",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("DOUBLE"),
+            "Error should mention the column type. Got: {}",
+            err_msg
+        );
+
+        // Test that BIGINT column is also rejected
+        let csv_data_gbif = br#"gbifID,scientificName
+12345,Species B
+"#;
+        let fixture_gbif = TestFixture::new("autocomplete_gbif_check", vec![csv_data_gbif]);
+        let db_gbif = Database::create_from_core_files(&fixture_gbif.csv_paths, &vec![], &fixture_gbif.db_path, "gbifID").unwrap();
+
+        let result = db_gbif.get_autocomplete_suggestions("gbifID", "123", 10);
+        assert!(result.is_err(), "gbifID (BIGINT) should be rejected");
+
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("gbifID") && err_msg.contains("BIGINT"),
+            "Error should mention gbifID and BIGINT. Got: {}",
+            err_msg
+        );
     }
 }

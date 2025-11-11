@@ -51,6 +51,12 @@ pub enum ChuckError {
 
     #[error("Tauri error: {0}")]
     Tauri(String),
+
+    #[error("Column '{column}' is not available for autocomplete (type: {column_type})")]
+    AutocompleteNotAvailable {
+        column: String,
+        column_type: String,
+    },
 }
 
 impl Serialize for ChuckError {

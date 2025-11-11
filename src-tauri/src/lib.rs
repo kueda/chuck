@@ -20,6 +20,7 @@ pub fn run() {
             commands::archive::open_archive,
             commands::archive::current_archive,
             commands::archive::search,
+            commands::archive::get_autocomplete_suggestions,
             commands::archive::get_occurrence,
             commands::archive::get_photo,
             commands::inat_download::get_observation_count,

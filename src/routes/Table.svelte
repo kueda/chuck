@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { ArrowUpIcon, ArrowDownIcon, Columns3Cog } from 'lucide-svelte';
+  import { ArrowUpIcon, ArrowDownIcon, Columns3Cog, ArrowUpDown } from 'lucide-svelte';
   import { Popover, Portal, useListCollection } from '@skeletonlabs/skeleton-svelte';
+  import { dndzone } from 'svelte-dnd-action';
   import VirtualizedList from '$lib/components/VirtualizedList.svelte';
   import VirtualizedOccurrenceList from '$lib/components/VirtualizedOccurrenceList.svelte';
   import type {
@@ -48,10 +49,20 @@
     return field;
   }
 
-  // Define visible columns with display names
+  // Define visible columns with display names and unique IDs for DnD
   const columns = $derived(
-    visibleColumns.map(field => ({ field, label: getColumnLabel(field) }))
+    visibleColumns.map(field => ({ id: field, field, label: getColumnLabel(field) }))
   );
+
+  // Local state for drag and drop
+  let dndColumns = $state<typeof columns>([]);
+  let isDragging = $state(false);
+  let draggedColumnIndex = $state<number | null>(null);
+
+  // Update dndColumns when columns change
+  $effect(() => {
+    dndColumns = [...columns];
+  });
 
   let searchText = $state('');
 
@@ -86,6 +97,31 @@
 
   function isColumnVisible(column: string): boolean {
     return visibleColumns.includes(column);
+  }
+
+  // Handle drag and drop events
+  function handleDndConsider(e: CustomEvent<{ items: typeof dndColumns; info?: { trigger: string; id: string } }>) {
+    dndColumns = e.detail.items;
+    isDragging = true;
+    // Track which column is being dragged
+    if (e.detail.info?.trigger === 'draggedEntered' || e.detail.info?.trigger === 'dragStarted') {
+      const draggedId = e.detail.info.id;
+      draggedColumnIndex = dndColumns.findIndex(col => col.id === draggedId);
+    }
+  }
+
+  function handleDndFinalize(e: CustomEvent<{ items: typeof dndColumns }>) {
+    dndColumns = e.detail.items;
+    isDragging = false;
+    draggedColumnIndex = null;
+    // Emit reordered column names
+    const reorderedColumnNames = dndColumns.map(col => col.field);
+    onVisibleColumnsChange(reorderedColumnNames);
+  }
+
+  function handleSortClick(columnField: string, event: MouseEvent) {
+    event.stopPropagation();
+    onColumnHeaderClick(columnField);
   }
 </script>
 
@@ -143,21 +179,53 @@
               </Portal>
             </Popover>
           </div>
-          {#each columns as column}
-            <button
-              class="table-header-cell text-left hover:bg-gray-100 cursor-pointer items-center gap-1 flex flex-row flex-nowrap shrink-0 {getColumnWidthClass(column.field)} p-1"
-              onclick={() => onColumnHeaderClick(column.field)}
-            >
-              <span class="truncate">{column.label}</span>
-              {#if currentSortColumn === column.field}
-                {#if currentSortDirection === 'ASC'}
-                  <ArrowUpIcon size={14} />
-                {:else}
-                  <ArrowDownIcon size={14} />
-                {/if}
-              {/if}
-            </button>
-          {/each}
+          <div
+            class="flex items-center border-2 border-transparent"
+            use:dndzone={{
+              items: dndColumns,
+              flipDurationMs: 200,
+              type: 'column',
+              dragDisabled: false,
+              dropTargetStyle: {},
+              dropTargetClasses: ["border-dashed", "border-gray-200!"]
+            }}
+            onconsider={handleDndConsider}
+            onfinalize={handleDndFinalize}
+          >
+            {#each dndColumns as column, index (column.id)}
+              <div
+                class="
+                  table-header-cell
+                  text-left
+                  hover:bg-gray-100
+                  items-center
+                  gap-1
+                  flex
+                  flex-row
+                  flex-nowrap
+                  shrink-0
+                  {getColumnWidthClass(column.field)} p-1 {draggedColumnIndex === index ? 'opacity-40' : ''}
+                "
+              >
+                <span class="truncate flex-1 cursor-grab active:cursor-grabbing">{column.label}</span>
+                <button
+                  class="sort-button cursor-pointer shrink-0 w-4 h-4 flex items-center justify-center"
+                  onclick={(e) => handleSortClick(column.field, e)}
+                  type="button"
+                >
+                  {#if currentSortColumn === column.field}
+                    {#if currentSortDirection === 'ASC'}
+                      <ArrowUpIcon size={14} />
+                    {:else}
+                      <ArrowDownIcon size={14} />
+                    {/if}
+                  {:else}
+                    <ArrowUpDown size={14} class="text-gray-300 hover:text-neutral-500" />
+                  {/if}
+                </button>
+              </div>
+            {/each}
+          </div>
         </div>
         <div class="w-full relative" style="height: {data.totalSize}px;">
           <div
@@ -191,8 +259,8 @@
               >
                 {#if occurrence}
                   <div class="table-cell w-8 shrink-0"></div>
-                  {#each columns as column}
-                    <div class="table-cell truncate shrink-0 {getColumnWidthClass(column.field)} p-1">
+                  {#each dndColumns as column, index}
+                    <div class="table-cell truncate shrink-0 {getColumnWidthClass(column.field)} p-1 {draggedColumnIndex === index ? 'opacity-40' : ''}">
                       {occurrence[column.field as keyof Occurrence]}
                     </div>
                   {/each}

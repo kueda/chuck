@@ -94,7 +94,7 @@ impl Archive {
             .and_then(|s| s.to_str())
             .unwrap_or("archive");
         let db_path = storage_dir.join(format!("{}.db", db_name));
-        let db = Database::create_from_core_files(&core_files, &extensions, &db_path)?;
+        let db = Database::create_from_core_files(&core_files, &extensions, &db_path, &core_id_column)?;
 
         // Initialize photo cache table
         let photo_cache = crate::photo_cache::PhotoCache::new(db.connection());
@@ -202,6 +202,16 @@ impl Archive {
             params,
             fields
         )
+    }
+
+    /// Get autocomplete suggestions for a given column
+    pub fn get_autocomplete_suggestions(
+        &self,
+        column_name: &str,
+        search_term: &str,
+        limit: usize,
+    ) -> Result<Vec<String>> {
+        self.db.get_autocomplete_suggestions(column_name, search_term, limit)
     }
 
     /// Retrieves a single occurrence by its core ID with all fields and extensions
@@ -804,7 +814,7 @@ mod tests {
                         .strip_suffix(".zip")
                         .unwrap_or(archive_name);
                     let db_path = storage_dir.join(format!("{}.db", db_name));
-                    let db = Database::create_from_core_files(&csv_paths, &vec![], &db_path).unwrap();
+                    let db = Database::create_from_core_files(&csv_paths, &vec![], &db_path, "occurrenceID").unwrap();
                     drop(db);
                 }
             }

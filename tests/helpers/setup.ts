@@ -54,10 +54,35 @@ export async function openArchive(page: Page) {
  * Performs a search with the given scientific name.
  */
 export async function searchByScientificName(page: Page, scientificName: string) {
-  const searchInput = page.locator('input[type="text"]').first();
+  // Check if Taxonomy accordion is already open by checking if scientificName label is visible
+  const scientificNameLabel = page.locator('.label .label-text:has-text("scientificName")');
+  const isVisible = await scientificNameLabel.isVisible().catch(() => false);
+
+  // Only click the accordion if it's not already open
+  if (!isVisible) {
+    const taxonomyTrigger = page.locator('text=Taxonomy');
+    await taxonomyTrigger.click();
+
+    // Wait for accordion content to appear
+    await scientificNameLabel.waitFor({ state: 'visible', timeout: 5000 });
+  }
+
+  // If empty string, clear the filter using the clear button
+  if (!scientificName || scientificName.trim() === '') {
+    const clearButton = scientificNameLabel.locator('..').locator('..').locator('button[aria-label="Clear filter"]');
+    const clearButtonCount = await clearButton.count();
+    if (clearButtonCount > 0) {
+      await clearButton.click();
+      await page.waitForTimeout(500);
+    }
+    return;
+  }
+
+  // Find the combobox input within the same filter component
+  const searchInput = scientificNameLabel.locator('..').locator('..').locator('input[role="combobox"]');
   await searchInput.fill(scientificName);
 
-  // Wait a bit for debouncing/search to trigger
+  // Wait for search to complete
   await page.waitForTimeout(500);
 }
 

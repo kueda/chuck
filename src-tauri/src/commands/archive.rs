@@ -164,6 +164,27 @@ pub fn search(
 }
 
 #[tauri::command]
+pub fn get_autocomplete_suggestions(
+    app: tauri::AppHandle,
+    column_name: String,
+    search_term: String,
+    limit: Option<usize>,
+) -> Result<Vec<String>> {
+    let archive = Archive::current(&get_local_data_dir(app)?).map_err(|e| {
+        log::error!(
+            "caught error opening current: {}, backtrace: {}",
+            e,
+            Backtrace::capture()
+        );
+        e
+    })?;
+    archive.get_autocomplete_suggestions(&column_name, &search_term, limit.unwrap_or(50)).map_err(|e| {
+        log::error!("caught autocomplete error: {}, backtrace: {}", e, Backtrace::capture());
+        e
+    })
+}
+
+#[tauri::command]
 pub fn get_occurrence(
     app: tauri::AppHandle,
     occurrence_id: String,

@@ -60,8 +60,12 @@
   // Column visibility state
   let visibleColumns = $state<string[]>([]);
 
-  // Derived displayFields based on visible columns
-  let displayFields = $derived(visibleColumns)
+  // Fields to fetch from backend (always includes core ID even if not visible)
+  let fetchedFields = $derived.by(() => {
+    if (!archive || visibleColumns.length === 0) return visibleColumns;
+    const coreIdColumn = archive.coreIdColumn;
+    return [coreIdColumn, ...visibleColumns.filter(col => col !== coreIdColumn)];
+  })
 
   // Initialize visible columns when archive loads
   $effect(() => {
@@ -123,7 +127,7 @@
         limit: CHUNK_SIZE,
         offset: offset,
         searchParams: currentSearchParams,
-        fields: displayFields,
+        fields: fetchedFields,
       });
 
       // Add results to cache
@@ -212,7 +216,7 @@
         limit: CHUNK_SIZE,
         offset: 0,
         searchParams: params,
-        fields: displayFields,
+        fields: fetchedFields,
       });
 
       // Now that we have the results, update the rest atomically
@@ -437,12 +441,14 @@
     <div class="absolute bottom-10 right-10 z-10">
       <ViewSwitcher bind:view={currentView} {onViewChange} />
     </div>
-    <Filters
-      onSearchChange={handleSearchChange}
-      availableColumns={archive?.availableColumns ?? []}
-      initialSortBy={currentSearchParams.order_by}
-      initialSortDirection={currentSearchParams.order}
-    />
+    <aside class="pe-4 w-82 overflow-y-auto">
+      <Filters
+        onSearchChange={handleSearchChange}
+        availableColumns={archive?.availableColumns ?? []}
+        initialSortBy={currentSearchParams.order_by}
+        initialSortDirection={currentSearchParams.order}
+      />
+    </aside>
     <main class="overflow-y-auto w-full relative" bind:this={scrollElement}>
       {#if currentView === 'table'}
         <Table

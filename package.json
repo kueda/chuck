@@ -26,7 +26,8 @@
     "@tauri-apps/plugin-opener": "^2",
     "lightningcss": "^1.30.2",
     "lucide-svelte": "^0.546.0",
-    "maplibre-gl": "^5.9.0"
+    "maplibre-gl": "^5.9.0",
+    "svelte-dnd-action": "^0.9.67"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",

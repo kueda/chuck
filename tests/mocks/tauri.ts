@@ -50,11 +50,16 @@ export function createMockInvoke(
         // Filter results based on search params
         let filteredResults = mockSearchResults.results;
 
-        if (searchParams?.scientific_name) {
-          filteredResults = filteredResults.filter((r: Occurrence) =>
-            r.scientificName?.toLowerCase()
-              .includes(searchParams.scientific_name.toLowerCase())
-          );
+        // Handle new filters HashMap structure
+        if (searchParams?.filters) {
+          for (const [columnName, filterValue] of Object.entries(searchParams.filters)) {
+            if (filterValue && typeof filterValue === 'string') {
+              filteredResults = filteredResults.filter((r: Occurrence) => {
+                const value = (r as any)[columnName];
+                return value?.toLowerCase().includes((filterValue as string).toLowerCase());
+              });
+            }
+          }
         }
 
         // Apply pagination
@@ -66,6 +71,28 @@ export function createMockInvoke(
         };
 
         return result as T;
+      }
+
+      case 'get_autocomplete_suggestions': {
+        const { columnName, searchTerm, limit } = args;
+
+        if (!state.currentArchive) {
+          return [] as T;
+        }
+
+        // Get unique values from all mock results that match the search term
+        const values = new Set<string>();
+        for (const result of mockSearchResults.results) {
+          const value = (result as any)[columnName];
+          if (value && typeof value === 'string') {
+            if (value.toLowerCase().includes(searchTerm.toLowerCase())) {
+              values.add(value);
+            }
+          }
+        }
+
+        // Return as sorted array, limited
+        return Array.from(values).sort().slice(0, limit || 50) as T;
       }
 
       default:
@@ -181,11 +208,20 @@ export function getInjectionScript(
 
             let filteredResults = currentSearchResults.results;
 
-            if (searchParams?.scientific_name) {
-              filteredResults = filteredResults.filter(r =>
-                r.scientificName?.toLowerCase()
-                  .includes(searchParams.scientific_name.toLowerCase())
-              );
+            // Handle flattened filters structure (matching backend's #[serde(flatten)])
+            // All filter fields are at the same level as order_by/order
+            if (searchParams) {
+              for (const [columnName, filterValue] of Object.entries(searchParams)) {
+                // Skip reserved sorting fields
+                if (columnName === 'order_by' || columnName === 'order') continue;
+
+                if (filterValue && typeof filterValue === 'string') {
+                  filteredResults = filteredResults.filter(r => {
+                    const value = r[columnName];
+                    return value?.toLowerCase().includes(filterValue.toLowerCase());
+                  });
+                }
+              }
             }
 
             // Apply sorting if specified
@@ -242,6 +278,28 @@ export function getInjectionScript(
             }
 
             return occurrence;
+          }
+
+          case 'get_autocomplete_suggestions': {
+            const { columnName, searchTerm, limit } = args;
+
+            if (!currentSearchResults) {
+              return [];
+            }
+
+            // Get unique values from the column that match the search term
+            const values = new Set();
+            for (const result of currentSearchResults.results) {
+              const value = result[columnName];
+              if (value && typeof value === 'string') {
+                if (value.toLowerCase().includes(searchTerm.toLowerCase())) {
+                  values.add(value);
+                }
+              }
+            }
+
+            // Return as sorted array, limited
+            return Array.from(values).sort().slice(0, limit || 50);
           }
 
           default:
