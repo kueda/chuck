@@ -64,8 +64,8 @@ async function setupMockTauriWithCustomData(
 }
 
 async function measureViewSwitch(page: Page): Promise<number> {
-  // Wait for table view to be ready
-  await expect(page.locator('.occurrence-table').first()).toBeVisible();
+  // Wait for table view to be ready with virtualized content
+  await expect(page.locator('.occurrence-table .occurrence-row').first()).toBeVisible();
 
   // Measure the view switch
   const duration = await page.evaluate(() => {
