@@ -23,6 +23,7 @@ pub fn run() {
             commands::archive::get_autocomplete_suggestions,
             commands::archive::get_occurrence,
             commands::archive::get_photo,
+            commands::archive::aggregate_by_field,
             commands::inat_download::get_observation_count,
             commands::inat_download::generate_inat_archive,
             commands::inat_download::cancel_inat_archive,

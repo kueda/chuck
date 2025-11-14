@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use tauri::http::Uri;
 use url::Url;
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct SearchParams {
     pub order_by: Option<String>,
     pub order: Option<String>,

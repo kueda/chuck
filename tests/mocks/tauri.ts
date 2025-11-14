@@ -50,9 +50,12 @@ export function createMockInvoke(
         // Filter results based on search params
         let filteredResults = mockSearchResults.results;
 
-        // Handle new filters HashMap structure
-        if (searchParams?.filters) {
-          for (const [columnName, filterValue] of Object.entries(searchParams.filters)) {
+        // Handle flattened filter structure (filters are at top level of searchParams)
+        if (searchParams) {
+          for (const [columnName, filterValue] of Object.entries(searchParams)) {
+            // Skip non-filter fields
+            if (columnName === 'order_by' || columnName === 'order') continue;
+
             if (filterValue && typeof filterValue === 'string') {
               filteredResults = filteredResults.filter((r: Occurrence) => {
                 const value = (r as any)[columnName];
@@ -300,6 +303,65 @@ export function getInjectionScript(
 
             // Return as sorted array, limited
             return Array.from(values).sort().slice(0, limit || 50);
+          }
+
+          case 'aggregate_by_field': {
+            const { fieldName, searchParams, limit } = args;
+
+            if (!currentSearchResults) {
+              return [];
+            }
+
+            let filteredResults = currentSearchResults.results;
+
+            // Apply filters (same logic as search command)
+            if (searchParams) {
+              for (const [columnName, filterValue] of Object.entries(searchParams)) {
+                if (columnName === 'order_by' || columnName === 'order') continue;
+
+                if (filterValue && typeof filterValue === 'string') {
+                  filteredResults = filteredResults.filter(r => {
+                    const value = r[columnName];
+                    return value?.toLowerCase().includes(filterValue.toLowerCase());
+                  });
+                }
+              }
+            }
+
+            // Aggregate by field
+            const counts = new Map();
+            const minOccurrenceIds = new Map(); // Track minimum occurrenceID for each group
+            for (const result of filteredResults) {
+              const value = result[fieldName];
+              const key = value == null ? null : value;
+              counts.set(key, (counts.get(key) || 0) + 1);
+
+              // Track the minimum occurrenceID for this group
+              const currentMin = minOccurrenceIds.get(key);
+              const occurrenceID = result.occurrenceID || result.gbifID;
+              if (!currentMin || (occurrenceID && occurrenceID < currentMin)) {
+                minOccurrenceIds.set(key, occurrenceID);
+              }
+            }
+
+            // Convert to array and sort by count descending
+            const aggregated = Array.from(counts.entries()).map(([value, count]) => {
+              const minOccurrenceID = minOccurrenceIds.get(value);
+              // Find the occurrence with this ID to get its photo
+              const occurrence = filteredResults.find(r =>
+                (r.occurrenceID || r.gbifID) === minOccurrenceID
+              );
+              const photoUrl = occurrence?.multimedia?.[0]?.identifier || null;
+
+              return {
+                value,
+                count,
+                photoUrl
+              };
+            }).sort((a, b) => b.count - a.count);
+
+            // Apply limit
+            return aggregated.slice(0, limit);
           }
 
           default:

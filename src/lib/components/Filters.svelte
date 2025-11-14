@@ -2,6 +2,7 @@
   import { Accordion } from '@skeletonlabs/skeleton-svelte';
   import ComboboxFilter from './ComboboxFilter.svelte';
   import { categorizeColumns } from '$lib/utils/filterCategories';
+  import type { SearchParams } from '$lib/utils/filterCategories';
   import { MinusIcon, PlusIcon } from 'lucide-svelte';
 
   const NUMERIC_COLUMNS = [
@@ -10,88 +11,22 @@
     'gbifID',
   ];
 
-  // SearchParams matches the backend's flattened structure (using #[serde(flatten)])
-  // All Darwin Core fields are at the same level as order_by/order
-  // Note: The Darwin Core "order" taxonomy field conflicts with the sort "order" field,
-  // so it cannot be filtered (backend reserves "order" and "order_by")
-  export interface SearchParams {
-    // Taxonomy
-    scientificName?: string;
-    genus?: string;
-    family?: string;
-    // order?: string;  // CONFLICT: reserved for sort direction
-    class?: string;
-    phylum?: string;
-    kingdom?: string;
-    taxonRank?: string;
-    taxonomicStatus?: string;
-    vernacularName?: string;
-    specificEpithet?: string;
-    infraspecificEpithet?: string;
-    taxonID?: string;
-    higherClassification?: string;
-    subfamily?: string;
-    tribe?: string;
-    subtribe?: string;
-    superfamily?: string;
-    subgenus?: string;
-    genericName?: string;
-    infragenericEpithet?: string;
-
-    // Geography
-    locality?: string;
-    stateProvince?: string;
-    county?: string;
-    municipality?: string;
-    country?: string;
-    countryCode?: string;
-    continent?: string;
-    waterBody?: string;
-    island?: string;
-    islandGroup?: string;
-    higherGeography?: string;
-    verbatimLocality?: string;
-
-    // Temporal
-    eventDate?: string;
-    eventTime?: string;
-    year?: string;
-    month?: string;
-    day?: string;
-    dateIdentified?: string;
-    modified?: string;
-    created?: string;
-    verbatimEventDate?: string;
-
-    // Identification
-    recordedBy?: string;
-    identifiedBy?: string;
-    recordNumber?: string;
-    catalogNumber?: string;
-    otherCatalogNumbers?: string;
-    fieldNumber?: string;
-    occurrenceID?: string;
-    institutionCode?: string;
-    collectionCode?: string;
-
-    // Sorting (reserved field names, not filters)
-    order_by?: string;
-    order?: 'ASC' | 'DESC';
-  }
-
   interface Props {
     onSearchChange: (params: SearchParams) => void;
-    availableColumns?: string[];
+    availableColumns?: (keyof SearchParams)[];
     initialSortBy?: string;
     initialSortDirection?: 'ASC' | 'DESC';
+    searchParams?: SearchParams;
   }
 
-  let { onSearchChange, availableColumns = [], initialSortBy, initialSortDirection }: Props = $props();
+  let { onSearchChange, availableColumns = [], searchParams }: Props = $props();
 
-  let activeFilters = $state<Record<string, string>>({});
+  // Track local state separately to manage things like debounce
+  let localParams = $state<SearchParams>({});
   let sortBy = $state<string>('');
   let sortDirection = $state<'ASC' | 'DESC' | ''>('');
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let syncingFromProp = $state(false);
 
   // Track the last prop values to detect when they change
   let lastInitialSortBy = $state<string | undefined>(undefined);
@@ -100,18 +35,46 @@
   // Sync state with initial props when they change
   $effect(() => {
     // Only update if the PROPS changed (not internal state)
-    if (initialSortBy !== lastInitialSortBy) {
-      sortBy = initialSortBy || '';
-      lastInitialSortBy = initialSortBy;
+    syncingFromProp = true;
+    if (searchParams?.order_by !== lastInitialSortBy) {
+      sortBy = searchParams?.order_by || '';
+      lastInitialSortBy = searchParams?.order_by;
     }
-    if (initialSortDirection !== lastInitialSortDirection) {
-      sortDirection = initialSortDirection || '';
-      lastInitialSortDirection = initialSortDirection;
+    if (searchParams?.order !== lastInitialSortDirection) {
+      sortDirection = searchParams?.order || '';
+      lastInitialSortDirection = searchParams?.order;
     }
+    syncingFromProp = false;
+  });
+
+  // Sync localParams from searchParam prop when it changes
+  $effect(() => {
+    if (!searchParams) return;
+
+    syncingFromProp = true;
+    const newParams: SearchParams = {};
+    for (const [key, value] of Object.entries(searchParams)) {
+      if (value) newParams[key as keyof SearchParams] = value;
+    }
+    localParams = searchParams;
+
+    // Keep syncingFromProp true for a moment to prevent any immediate reactions
+    setTimeout(() => {
+      syncingFromProp = false;
+    }, 0);
   });
 
   // Categorize columns for accordion sections
   const filterCategories = $derived(categorizeColumns(availableColumns));
+
+  // Track active params counts per category (reactive to localParams changes)
+  const categoryCounts = $derived.by(() =>
+    filterCategories.map(category => ({
+      category,
+      activeCount: category.columns.filter(c => localParams[c]).length,
+      hasActive: category.columns.some(c => localParams[c])
+    }))
+  );
 
   function triggerSearch() {
     if (debounceTimer) {
@@ -122,7 +85,7 @@
       const params: SearchParams = {};
 
       // Add filters directly at the top level (flattened structure)
-      for (const [key, value] of Object.entries(activeFilters)) {
+      for (const [key, value] of Object.entries(localParams)) {
         if (value && value.trim()) {
           // Type assertion needed because TypeScript can't verify dynamic keys match the interface
           (params as Record<string, string>)[key] = value;
@@ -141,23 +104,32 @@
     }, 300);
   }
 
-  function handleFilterChange(columnName: string, value: string) {
+  function handleFilterChange(columnName: keyof SearchParams, value: any) {
+    // Don't trigger search if we're syncing from prop
+    if (syncingFromProp) return;
+
     if (value) {
-      activeFilters[columnName] = value;
+      localParams[columnName] = value;
     } else {
-      delete activeFilters[columnName];
+      delete localParams[columnName];
     }
-    activeFilters = { ...activeFilters }; // Trigger reactivity
+    localParams = { ...localParams }; // Trigger reactivity
     triggerSearch();
   }
 
-  function handleFilterClear(columnName: string) {
-    delete activeFilters[columnName];
-    activeFilters = { ...activeFilters }; // Trigger reactivity
+  function handleFilterClear(columnName: keyof SearchParams) {
+    // Don't trigger search if we're syncing from prop
+    if (syncingFromProp) return;
+
+    delete localParams[columnName];
+    localParams = { ...localParams }; // Trigger reactivity
     triggerSearch();
   }
 
   function handleSortByChange() {
+    // Don't trigger search if we're syncing from prop
+    if (syncingFromProp) return;
+
     // When column changes, default to ASC if a column is selected
     if (sortBy && !sortDirection) {
       sortDirection = 'ASC';
@@ -199,7 +171,7 @@
           <div class="mb-4">
             <label class="label">
               <span class="label-text">Sort Direction</span>
-              <select class="select" bind:value={sortDirection} onchange={triggerSearch}>
+              <select class="select" bind:value={sortDirection} onchange={() => { if (!syncingFromProp) triggerSearch(); }}>
                 <option value="ASC">ASC</option>
                 <option value="DESC">DESC</option>
               </select>
@@ -208,20 +180,21 @@
         {/if}
       </Accordion.ItemContent>
     </Accordion.Item>
-    {#each filterCategories as category (category.name)}
+    {#each categoryCounts as { category, activeCount, hasActive } (category.name)}
       <Accordion.Item
         value={category.name}
         class="p-0 [&[data-state=open]]:bg-gray-100 hover:bg-gray-100"
       >
         <Accordion.ItemTrigger class="flex justify-between items-center p-2 hover:bg-transparent">
-          <span>
-            {category.name}
-            {#if category.columns.find(c => activeFilters[c])}
-              (<span class="font-bold">{category.columns.filter(c => activeFilters[c]).length}</span> / {category.columns.length})
-            {:else}
-              ({category.columns.length})
-            {/if}
-          </span>
+          {#if hasActive}
+            <span>
+              {category.name} (<span class="font-bold">{activeCount}</span> / {category.columns.length})
+            </span>
+          {:else}
+            <span>
+              {category.name} ({category.columns.length})
+            </span>
+          {/if}
           <Accordion.ItemIndicator class="group">
             <MinusIcon class="size-4 group-data-[state=open]:block hidden" />
             <PlusIcon class="size-4 group-data-[state=open]:hidden block" />
@@ -231,7 +204,7 @@
           {#each category.columns as columnName (columnName)}
             <ComboboxFilter
               {columnName}
-              value={activeFilters[columnName] || ''}
+              value={localParams[columnName] ? String(localParams[columnName]) : ''}
               onValueChange={(value) => handleFilterChange(columnName, value)}
               onClear={() => handleFilterClear(columnName)}
               type={NUMERIC_COLUMNS.includes(columnName) ? 'number' : 'text'}

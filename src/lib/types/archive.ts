@@ -1,8 +1,10 @@
+import type { SearchParams } from '$lib/utils/filterCategories';
+
 export interface ArchiveInfo {
   name: string,
   coreCount: number,
   coreIdColumn: string,
-  availableColumns: string[],
+  availableColumns: (keyof SearchParams)[],
 }
 
 export interface Multimedia {

@@ -4,7 +4,7 @@
   import 'maplibre-gl/dist/maplibre-gl.css';
   import { onMount, onDestroy } from 'svelte';
 
-  import type { SearchParams } from '$lib/components/Filters.svelte';
+  import type { SearchParams } from '$lib/utils/filterCategories';
 
   interface Props {
     coreIdColumn: string;

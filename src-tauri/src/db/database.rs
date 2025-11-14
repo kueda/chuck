@@ -7,6 +7,14 @@ use crate::error::{ChuckError, Result};
 use crate::dwca::ExtensionInfo;
 use crate::search_params::SearchParams;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "aggregation", rename_all = "camelCase")]
+pub struct AggregationResult {
+    pub value: Option<String>,
+    pub count: i64,
+    pub photo_url: Option<String>,
+}
+
 // Most DwC attributes are strings, but a few should have different types to
 // enable better queries
 const TYPE_OVERRIDES: [(&str, &str); 4] = [
@@ -617,6 +625,92 @@ impl Database {
         }
 
         Ok(suggestions)
+    }
+
+    pub fn aggregate_by_field(
+        &self,
+        field_name: &str,
+        search_params: &SearchParams,
+        limit: usize,
+        core_id_column: &str,
+    ) -> Result<Vec<AggregationResult>> {
+        // Validate field name against allowlist to prevent SQL injection
+        if !Occurrence::FIELD_NAMES.contains(&field_name) {
+            return Err(crate::error::ChuckError::Database(
+                duckdb::Error::InvalidColumnName(field_name.to_string())
+            ));
+        }
+
+        let (_, where_clause, where_interpolations, _) =
+            Self::sql_parts(search_params.clone(), None, &self.extension_tables);
+
+        // Build subquery for aggregation with MIN(core_id_column)
+        let mut subquery = format!(
+            "SELECT {} as value, COUNT(*) as count, MIN({}) as min_core_id FROM occurrences",
+            field_name, core_id_column
+        );
+
+        if !where_clause.is_empty() {
+            subquery.push_str(&where_clause);
+        }
+
+        subquery.push_str(&format!(" GROUP BY {}", field_name));
+
+        // Build JOIN clauses based on available extension tables
+        let mut joins = String::new();
+        let mut photo_select = "NULL".to_string();
+
+        let has_multimedia = self.extension_tables.iter().any(|(name, _)| name == "multimedia");
+        let has_audiovisual = self.extension_tables.iter().any(|(name, _)| name == "audiovisual");
+
+        if has_multimedia && has_audiovisual {
+            joins.push_str(&format!(
+                " LEFT JOIN multimedia m ON m.{} = agg.min_core_id LEFT JOIN audiovisual a ON a.{} = agg.min_core_id",
+                core_id_column, core_id_column
+            ));
+            photo_select = "COALESCE(m.identifier, a.access_uri)".to_string();
+        } else if has_multimedia {
+            joins.push_str(&format!(
+                " LEFT JOIN multimedia m ON m.{} = agg.min_core_id",
+                core_id_column
+            ));
+            photo_select = "m.identifier".to_string();
+        } else if has_audiovisual {
+            joins.push_str(&format!(
+                " LEFT JOIN audiovisual a ON a.{} = agg.min_core_id",
+                core_id_column
+            ));
+            photo_select = "a.access_uri".to_string();
+        }
+
+        // Build final query
+        let sql = format!(
+            "SELECT DISTINCT ON (agg.value) agg.value, agg.count, {} as photo_url FROM ({}) agg{} ORDER BY count DESC LIMIT {}",
+            photo_select, subquery, joins, limit
+        );
+        // log::debug!("sql: {}", sql);
+
+        let mut stmt = self.conn.prepare(&sql)?;
+
+        let param_refs: Vec<&dyn duckdb::ToSql> = where_interpolations
+            .iter()
+            .map(|p| p.as_ref())
+            .collect();
+
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            Ok(AggregationResult {
+                value: row.get(0)?,
+                count: row.get(1)?,
+                photo_url: row.get(2)?,
+            })
+        })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+
+        Ok(results)
     }
 
     /// Retrieves a single occurrence by ID with all columns and extension data
@@ -1397,5 +1491,84 @@ mod tests {
             "Error should mention gbifID and BIGINT. Got: {}",
             err_msg
         );
+    }
+
+    #[test]
+    fn test_aggregate_by_field() {
+        let temp_dir = std::env::temp_dir().join("chuck_test_aggregate");
+        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
+
+        // Insert test data with varied values
+        let conn = duckdb::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE occurrences (occurrenceID VARCHAR, scientificName VARCHAR, basisOfRecord VARCHAR);
+             INSERT INTO occurrences VALUES ('001', 'Species A', 'HumanObservation');
+             INSERT INTO occurrences VALUES ('002', 'Species B', 'HumanObservation');
+             INSERT INTO occurrences VALUES ('003', 'Species C', 'PreservedSpecimen');
+             INSERT INTO occurrences VALUES ('004', 'Species D', NULL);"
+        ).unwrap();
+        drop(conn);
+
+        let db = Database::open(&db_path, &vec![]).unwrap();
+
+        let params = SearchParams::default();
+        let result = db.aggregate_by_field("basisOfRecord", &params, 1000, "occurrenceID").unwrap();
+
+        assert_eq!(result.len(), 3);
+        // First result should be HumanObservation with count 2 (highest count)
+        assert_eq!(result[0].value, Some("HumanObservation".to_string()));
+        assert_eq!(result[0].count, 2);
+
+        // The next two results both have count 1, so their order is non-deterministic
+        // Just verify they exist in the results
+        let remaining_values: Vec<_> = result[1..].iter().map(|r| r.value.clone()).collect();
+        assert!(remaining_values.contains(&Some("PreservedSpecimen".to_string())));
+        assert!(remaining_values.contains(&None));
+        assert_eq!(result[1].count, 1);
+        assert_eq!(result[2].count, 1);
+
+        // Cleanup
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_aggregate_by_field_rejects_invalid_field_name() {
+        let temp_dir = std::env::temp_dir().join("chuck_test_aggregate_invalid");
+        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test.db");
+
+        // Create test data
+        let conn = duckdb::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE occurrences (occurrenceID VARCHAR, scientificName VARCHAR, basisOfRecord VARCHAR);
+             INSERT INTO occurrences VALUES ('001', 'Species A', 'HumanObservation');"
+        ).unwrap();
+        drop(conn);
+
+        let db = Database::open(&db_path, &vec![]).unwrap();
+        let params = SearchParams::default();
+
+        // Test that a valid field name works
+        let result = db.aggregate_by_field("basisOfRecord", &params, 1000, "occurrenceID");
+        assert!(result.is_ok(), "Valid field name should succeed");
+
+        // Test that an invalid field name (not in allowlist) is rejected
+        let result = db.aggregate_by_field("malicious_field", &params, 1000, "occurrenceID");
+        assert!(result.is_err(), "Invalid field name should be rejected");
+
+        // Test that SQL injection attempt is rejected
+        let result = db.aggregate_by_field(
+            "basisOfRecord; DROP TABLE occurrences; --",
+            &params,
+            1000,
+            "occurrenceID"
+        );
+        assert!(result.is_err(), "SQL injection attempt should be rejected");
+
+        // Cleanup
+        std::fs::remove_dir_all(&temp_dir).ok();
     }
 }

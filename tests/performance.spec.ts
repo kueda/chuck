@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { setupMockTauri, waitForAppReady, openArchive } from './helpers/setup';
 import type { Page } from '@playwright/test';
+import type { ArchiveInfo } from '$lib/types/archive';
 
 // Not quite the ideal 200, but maybe enough
 const MAX_RESPONSE_TIME = 300;
@@ -17,11 +18,18 @@ async function setupMockTauriWithCustomData(
 ) {
   const { getInjectionScript } = await import('./mocks/tauri');
 
-  const customArchive = {
+  const customArchive: ArchiveInfo = {
     name: archiveName,
     coreCount: coreCount,
     coreIdColumn: 'occurrenceID',
-    availableColumns: ['occurrenceID', 'scientificName', 'decimalLatitude', 'decimalLongitude', 'eventDate', 'eventTime'],
+    availableColumns: [
+      'occurrenceID',
+      'scientificName',
+      'decimalLatitude',
+      'decimalLongitude',
+      'eventDate',
+      'eventTime'
+    ],
   };
 
   // Generate mock occurrences

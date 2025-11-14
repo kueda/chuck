@@ -22,7 +22,9 @@ test.describe('Frontend', () => {
   });
 
   async function switchToView(page: Page, view: string) {
-    const cardsInput = page.locator(`input[type="radio"][value="${view}"]`);
+    // Scope to Occurrences tab to avoid conflict with Groups tab ViewSwitcher
+    const occTab = page.getByLabel('Occurrences');
+    const cardsInput = occTab.locator(`input[type="radio"][value="${view}"]`);
     return cardsInput.click({ force: true });
   }
 
@@ -409,9 +411,10 @@ test.describe('Frontend', () => {
     // Wait for initial load
     await page.waitForTimeout(1000);
 
-    // Verify the ViewSwitcher is visible and has both options
-    await expect(page.getByText('Table', { exact: true })).toBeVisible();
-    await expect(page.getByText('Cards', { exact: true })).toBeVisible();
+    // Verify the ViewSwitcher is visible and has both options (scoped to Occurrences tab)
+    const occTab = page.getByLabel('Occurrences');
+    await expect(occTab.getByText('Table', { exact: true })).toBeVisible();
+    await expect(occTab.getByText('Cards', { exact: true })).toBeVisible();
   });
 
   test('should use default table view on initial load', async ({ page }) => {
@@ -529,7 +532,7 @@ test.describe('Frontend', () => {
     // Wait for cards to render
     await page.waitForTimeout(1000);
 
-    const mainElement = page.locator('main');
+    const mainElement = page.getByTestId('occurrences-scroll-container');
 
     // Get initial scroll position
     const initialScroll = await mainElement.evaluate(el => el.scrollTop);
@@ -653,7 +656,7 @@ test.describe('Frontend', () => {
     await expect(cards.first()).toBeVisible();
 
     // Scroll down significantly
-    const mainElement = page.locator('main');
+    const mainElement = page.getByTestId('occurrences-scroll-container');
     await mainElement.evaluate((el) => {
       el.scrollTop = 2000;
     });

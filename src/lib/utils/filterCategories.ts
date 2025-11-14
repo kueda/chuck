@@ -1,16 +1,92 @@
 // Categorizes Darwin Core column names into logical groups for filter organization
 
-export interface FilterCategory {
-  name: string;
-  columns: string[];
+// SearchParams matches the backend's flattened structure (using #[serde(flatten)])
+// All Darwin Core fields are at the same level as order_by/order
+// Note: The Darwin Core "order" taxonomy field conflicts with the sort "order" field,
+// so it cannot be filtered (backend reserves "order" and "order_by")
+export interface SearchParams {
+  // Taxonomy
+  scientificName?: string;
+  genus?: string;
+  family?: string;
+  // order?: string;  // CONFLICT: reserved for sort direction
+  class?: string;
+  phylum?: string;
+  kingdom?: string;
+  taxonRank?: string;
+  taxonomicStatus?: string;
+  vernacularName?: string;
+  specificEpithet?: string;
+  infraspecificEpithet?: string;
+  taxonID?: string;
+  higherClassification?: string;
+  subfamily?: string;
+  tribe?: string;
+  subtribe?: string;
+  superfamily?: string;
+  subgenus?: string;
+  genericName?: string;
+  infragenericEpithet?: string;
+  species?: string;
+
+  // Geography
+  decimalLatitude?: number;
+  decimalLongitude?: number;
+  coordinateUncertaintyInMeters?: number;
+  coordinatePrecision?: number;
+  locality?: string;
+  stateProvince?: string;
+  county?: string;
+  municipality?: string;
+  country?: string;
+  countryCode?: string;
+  continent?: string;
+  waterBody?: string;
+  island?: string;
+  islandGroup?: string;
+  higherGeography?: string;
+  verbatimLocality?: string;
+
+  // Temporal
+  eventDate?: string;
+  eventTime?: string;
+  year?: string;
+  month?: string;
+  day?: string;
+  dateIdentified?: string;
+  modified?: string;
+  created?: string;
+  verbatimEventDate?: string;
+
+  // Identification
+  gbifID?: number;
+  recordedBy?: string;
+  identifiedBy?: string;
+  recordNumber?: string;
+  catalogNumber?: string;
+  otherCatalogNumbers?: string;
+  fieldNumber?: string;
+  occurrenceID?: string;
+  institutionCode?: string;
+  collectionCode?: string;
+
+  // Sorting (reserved field names, not filters)
+  order_by?: string;
+  order?: 'ASC' | 'DESC';
 }
 
-const TAXONOMY_COLUMNS = [
+export interface FilterCategory {
+  name: string;
+  columns: (keyof SearchParams)[];
+}
+
+const TAXONOMY_COLUMNS: (keyof SearchParams)[] = [
   'scientificName',
   'kingdom',
   'phylum',
   'class',
-  'order',
+  // TODO: figure out a way to support filtering by order that doesn't conflict with sort control
+  // 'order',
   'superfamily',
   'family',
   'subfamily',
@@ -30,7 +106,7 @@ const TAXONOMY_COLUMNS = [
   'higherClassification',
 ];
 
-const GEOGRAPHY_COLUMNS = [
+const GEOGRAPHY_COLUMNS: (keyof SearchParams)[] = [
   'decimalLatitude',
   'decimalLongitude',
   'coordinateUncertaintyInMeters',
@@ -49,7 +125,7 @@ const GEOGRAPHY_COLUMNS = [
   'higherGeography',
 ];
 
-const TEMPORAL_COLUMNS = [
+const TEMPORAL_COLUMNS: (keyof SearchParams)[] = [
   'eventDate',
   'eventTime',
   'year',
@@ -61,7 +137,7 @@ const TEMPORAL_COLUMNS = [
   'verbatimEventDate',
 ];
 
-const CATALOG_COLUMNS = [
+const CATALOG_COLUMNS: (keyof SearchParams)[] = [
   'recordNumber',
   'catalogNumber',
   'otherCatalogNumbers',
@@ -71,17 +147,17 @@ const CATALOG_COLUMNS = [
   'collectionCode',
 ];
 
-const PERSON_COLUMNS = [
+const PERSON_COLUMNS: (keyof SearchParams)[] = [
   'recordedBy',
   'identifiedBy',
 ]
 
-export function categorizeColumns(availableColumns: string[]): FilterCategory[] {
+export function categorizeColumns(availableColumns: (keyof SearchParams)[]): FilterCategory[] {
   const categories: FilterCategory[] = [];
   const categorized = new Set<string>();
 
   // Helper to add category if it has columns
-  const addCategory = (name: string, columnList: string[]) => {
+  const addCategory = (name: string, columnList: (keyof SearchParams)[]) => {
     const matchingColumns = columnList.filter(col => availableColumns.includes(col));
     if (matchingColumns.length > 0) {
       categories.push({ name, columns: matchingColumns });

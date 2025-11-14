@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Progress } from '@skeletonlabs/skeleton-svelte';
+  import { Progress, Tabs } from '@skeletonlabs/skeleton-svelte';
   import { invoke, getCurrentWindow, listen, showOpenDialog } from '$lib/tauri-api';
   import Filters from '$lib/components/Filters.svelte';
   import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
@@ -8,8 +8,9 @@
   import Cards from './Cards.svelte';
   import MapView from './Map.svelte';
   import Table from './Table.svelte';
+  import Groups from './Groups.svelte';
 
-  import type { SearchParams } from '$lib/components/Filters.svelte';
+  import type { SearchParams } from '$lib/utils/filterCategories';
   import type { ArchiveInfo, Occurrence, SearchResult } from '$lib/types/archive';
   import { getColumnPreferences, saveColumnPreferences } from '$lib/utils/columnPreferences';
 
@@ -26,7 +27,7 @@
   let occurrenceCacheVersion = $state(0);
   let loadingChunks = new Set<number>();
   let scrollElement: Element | undefined = $state(undefined);
-  let currentSearchParams = $state<SearchParams>({});
+  let searchParams = $state<SearchParams>({});
   let filteredTotal = $state<number>(0);
   let currentView = $state<'table' | 'cards' | 'map'>('table');
   let lastVisibleRange = $state({ firstIndex: 0, lastIndex: 0, scrollOffsetIndex: 0 });
@@ -34,6 +35,9 @@
   // Use a simple object ref that persists across reactivity
   // const scrollState = { targetIndex: 0, shouldScroll: false };
   let scrollState = $state({ targetIndex: 0, shouldScroll: false });
+
+  // Tab state
+  let activeTab = $state<string>('occurrences');
 
   // Map state preservation
   let mapCenter = $state<[number, number]>([0, 0]);
@@ -78,6 +82,20 @@
       visibleColumns = columns;
     }
   });
+
+  // Get VARCHAR fields for grouping (exclude DATE/numeric types)
+  const varcharFields = $derived(
+    archive
+      ? archive.availableColumns
+        .filter((col) => {
+          // Exclude known non-VARCHAR types
+          const numericFields = ['decimalLatitude', 'decimalLongitude', 'coordinateUncertaintyInMeters'];
+          const dateFields = ['eventDate'];
+          return !numericFields.includes(col) && !dateFields.includes(col);
+        })
+        .sort()
+      : []
+  );
 
   // Handle column visibility changes
   function handleVisibleColumnsChange(newColumns: string[]) {
@@ -126,7 +144,7 @@
       const searchResult = await invoke<SearchResult>('search', {
         limit: CHUNK_SIZE,
         offset: offset,
-        searchParams: currentSearchParams,
+        searchParams: searchParams,
         fields: fetchedFields,
       });
 
@@ -188,14 +206,14 @@
     // Toggle between ASC and DESC (no "clear" state since results are always sorted)
     let newDirection: 'ASC' | 'DESC' = 'ASC';
 
-    if (currentSearchParams.order_by === column) {
+    if (searchParams.order_by === column) {
       // Same column - toggle direction
-      newDirection = currentSearchParams.order === 'ASC' ? 'DESC' : 'ASC';
+      newDirection = searchParams.order === 'ASC' ? 'DESC' : 'ASC';
     }
     // Different column - start with ASC
 
     const params: SearchParams = {
-      ...currentSearchParams,
+      ...searchParams,
       order_by: column,
       order: newDirection,
     };
@@ -208,7 +226,7 @@
     if (!archive) return;
 
     // Update search params immediately so subsequent clicks see the new value
-    currentSearchParams = params;
+    searchParams = params;
 
     // Load first chunk with new params to get the filtered count
     try {
@@ -247,11 +265,11 @@
   // Set window title and initialize filtered total when archive loads
   $effect(() => {
     if (archive) {
-      getCurrentWindow().setTitle(`${archive.name} – ${archive.coreCount} records`);
+      getCurrentWindow().setTitle(`${archive.name} – ${archive.coreCount} occurrences`);
       filteredTotal = archive.coreCount;
 
       // Set default sort to Core ID
-      currentSearchParams = {
+      searchParams = {
         order_by: archive.coreIdColumn,
         order: 'ASC',
       };
@@ -287,7 +305,7 @@
     occurrenceCache = new Map();
     occurrenceCacheVersion = 0;
     loadingChunks = new Set();
-    currentSearchParams = {};
+    searchParams = {};
     lastLoadedRange = { firstChunk: -1, lastChunk: -1 };
     archiveLoadingStatus = 'importing';
     archiveLoadingError = null;
@@ -438,54 +456,93 @@
   </div>
 {:else if archive}
   <div class="flex flex-row p-4 fixed w-full h-screen">
-    <div class="absolute bottom-10 right-10 z-10">
-      <ViewSwitcher bind:view={currentView} {onViewChange} />
-    </div>
     <aside class="pe-4 w-82 overflow-y-auto">
       <Filters
         onSearchChange={handleSearchChange}
         availableColumns={archive?.availableColumns ?? []}
-        initialSortBy={currentSearchParams.order_by}
-        initialSortDirection={currentSearchParams.order}
+        {searchParams}
       />
     </aside>
-    <main class="overflow-y-auto w-full relative" bind:this={scrollElement}>
-      {#if currentView === 'table'}
-        <Table
-          {occurrenceCache}
-          {occurrenceCacheVersion}
-          count={filteredTotal}
-          {scrollElement}
-          onVisibleRangeChange={handleVisibleRangeChange}
-          coreIdColumn={archive.coreIdColumn}
-          archiveName={archive.name}
-          availableColumns={archive.availableColumns}
-          {visibleColumns}
-          {scrollState}
-          currentSortColumn={currentSearchParams.order_by}
-          currentSortDirection={currentSearchParams.order}
-          onColumnHeaderClick={handleColumnHeaderClick}
-          onVisibleColumnsChange={handleVisibleColumnsChange}
-        />
-      {:else if currentView === 'cards'}
-        <Cards
-          {occurrenceCache}
-          {occurrenceCacheVersion}
-          count={filteredTotal}
-          {scrollElement}
-          onVisibleRangeChange={handleVisibleRangeChange}
-          coreIdColumn={archive.coreIdColumn}
-          {scrollState}
-        />
-      {:else if currentView === 'map'}
-        <MapView
-          coreIdColumn={archive.coreIdColumn}
-          params={currentSearchParams}
-          center={mapCenter}
-          zoom={mapZoom}
-          onMapMove={handleMapMove}
-        />
-      {/if}
+    <main class="overflow-hidden w-full relative flex flex-col">
+      <Tabs
+        value={activeTab}
+        onValueChange={(details) => (activeTab = details.value)}
+        class="flex h-full flex-col"
+      >
+        <Tabs.List class="border-b border-surface-200-800 px-4 mb-0 flex flex-row">
+          <Tabs.Trigger value="occurrences" class="btn hover:preset-tonal-primary grow">
+            Occurrences
+          </Tabs.Trigger>
+          <Tabs.Trigger value="groups" class="btn hover:preset-tonal-primary grow">
+            Groups
+          </Tabs.Trigger>
+          <Tabs.Indicator class="bg-surface-950-50" />
+        </Tabs.List>
+
+        <Tabs.Content value="occurrences" class="flex-1 overflow-hidden">
+          <div class="h-full overflow-y-auto" bind:this={scrollElement} data-testid="occurrences-scroll-container">
+            {#if currentView === 'table'}
+              <Table
+                {occurrenceCache}
+                {occurrenceCacheVersion}
+                count={filteredTotal}
+                {scrollElement}
+                onVisibleRangeChange={handleVisibleRangeChange}
+                coreIdColumn={archive.coreIdColumn}
+                archiveName={archive.name}
+                availableColumns={archive.availableColumns}
+                {visibleColumns}
+                {scrollState}
+                currentSortColumn={searchParams.order_by}
+                currentSortDirection={searchParams.order}
+                onColumnHeaderClick={handleColumnHeaderClick}
+                onVisibleColumnsChange={handleVisibleColumnsChange}
+              />
+            {:else if currentView === 'cards'}
+              <Cards
+                {occurrenceCache}
+                {occurrenceCacheVersion}
+                count={filteredTotal}
+                {scrollElement}
+                onVisibleRangeChange={handleVisibleRangeChange}
+                coreIdColumn={archive.coreIdColumn}
+                {scrollState}
+              />
+            {:else if currentView === 'map'}
+              <MapView
+                coreIdColumn={archive.coreIdColumn}
+                params={searchParams}
+                center={mapCenter}
+                zoom={mapZoom}
+                onMapMove={handleMapMove}
+              />
+            {/if}
+          </div>
+          <div class="absolute bottom-10 right-10 z-10">
+            <ViewSwitcher bind:view={currentView} {onViewChange} />
+          </div>
+        </Tabs.Content>
+
+        <Tabs.Content value="groups" class="flex-1 overflow-auto">
+          {#if activeTab === 'groups'}
+            <Groups
+              coreIdColumn={archive.coreIdColumn}
+              {searchParams}
+              {varcharFields}
+              defaultSelectedField={
+                archive?.availableColumns?.includes('scientificName') ? 'scientificName' : undefined}
+              onCountClick={(fieldName: string, fieldValue: string | null) => {
+                const params: SearchParams = {
+                  ...searchParams,
+                  [fieldName]: fieldValue ?? ''
+                };
+                handleSearchChange(params);
+                activeTab = 'occurrences';
+              }}
+            />
+          {/if}
+        </Tabs.Content>
+      </Tabs>
     </main>
   </div>
 {:else}

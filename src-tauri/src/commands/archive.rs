@@ -201,3 +201,14 @@ pub fn get_photo(
     let archive = Archive::current(&get_local_data_dir(app)?)?;
     archive.get_photo(&photo_path)
 }
+
+#[tauri::command]
+pub fn aggregate_by_field(
+    app: tauri::AppHandle,
+    field_name: String,
+    search_params: SearchParams,
+    limit: usize,
+) -> Result<Vec<crate::db::AggregationResult>> {
+    let archive = Archive::current(&get_local_data_dir(app)?)?;
+    archive.aggregate_by_field(&field_name, &search_params, limit)
+}
