@@ -515,6 +515,21 @@
                 center={mapCenter}
                 zoom={mapZoom}
                 onMapMove={handleMapMove}
+                onBoundsChange={(bounds) => {
+                  if (bounds) {
+                    const params = {
+                      ...searchParams,
+                      nelat: String(bounds.nelat),
+                      nelng: String(bounds.nelng),
+                      swlat: String(bounds.swlat),
+                      swlng: String(bounds.swlng)
+                    };
+                    handleSearchChange(params);
+                  } else {
+                    const { nelat, nelng, swlat, swlng, ...rest} = searchParams;
+                    handleSearchChange(rest);
+                  }
+                }}
               />
             {/if}
           </div>

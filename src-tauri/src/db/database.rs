@@ -473,6 +473,24 @@ impl Database {
             }
         }
 
+        // Handle bounding box parameters (all four must be present)
+        if let (Some(nelat), Some(nelng), Some(swlat), Some(swlng)) =
+            (&search_params.nelat, &search_params.nelng, &search_params.swlat, &search_params.swlng) {
+            if let (Ok(nelat_f), Ok(nelng_f), Ok(swlat_f), Ok(swlng_f)) =
+                (nelat.parse::<f64>(), nelng.parse::<f64>(), swlat.parse::<f64>(), swlng.parse::<f64>()) {
+                // decimalLatitude must be between swlat and nelat
+                // decimalLongitude must be between swlng and nelng
+                where_clauses.push("decimalLatitude <= ?".to_string());
+                where_interpolations.push(Box::new(nelat_f));
+                where_clauses.push("decimalLatitude >= ?".to_string());
+                where_interpolations.push(Box::new(swlat_f));
+                where_clauses.push("decimalLongitude <= ?".to_string());
+                where_interpolations.push(Box::new(nelng_f));
+                where_clauses.push("decimalLongitude >= ?".to_string());
+                where_interpolations.push(Box::new(swlng_f));
+            }
+        }
+
         let where_clause = if where_clauses.is_empty() {
             String::new()
         } else {
@@ -960,6 +978,10 @@ mod tests {
             filters,
             order_by: Some("occurrenceID".to_string()),
             order: None,
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
         }, None).unwrap();
 
         // Should return 4 results: "Foobar", "foo", "Foo", "Barfoo"
@@ -1166,9 +1188,65 @@ mod tests {
             filters: HashMap::new(),
             order_by: Some("foo".to_string()),
             order: None,
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
         };
         let (_, _, _, order_clause) = Database::sql_parts(params, None, &vec![]);
         assert_eq!(order_clause, "");
+    }
+
+    #[test]
+    fn test_sql_parts_includes_bbox_params_in_where_clause() {
+        // Create params with bbox fields populated
+        let params = crate::search_params::SearchParams {
+            filters: HashMap::new(),
+            order_by: None,
+            order: None,
+            nelat: Some("40.0".to_string()),
+            nelng: Some("-120.0".to_string()),
+            swlat: Some("35.0".to_string()),
+            swlng: Some("-125.0".to_string()),
+        };
+
+        let (_select_fields, where_clause, where_interpolations, _order_clause) = Database::sql_parts(params, None, &vec![]);
+
+        // Bbox params should generate WHERE clause conditions
+        assert!(where_clause.contains("decimalLatitude"), "Should filter by decimalLatitude");
+        assert!(where_clause.contains("decimalLongitude"), "Should filter by decimalLongitude");
+        assert_eq!(where_interpolations.len(), 4, "Should have 4 interpolations for bbox (nelat, swlat, nelng, swlng)");
+    }
+
+    #[test]
+    fn test_sql_parts_bbox_params_work_with_filters() {
+        // Create params with both filters and bbox
+        let mut filters = HashMap::new();
+        filters.insert("scientificName".to_string(), "test".to_string());
+
+        let params = crate::search_params::SearchParams {
+            filters,
+            order_by: None,
+            order: None,
+            nelat: Some("40.0".to_string()),
+            nelng: Some("-120.0".to_string()),
+            swlat: Some("35.0".to_string()),
+            swlng: Some("-125.0".to_string()),
+        };
+
+        let (_select_fields, where_clause, where_interpolations, _order_clause) = Database::sql_parts(params, None, &vec![]);
+
+        // Should have both scientificName filter AND bbox conditions
+        assert!(where_clause.contains("scientificName"), "Should have scientificName filter");
+        assert!(where_clause.contains("decimalLatitude"), "Should have decimalLatitude bbox conditions");
+        assert!(where_clause.contains("decimalLongitude"), "Should have decimalLongitude bbox conditions");
+        // Bbox params should not appear by name (they're converted to lat/lng checks)
+        assert!(!where_clause.contains("nelat"), "Should not have nelat column name in WHERE clause");
+        assert!(!where_clause.contains("nelng"), "Should not have nelng column name in WHERE clause");
+        assert!(!where_clause.contains("swlat"), "Should not have swlat column name in WHERE clause");
+        assert!(!where_clause.contains("swlng"), "Should not have swlng column name in WHERE clause");
+        // 1 for scientificName + 4 for bbox
+        assert_eq!(where_interpolations.len(), 5, "Should have 5 interpolations (1 for scientificName + 4 for bbox)");
     }
 
     #[test]
@@ -1293,6 +1371,10 @@ mod tests {
             filters: HashMap::new(),
             order_by: Some("scientificName".to_string()),
             order: Some("ASC".to_string()),
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
         };
         let result_asc = db.search(10, 0, params_asc, Some(vec!["scientificName".to_string()])).unwrap();
         let first_name = result_asc.results[0].get("scientificName").unwrap().as_str().unwrap();
@@ -1303,6 +1385,10 @@ mod tests {
             filters: HashMap::new(),
             order_by: Some("scientificName".to_string()),
             order: Some("DESC".to_string()),
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
         };
         let result_desc = db.search(10, 0, params_desc, Some(vec!["scientificName".to_string()])).unwrap();
         let first_name_desc = result_desc.results[0].get("scientificName").unwrap().as_str().unwrap();
@@ -1336,6 +1422,10 @@ mod tests {
             filters: HashMap::new(),
             order_by: Some("decimalLatitude".to_string()),
             order: Some("ASC".to_string()),
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
         };
         let result_asc = db.search(10, 0, params_asc, Some(vec!["occurrenceID".to_string(), "decimalLatitude".to_string()])).unwrap();
 
@@ -1357,6 +1447,10 @@ mod tests {
             filters: HashMap::new(),
             order_by: Some("decimalLatitude".to_string()),
             order: Some("DESC".to_string()),
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
         };
         let result_desc = db.search(10, 0, params_desc, Some(vec!["occurrenceID".to_string(), "decimalLatitude".to_string()])).unwrap();
         let first_id_desc = result_desc.results[0].get("occurrenceID").unwrap().as_i64().unwrap();
@@ -1389,6 +1483,10 @@ mod tests {
             filters: filters.clone(),
             order_by: Some("occurrenceID".to_string()),
             order: None,
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
         }, None).unwrap();
 
         assert_eq!(search_result.total, 4, "Search for '3' should match 3.0, 3.1, 3.14, 3.141");
@@ -1404,6 +1502,10 @@ mod tests {
             filters: filters.clone(),
             order_by: Some("occurrenceID".to_string()),
             order: None,
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
         }, None).unwrap();
 
         assert_eq!(search_result.total, 3, "Search for '3.1' should match 3.1, 3.14, 3.141");
@@ -1419,6 +1521,10 @@ mod tests {
             filters: filters.clone(),
             order_by: Some("occurrenceID".to_string()),
             order: None,
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
         }, None).unwrap();
 
         assert_eq!(search_result.total, 2, "Search for '3.14' should match 3.14, 3.141");
@@ -1434,6 +1540,10 @@ mod tests {
             filters: filters.clone(),
             order_by: Some("occurrenceID".to_string()),
             order: None,
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
         }, None).unwrap();
 
         assert_eq!(search_result.total, 1, "Search for '30' should only match 30.0");

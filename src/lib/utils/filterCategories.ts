@@ -47,6 +47,12 @@ export interface SearchParams {
   higherGeography?: string;
   verbatimLocality?: string;
 
+  // Bounding box (northeast/southwest corners)
+  nelat?: string;
+  nelng?: string;
+  swlat?: string;
+  swlng?: string;
+
   // Temporal
   eventDate?: string;
   eventTime?: string;
@@ -123,6 +129,10 @@ const GEOGRAPHY_COLUMNS: (keyof SearchParams)[] = [
   'island',
   'islandGroup',
   'higherGeography',
+  'nelat',
+  'nelng',
+  'swlat',
+  'swlng',
 ];
 
 const TEMPORAL_COLUMNS: (keyof SearchParams)[] = [
@@ -152,6 +162,9 @@ const PERSON_COLUMNS: (keyof SearchParams)[] = [
   'identifiedBy',
 ]
 
+// Synthetic filter fields that don't exist as database columns
+const SYNTHETIC_FIELDS: (keyof SearchParams)[] = ['nelat', 'nelng', 'swlat', 'swlng'];
+
 export function categorizeColumns(availableColumns: (keyof SearchParams)[]): FilterCategory[] {
   const categories: FilterCategory[] = [];
   const categorized = new Set<string>();
@@ -166,7 +179,16 @@ export function categorizeColumns(availableColumns: (keyof SearchParams)[]): Fil
   };
 
   addCategory('Taxonomy', TAXONOMY_COLUMNS);
-  addCategory('Geography', GEOGRAPHY_COLUMNS);
+
+  // Geography gets special handling to always include synthetic bbox fields
+  const geographyColumns = GEOGRAPHY_COLUMNS.filter(col =>
+    availableColumns.includes(col) || SYNTHETIC_FIELDS.includes(col)
+  );
+  if (geographyColumns.length > 0) {
+    categories.push({ name: 'Geography', columns: geographyColumns });
+    geographyColumns.forEach(col => categorized.add(col));
+  }
+
   addCategory('Temporal', TEMPORAL_COLUMNS);
   addCategory('Catalog', CATALOG_COLUMNS);
   addCategory('Person', PERSON_COLUMNS);

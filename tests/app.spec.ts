@@ -44,6 +44,7 @@ test.describe('Frontend', () => {
 
     // Wait for the main content area to appear
     await expect(page.locator('main')).toBeVisible();
+    await page.waitForTimeout(100);
 
     // Check that some occurrence data is visible
     const rows = await getVisibleOccurrences(page);

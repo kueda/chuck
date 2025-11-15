@@ -52,9 +52,29 @@ export function createMockInvoke(
 
         // Handle flattened filter structure (filters are at top level of searchParams)
         if (searchParams) {
+          // Extract bounding box params
+          const nelat = searchParams.nelat ? parseFloat(searchParams.nelat) : null;
+          const nelng = searchParams.nelng ? parseFloat(searchParams.nelng) : null;
+          const swlat = searchParams.swlat ? parseFloat(searchParams.swlat) : null;
+          const swlng = searchParams.swlng ? parseFloat(searchParams.swlng) : null;
+
+          // Apply bounding box filter if all params present
+          if (nelat !== null && nelng !== null && swlat !== null && swlng !== null) {
+            filteredResults = filteredResults.filter((r: Occurrence) => {
+              const lat = r.decimalLatitude;
+              const lng = r.decimalLongitude;
+              if (lat === null || lat === undefined || lng === null || lng === undefined) {
+                return false;
+              }
+              return lat >= swlat && lat <= nelat && lng >= swlng && lng <= nelng;
+            });
+          }
+
+          // Apply other filters
           for (const [columnName, filterValue] of Object.entries(searchParams)) {
-            // Skip non-filter fields
+            // Skip non-filter fields and bbox fields
             if (columnName === 'order_by' || columnName === 'order') continue;
+            if (columnName === 'nelat' || columnName === 'nelng' || columnName === 'swlat' || columnName === 'swlng') continue;
 
             if (filterValue && typeof filterValue === 'string') {
               filteredResults = filteredResults.filter((r: Occurrence) => {
@@ -214,9 +234,30 @@ export function getInjectionScript(
             // Handle flattened filters structure (matching backend's #[serde(flatten)])
             // All filter fields are at the same level as order_by/order
             if (searchParams) {
+              // Extract bounding box params
+              const nelat = searchParams.nelat ? parseFloat(searchParams.nelat) : null;
+              const nelng = searchParams.nelng ? parseFloat(searchParams.nelng) : null;
+              const swlat = searchParams.swlat ? parseFloat(searchParams.swlat) : null;
+              const swlng = searchParams.swlng ? parseFloat(searchParams.swlng) : null;
+
+              // Apply bounding box filter if all params present
+              if (nelat !== null && nelng !== null && swlat !== null && swlng !== null) {
+                const beforeCount = filteredResults.length;
+                filteredResults = filteredResults.filter(r => {
+                  const lat = r.decimalLatitude;
+                  const lng = r.decimalLongitude;
+                  if (lat === null || lat === undefined || lng === null || lng === undefined) {
+                    return false;
+                  }
+                  return lat >= swlat && lat <= nelat && lng >= swlng && lng <= nelng;
+                });
+              }
+
+              // Apply other filters
               for (const [columnName, filterValue] of Object.entries(searchParams)) {
-                // Skip reserved sorting fields
+                // Skip reserved sorting fields and bbox fields
                 if (columnName === 'order_by' || columnName === 'order') continue;
+                if (columnName === 'nelat' || columnName === 'nelng' || columnName === 'swlat' || columnName === 'swlng') continue;
 
                 if (filterValue && typeof filterValue === 'string') {
                   filteredResults = filteredResults.filter(r => {
@@ -316,8 +357,28 @@ export function getInjectionScript(
 
             // Apply filters (same logic as search command)
             if (searchParams) {
+              // Extract bounding box params
+              const nelat = searchParams.nelat ? parseFloat(searchParams.nelat) : null;
+              const nelng = searchParams.nelng ? parseFloat(searchParams.nelng) : null;
+              const swlat = searchParams.swlat ? parseFloat(searchParams.swlat) : null;
+              const swlng = searchParams.swlng ? parseFloat(searchParams.swlng) : null;
+
+              // Apply bounding box filter if all params present
+              if (nelat !== null && nelng !== null && swlat !== null && swlng !== null) {
+                filteredResults = filteredResults.filter(r => {
+                  const lat = r.decimalLatitude;
+                  const lng = r.decimalLongitude;
+                  if (lat === null || lat === undefined || lng === null || lng === undefined) {
+                    return false;
+                  }
+                  return lat >= swlat && lat <= nelat && lng >= swlng && lng <= nelng;
+                });
+              }
+
+              // Apply other filters
               for (const [columnName, filterValue] of Object.entries(searchParams)) {
                 if (columnName === 'order_by' || columnName === 'order') continue;
+                if (columnName === 'nelat' || columnName === 'nelng' || columnName === 'swlat' || columnName === 'swlng') continue;
 
                 if (filterValue && typeof filterValue === 'string') {
                   filteredResults = filteredResults.filter(r => {

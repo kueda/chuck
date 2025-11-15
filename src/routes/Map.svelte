@@ -1,5 +1,6 @@
 <script lang="ts">
   import OccurrenceDrawer from '$lib/components/OccurrenceDrawer.svelte';
+  import MapBoundingBoxControl from '$lib/components/MapBoundingBoxControl.svelte';
   import maplibregl from 'maplibre-gl';
   import 'maplibre-gl/dist/maplibre-gl.css';
   import { onMount, onDestroy } from 'svelte';
@@ -12,6 +13,7 @@
     center: [number, number];
     zoom: number;
     onMapMove: (center: [number, number], zoom: number) => void;
+    onBoundsChange?: (bounds: { nelat: number; nelng: number; swlat: number; swlng: number } | null) => void;
   }
 
   const {
@@ -20,16 +22,29 @@
     center: initialCenter,
     zoom: initialZoom,
     onMapMove,
+    onBoundsChange,
   }: Props = $props();
 
 
   let mapContainer: HTMLDivElement;
-  let map: maplibregl.Map | null = null;
+  let map = $state<maplibregl.Map | null>(null);
   let zoom = $state(initialZoom);
   let center: [number, number] = $state(initialCenter);
 
   let drawerOpen = $state(false);
   let selectedOccurrenceId = $state<string | number | null>(null);
+
+  const currentBounds = $derived(
+    params.nelat !== undefined && params.nelng !== undefined &&
+    params.swlat !== undefined && params.swlng !== undefined
+      ? {
+          nelat: Number(params.nelat),
+          nelng: Number(params.nelng),
+          swlat: Number(params.swlat),
+          swlng: Number(params.swlng)
+        }
+      : null
+  );
 
   $effect(() => {
     if (!params || !map) return;
@@ -87,7 +102,7 @@
     });
 
     // Add navigation controls
-    map.addControl(new maplibregl.NavigationControl());
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
 
     // Wait for map to load before adding tile source
     map.on('load', () => {
@@ -148,6 +163,18 @@
     });
   });
 
+  function handleBoundsChange(bounds: { nelat: number; nelng: number; swlat: number; swlng: number }) {
+    if (onBoundsChange) {
+      onBoundsChange(bounds);
+    }
+  }
+
+  function handleBoundsClear() {
+    if (onBoundsChange) {
+      onBoundsChange(null);
+    }
+  }
+
   onDestroy(() => {
     map?.remove();
   });
@@ -159,6 +186,17 @@
     <div>Zoom: {zoom.toFixed(2)}</div>
     <div>Center: {center[0].toFixed(4)}, {center[1].toFixed(4)}</div>
   </div>
+
+  {#if map}
+    <div class="absolute top-4 right-4 z-10">
+      <MapBoundingBoxControl
+        {map}
+        {currentBounds}
+        onBoundsChange={handleBoundsChange}
+        onClear={handleBoundsClear}
+      />
+    </div>
+  {/if}
 </div>
 
 <OccurrenceDrawer

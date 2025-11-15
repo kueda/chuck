@@ -9,6 +9,10 @@
     'decimalLatitude',
     'decimalLongitude',
     'gbifID',
+    'nelat',
+    'nelng',
+    'swlat',
+    'swlng',
   ];
 
   interface Props {

@@ -8,6 +8,12 @@ pub struct SearchParams {
     pub order_by: Option<String>,
     pub order: Option<String>,
 
+    // Bounding box parameters (all four must be present to filter by bbox)
+    pub nelat: Option<String>,
+    pub nelng: Option<String>,
+    pub swlat: Option<String>,
+    pub swlng: Option<String>,
+
     // In theory this will flatten the HashMap during serialization and during
     // deserialization, unflatten everything that remains after deserializing
     // the named params above into filters
@@ -23,11 +29,19 @@ impl SearchParams {
         let mut filters = HashMap::new();
         let mut order_by = None;
         let mut order = None;
+        let mut nelat = None;
+        let mut nelng = None;
+        let mut swlat = None;
+        let mut swlng = None;
 
         for (key, value) in query_hash {
             match key.as_str() {
                 "order_by" => order_by = Some(value),
                 "order" => order = Some(value),
+                "nelat" => nelat = Some(value),
+                "nelng" => nelng = Some(value),
+                "swlat" => swlat = Some(value),
+                "swlng" => swlng = Some(value),
                 _ => {
                     filters.insert(key, value);
                 }
@@ -38,6 +52,10 @@ impl SearchParams {
             filters,
             order_by,
             order,
+            nelat,
+            nelng,
+            swlat,
+            swlng,
         }
     }
 }
@@ -86,5 +104,35 @@ mod tests {
         assert_eq!(params.filters.get("scientificName"), Some(&"foo".to_string()));
         assert_eq!(params.order_by, Some("genus".to_string()));
         assert_eq!(params.order, Some("DESC".to_string()));
+    }
+
+    #[test]
+    fn test_search_params_from_uri_with_bbox() {
+        let params = params_from_url("http://local/?nelat=40&nelng=-120&swlat=35&swlng=-125".to_string());
+        assert_eq!(params.nelat, Some("40".to_string()));
+        assert_eq!(params.nelng, Some("-120".to_string()));
+        assert_eq!(params.swlat, Some("35".to_string()));
+        assert_eq!(params.swlng, Some("-125".to_string()));
+    }
+
+    #[test]
+    fn test_search_params_bbox_not_in_filters() {
+        let params = params_from_url("http://local/?nelat=40&nelng=-120&swlat=35&swlng=-125".to_string());
+        assert_eq!(params.filters.get("nelat"), None);
+        assert_eq!(params.filters.get("nelng"), None);
+        assert_eq!(params.filters.get("swlat"), None);
+        assert_eq!(params.filters.get("swlng"), None);
+    }
+
+    #[test]
+    fn test_search_params_from_uri_with_bbox_and_filters() {
+        let params = params_from_url("http://local/?scientificName=foo&nelat=40&nelng=-120&swlat=35&swlng=-125".to_string());
+        assert_eq!(params.filters.get("scientificName"), Some(&"foo".to_string()));
+        assert_eq!(params.nelat, Some("40".to_string()));
+        assert_eq!(params.nelng, Some("-120".to_string()));
+        assert_eq!(params.swlat, Some("35".to_string()));
+        assert_eq!(params.swlng, Some("-125".to_string()));
+        // Verify bbox params are not in filters
+        assert_eq!(params.filters.get("nelat"), None);
     }
 }
