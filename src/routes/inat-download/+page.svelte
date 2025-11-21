@@ -9,11 +9,17 @@
   let placeId = $state<string>('');
   let user = $state<string>('');
   let observedDateRange = $state<'all' | 'custom'>('all');
-  let observedD1 = $state<string>('');
-  let observedD2 = $state<string>('');
+  // This awkwardness is brought to you by Safari not actually showing a blank
+  // date input when the input value is blank. Instead it shows you the
+  // current date as a placeholder, but the input has no value until you
+  // choose a date with the UI or manually fill out *all* three date parts.
+  // So: better to set it to an actual date by default then mislead the user
+  // into thinking a date is chosen when it isn't
+  let observedD1 = $state<string >('2000-01-01');
+  let observedD2 = $state<string>((new Date()).toDateString());
   let createdDateRange = $state<'all' | 'custom'>('all');
-  let createdD1 = $state<string>('');
-  let createdD2 = $state<string>('');
+  let createdD1 = $state<string >('2000-01-01');
+  let createdD2 = $state<string>((new Date()).toDateString());
   let fetchPhotos = $state<boolean>(false);
   let simpleMultimedia = $state<boolean>(true);
   let audiovisual = $state<boolean>(false);
@@ -418,9 +424,9 @@
       </div>
 
       <div>
-        <label class="block text-sm font-medium mb-2">
+        <div class="block text-sm font-medium mb-2">
           Observation Date Range
-        </label>
+        </div>
         <div class="space-y-2">
           <label class="flex items-center w-fit">
             <input
@@ -468,9 +474,9 @@
       </div>
 
       <div>
-        <label class="block text-sm font-medium mb-2">
+        <div class="block text-sm font-medium mb-2">
           Created Date Range
-        </label>
+        </div>
         <div class="space-y-2">
           <label class="flex items-center w-fit">
             <input
