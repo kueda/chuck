@@ -4,6 +4,7 @@
   import InatProgressOverlay from '$lib/components/InatProgressOverlay.svelte';
   import { ExternalLink } from 'lucide-svelte';
   import { formatETR } from './format-etr';
+  import ExtensionCheckbox from './ExtensionCheckbox.svelte';
 
   let taxonId = $state<string>('');
   let placeId = $state<string>('');
@@ -21,9 +22,9 @@
   let createdD1 = $state<string >('2000-01-01');
   let createdD2 = $state<string>((new Date()).toDateString());
   let fetchPhotos = $state<boolean>(false);
-  let simpleMultimedia = $state<boolean>(true);
-  let audiovisual = $state<boolean>(false);
-  let identifications = $state<boolean>(false);
+  let includeSimpleMultimedia = $state<boolean>(true);
+  let includeAudiovisual = $state<boolean>(false);
+  let includeIdentifications = $state<boolean>(false);
 
   let observationCount = $state<number | null>(null);
   let countLoading = $state<boolean>(false);
@@ -219,9 +220,9 @@
     try {
       // Build extensions array
       const extensions: string[] = [];
-      if (simpleMultimedia) extensions.push('SimpleMultimedia');
-      if (audiovisual) extensions.push('Audiovisual');
-      if (identifications) extensions.push('Identifications');
+      if (includeSimpleMultimedia) extensions.push('SimpleMultimedia');
+      if (includeAudiovisual) extensions.push('Audiovisual');
+      if (includeIdentifications) extensions.push('Identifications');
 
       // Call generate command
       await invoke('generate_inat_archive', {
@@ -255,7 +256,6 @@
   }
 
   async function handleOpenInChuck() {
-    console.log('[+page.svelte] completedArchivePath', completedArchivePath);
     if (!completedArchivePath) return;
 
     try {
@@ -540,47 +540,27 @@
         <h3 class="h6">Extensions</h3>
         <p class="mb-4 text-gray-500">Files that contain extra data associated with occurrences.</p>
         <div class="ml-4 space-y-2">
-          {#each [
-            {
-              value: simpleMultimedia,
-              name: "simpleMultimedia",
-              title: "Simple Multimedia",
-              desc: "Photo and sound data with attribution",
-              url: "https://rs.gbif.org/extension/gbif/1.0/multimedia.xml"
-            },
-            {
-              value: audiovisual,
-              name: "audiovisual",
-              title: "Audiovisual Media Description",
-              desc: "Photo and sound data with attribution, taxonomic, and geographic metadata",
-              url: "https://rs.gbif.org/extension/ac/audiovisual_2024_11_07.xml"
-            },
-            {
-              value: identifications,
-              name: "identifications",
-              title: "Identification History",
-              desc: "All identifications associated with the observation",
-              url: "https://rs.gbif.org/extension/dwc/identification_history_2025-07-10.xml"
-            }
-          ] as extInfo }
-            <label class="flex items-start w-fit space-x-2">
-              <input name={extInfo.name} class="checkbox mt-1" type="checkbox" bind:checked={extInfo.value} />
-              <div>
-                <p class="flex flex-wrap space-x-2">
-                  <span>{extInfo.title}</span>
-                  <a
-                    class="anchor flex items-center space-x-1"
-                    href={extInfo.url}
-                    target="_blank"
-                  >
-                    <span>Docs</span>
-                    <ExternalLink size={16} />
-                  </a>
-                </p>
-                <p class="text-gray-500">{extInfo.desc}</p>
-              </div>
-            </label>
-          {/each}
+          <ExtensionCheckbox
+            bind:value={includeSimpleMultimedia}
+            name="simpleMultimedia"
+            title="Simple Multimedia"
+            desc="Photo and sound data with attribution"
+            url="https://rs.gbif.org/extension/gbif/1.0/multimedia.xml"
+          />
+          <ExtensionCheckbox
+            bind:value={includeAudiovisual}
+            name="audiovisual"
+            title="Audiovisual Media Description"
+            desc="Photo and sound data with attribution, taxonomic, and geographic metadata"
+            url="https://rs.gbif.org/extension/ac/audiovisual_2024_11_07.xml"
+          />
+          <ExtensionCheckbox
+            bind:value={includeIdentifications}
+            name="identifications"
+            title="Identification History"
+            desc="All identifications associated with the observation"
+            url="https://rs.gbif.org/extension/dwc/identification_history_2025-07-10.xml"
+         />
         </div>
       </div>
     </div>

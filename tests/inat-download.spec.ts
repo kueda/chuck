@@ -432,3 +432,80 @@ test.describe('iNat Download UI', () => {
     await expect(cancelBtn).toBeVisible();
   });
 });
+
+test.describe('Extension checkbox functionality', () => {
+  let capturedInvokeArgs: any = null;
+
+  test.beforeEach(async ({ page }) => {
+    // Reset captured args
+    capturedInvokeArgs = null;
+
+    // Set up mocks (from the main beforeEach)
+    await setupInatDownloadMocks(page);
+    await page.goto('/inat-download');
+    await page.waitForSelector('h1:has-text("Download from iNaturalist")', { timeout: 10000 });
+
+    // Set up invoke capture
+    await page.exposeFunction('__captureInvoke', (command: string, args: any) => {
+      if (command === 'generate_inat_archive') {
+        capturedInvokeArgs = args;
+      }
+    });
+
+    // Wrap the mock to capture calls
+    await page.evaluate(() => {
+      const originalInvoke = (window as any).__MOCK_TAURI__.invoke;
+      (window as any).__MOCK_TAURI__.invoke = async (command: string, args?: any) => {
+        (window as any).__captureInvoke(command, args);
+        return originalInvoke(command, args);
+      };
+    });
+  });
+
+  // Helper to trigger download
+  async function triggerDownload(page: Page) {
+    await page.fill('#taxon-id', '47126');
+    await page.waitForTimeout(600); // Debounce
+    await page.locator('button:has-text("Download Archive")').click();
+    await page.waitForTimeout(200); // Wait for invoke
+  }
+
+  test('includes "Identifications" when checkbox is checked', async ({ page }) => {
+    await page.locator('input[name="identifications"]').check();
+    await expect(page.locator('input[name="identifications"]')).toBeChecked();
+
+    await triggerDownload(page);
+
+    expect(capturedInvokeArgs).not.toBeNull();
+    expect(capturedInvokeArgs.params.extensions).toContain('Identifications');
+  });
+
+  test('excludes "Identifications" when checkbox is unchecked', async ({ page }) => {
+    await expect(page.locator('input[name="identifications"]')).not.toBeChecked();
+
+    await triggerDownload(page);
+
+    expect(capturedInvokeArgs).not.toBeNull();
+    expect(capturedInvokeArgs.params.extensions).not.toContain('Identifications');
+  });
+
+  test('includes all checked extensions', async ({ page }) => {
+    await page.locator('input[name="audiovisual"]').check();
+    await page.locator('input[name="identifications"]').check();
+
+    await triggerDownload(page);
+
+    expect(capturedInvokeArgs).not.toBeNull();
+    expect(capturedInvokeArgs.params.extensions).toEqual(
+      expect.arrayContaining(['SimpleMultimedia', 'Audiovisual', 'Identifications'])
+    );
+    expect(capturedInvokeArgs.params.extensions).toHaveLength(3);
+  });
+
+  test('only includes SimpleMultimedia by default', async ({ page }) => {
+    await triggerDownload(page);
+
+    expect(capturedInvokeArgs).not.toBeNull();
+    expect(capturedInvokeArgs.params.extensions).toEqual(['SimpleMultimedia']);
+  });
+});
