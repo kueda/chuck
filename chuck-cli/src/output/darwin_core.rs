@@ -1,6 +1,14 @@
 use inaturalist::models::{Observation, ShowTaxon};
 use inaturalist::apis::taxa_api;
-use chuck_core::darwin_core::{ArchiveBuilder, Occurrence, Multimedia, Audiovisual, Identification, Metadata, PhotoDownloader};
+use chuck_core::darwin_core::{
+    ArchiveBuilder,
+    Audiovisual,
+    Identification,
+    Metadata,
+    Multimedia,
+    Occurrence,
+    PhotoDownloader,
+};
 use super::ObservationWriter;
 use crate::progress::ProgressManager;
 use chuck_core::api::{client::get_config, rate_limiter::get_rate_limiter};
@@ -17,7 +25,12 @@ pub struct DarwinCoreOutput {
 
 impl DarwinCoreOutput {
     /// Create a new DarwinCore writer
-    pub fn new(output_path: String, dwc_extensions: Vec<chuck_core::DwcExtension>, fetch_photos: bool, metadata: Metadata) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(
+        output_path: String,
+        dwc_extensions: Vec<chuck_core::DwcExtension>,
+        fetch_photos: bool,
+        metadata: Metadata
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let archive = ArchiveBuilder::new(dwc_extensions.clone(), metadata)?;
 
         Ok(Self {
