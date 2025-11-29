@@ -7,7 +7,7 @@ pub struct Metadata {
 }
 
 /// Generates the meta.xml file for a DarwinCore Archive
-pub fn generate_meta_xml(enabled_extensions: &[crate::DwcExtension]) -> String {
+pub fn generate_meta_xml(enabled_extensions: &[crate::DwcaExtension]) -> String {
     format!(r#"<?xml version="1.0" encoding="UTF-8"?>
 <archive xmlns="http://rs.tdwg.org/dwc/text/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 
@@ -54,10 +54,10 @@ pub fn generate_meta_xml(enabled_extensions: &[crate::DwcExtension]) -> String {
 }
 
 /// Generate extension XML for enabled extensions
-fn generate_extensions(enabled_extensions: &[crate::DwcExtension]) -> String {
+fn generate_extensions(enabled_extensions: &[crate::DwcaExtension]) -> String {
     let mut extensions = String::new();
 
-    if enabled_extensions.contains(&crate::DwcExtension::SimpleMultimedia) {
+    if enabled_extensions.contains(&crate::DwcaExtension::SimpleMultimedia) {
         extensions.push_str(r#"
   <extension encoding="UTF-8" fieldsTerminatedBy="," linesTerminatedBy="\n" fieldsEnclosedBy='"' ignoreHeaderLines="1" rowType="http://rs.gbif.org/terms/1.0/Multimedia">
     <files>
@@ -83,7 +83,7 @@ fn generate_extensions(enabled_extensions: &[crate::DwcExtension]) -> String {
   </extension>"#);
     }
 
-    if enabled_extensions.contains(&crate::DwcExtension::Audiovisual) {
+    if enabled_extensions.contains(&crate::DwcaExtension::Audiovisual) {
         extensions.push_str(r#"
   <extension encoding="UTF-8" fieldsTerminatedBy="," linesTerminatedBy="\n" fieldsEnclosedBy='"' ignoreHeaderLines="1" rowType="http://rs.tdwg.org/ac/terms/Multimedia">
     <files>
@@ -130,7 +130,7 @@ fn generate_extensions(enabled_extensions: &[crate::DwcExtension]) -> String {
   </extension>"#);
     }
 
-    if enabled_extensions.contains(&crate::DwcExtension::Identifications) {
+    if enabled_extensions.contains(&crate::DwcaExtension::Identifications) {
         extensions.push_str(r#"
   <extension encoding="UTF-8" fieldsTerminatedBy="," linesTerminatedBy="\n" fieldsEnclosedBy='"' ignoreHeaderLines="1" rowType="http://rs.tdwg.org/dwc/terms/Identification">
     <files>

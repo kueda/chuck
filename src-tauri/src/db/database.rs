@@ -17,18 +17,29 @@ pub struct AggregationResult {
 
 // Most DwC attributes are strings, but a few should have different types to
 // enable better queries
-const TYPE_OVERRIDES: [(&str, &str); 4] = [
+const TYPE_OVERRIDES: [(&str, &str); 13] = [
     ("decimalLatitude", "DOUBLE"),
     ("decimalLongitude", "DOUBLE"),
     ("eventDate", "DATE"),
     ("gbifID", "BIGINT"),
+
+    // Boolean fields
+    ("captive", "BOOLEAN"),
+    ("hasCoordinate", "BOOLEAN"),
+    ("hasGeospatialIssues", "BOOLEAN"),
+    ("hasTaxonomicIssue", "BOOLEAN"),
+    ("hasNonTaxonomicIssue", "BOOLEAN"),
+    ("identificationCurrent", "BOOLEAN"),
+    ("isInvasive", "BOOLEAN"),
+    ("isSequenced", "BOOLEAN"),
+    ("repatriated", "BOOLEAN"),
 ];
 
 /// Represents a DuckDB database for Darwin Core Archive data
 pub struct Database {
     conn: duckdb::Connection,
-    /// Extension table metadata: (table_name, core_id_column)
-    extension_tables: Vec<(String, String)>,
+    /// Extension table metadata: (extension, core_id_column)
+    extension_tables: Vec<(chuck_core::DwcaExtension, String)>,
 }
 
 impl Database {
@@ -79,9 +90,11 @@ impl Database {
             format!(", types = {{{}}}", pairs.join(", "))
         };
 
-        // Try to create table with specific types for known columns if they exist
+        // Try to create table with specific types for known columns if they
+        // exist. nullstr will treat empty columns as NULL when converting to
+        // boolean
         let sql = format!(
-            "CREATE TABLE occurrences AS SELECT * FROM read_csv('{}', all_varchar = true{})",
+            "CREATE TABLE occurrences AS SELECT * FROM read_csv('{}', all_varchar = true, nullstr = ''{})",
             first_file,
             types_param
         );
@@ -98,7 +111,7 @@ impl Database {
 
                     conn.execute(
                         &format!(
-                            "INSERT INTO occurrences SELECT * FROM read_csv('{}', all_varchar = true{})",
+                            "INSERT INTO occurrences SELECT * FROM read_csv('{}', all_varchar = true, nullstr = ''{})",
                             csv_path,
                             types_param
                         ),
@@ -176,6 +189,10 @@ impl Database {
                     // For date types, just check for NULL
                     format!("SELECT COUNT(*) FROM occurrences WHERE {} IS NOT NULL", quoted_column)
                 }
+                Some("BOOLEAN") => {
+                    // For boolean types, just check for NULL
+                    format!("SELECT COUNT(*) FROM occurrences WHERE {} IS NOT NULL", quoted_column)
+                }
                 _ => {
                     // For VARCHAR (default), check for NULL and empty strings
                     format!(
@@ -201,7 +218,7 @@ impl Database {
     fn create_extension_tables(
         conn: &duckdb::Connection,
         extensions: &[ExtensionInfo],
-    ) -> Result<Vec<(String, String)>> {
+    ) -> Result<Vec<(chuck_core::DwcaExtension, String)>> {
         let mut created_tables = Vec::new();
 
         for ext in extensions {
@@ -246,27 +263,28 @@ impl Database {
             };
 
             // Try to create the table
+            let table_name = ext.extension.table_name();
             let sql = format!(
-                "CREATE TABLE {} AS SELECT * FROM read_csv('{}', all_varchar = true{})",
-                ext.table_name, csv_path, types_param
+                "CREATE TABLE {} AS SELECT * FROM read_csv('{}', all_varchar = true, nullstr = ''{})",
+                table_name, csv_path, types_param
             );
 
             let create_result = conn.execute(&sql, []);
 
             match create_result {
                 Ok(_) => {
-                    log::info!("Created extension table: {} (joins on {})", ext.table_name, ext.core_id_column);
-                    created_tables.push((ext.table_name.clone(), ext.core_id_column.clone()));
+                    log::info!("Created extension table: {} (joins on {})", table_name, ext.core_id_column);
+                    created_tables.push((ext.extension, ext.core_id_column.clone()));
                 }
                 Err(e) => {
                     let error_msg = e.to_string();
                     if error_msg.contains("already exists") || error_msg.contains("Table with name") {
-                        log::info!("Extension table already exists: {}", ext.table_name);
-                        created_tables.push((ext.table_name.clone(), ext.core_id_column.clone()));
+                        log::info!("Extension table already exists: {}", table_name);
+                        created_tables.push((ext.extension, ext.core_id_column.clone()));
                     } else {
                         log::error!(
                             "Failed to create extension table {}: {}",
-                            ext.table_name,
+                            table_name,
                             e
                         );
                         return Err(e.into());
@@ -283,9 +301,9 @@ impl Database {
         let conn = duckdb::Connection::open(db_path)?;
 
         // Build extension_tables from provided extension info
-        let extension_tables: Vec<(String, String)> = extensions
+        let extension_tables: Vec<(chuck_core::DwcaExtension, String)> = extensions
             .iter()
-            .map(|ext| (ext.table_name.clone(), ext.core_id_column.clone()))
+            .map(|ext| (ext.extension, ext.core_id_column.clone()))
             .collect();
 
         Ok(Self { conn, extension_tables })
@@ -387,7 +405,7 @@ impl Database {
     pub fn sql_parts(
         search_params: SearchParams,
         fields: Option<Vec<String>>,
-        extension_tables: &Vec<(String, String)>,
+        extension_tables: &Vec<(chuck_core::DwcaExtension, String)>,
     ) -> (String, String, Vec<Box<dyn duckdb::ToSql>>, String) {
         // Validate and filter requested fields against allowlist
         let core_select_fields = if let Some(ref requested) = fields {
@@ -413,7 +431,8 @@ impl Database {
         // actually *faster* with larger result sets
         let extension_subqueries: Vec<String> = extension_tables
             .iter()
-            .map(|(table_name, core_id_col)| {
+            .map(|(extension, core_id_col)| {
+                let table_name = extension.table_name();
                 format!(
                     "(SELECT COALESCE(to_json(list({})), '[]') FROM {} WHERE {}.{} = occurrences.{}) as {}",
                     table_name, table_name, table_name, core_id_col, core_id_col, table_name
@@ -569,7 +588,8 @@ impl Database {
                 let value = Self::get_column_as_json(&row, i);
 
                 // For extension columns, parse JSON string into array
-                let is_extension = self.extension_tables.iter().any(|(tbl, _)| tbl == name);
+                let is_extension = self.extension_tables.iter()
+                    .any(|(ext, _)| ext.table_name() == name);
                 if is_extension {
                     if let serde_json::Value::String(json_str) = &value {
                         match serde_json::from_str::<serde_json::Value>(json_str) {
@@ -678,24 +698,31 @@ impl Database {
         let mut joins = String::new();
         let mut photo_select = "NULL".to_string();
 
-        let has_multimedia = self.extension_tables.iter().any(|(name, _)| name == "multimedia");
-        let has_audiovisual = self.extension_tables.iter().any(|(name, _)| name == "audiovisual");
+        let has_multimedia = self.extension_tables.iter()
+            .any(|(ext, _)| *ext == chuck_core::DwcaExtension::SimpleMultimedia);
+        let has_audiovisual = self.extension_tables.iter()
+            .any(|(ext, _)| *ext == chuck_core::DwcaExtension::Audiovisual);
 
         if has_multimedia && has_audiovisual {
             joins.push_str(&format!(
-                " LEFT JOIN multimedia m ON m.{} = agg.min_core_id LEFT JOIN audiovisual a ON a.{} = agg.min_core_id",
-                core_id_column, core_id_column
+                " LEFT JOIN {} m ON m.{} = agg.min_core_id LEFT JOIN {} a ON a.{} = agg.min_core_id",
+                chuck_core::DwcaExtension::SimpleMultimedia.table_name(),
+                core_id_column,
+                chuck_core::DwcaExtension::Audiovisual.table_name(),
+                core_id_column
             ));
             photo_select = "COALESCE(m.identifier, a.access_uri)".to_string();
         } else if has_multimedia {
             joins.push_str(&format!(
-                " LEFT JOIN multimedia m ON m.{} = agg.min_core_id",
+                " LEFT JOIN {} m ON m.{} = agg.min_core_id",
+                chuck_core::DwcaExtension::SimpleMultimedia.table_name(),
                 core_id_column
             ));
             photo_select = "m.identifier".to_string();
         } else if has_audiovisual {
             joins.push_str(&format!(
-                " LEFT JOIN audiovisual a ON a.{} = agg.min_core_id",
+                " LEFT JOIN {} a ON a.{} = agg.min_core_id",
+                chuck_core::DwcaExtension::Audiovisual.table_name(),
                 core_id_column
             ));
             photo_select = "a.access_uri".to_string();
@@ -740,7 +767,8 @@ impl Database {
         // Build extension subqueries (same pattern as search method)
         let extension_subqueries: Vec<String> = self.extension_tables
             .iter()
-            .map(|(table_name, core_id_col)| {
+            .map(|(extension, core_id_col)| {
+                let table_name = extension.table_name();
                 format!(
                     "(SELECT COALESCE(to_json(list({})), '[]') FROM {} WHERE {}.{} = occurrences.{}) as {}",
                     table_name, table_name, table_name, core_id_col, core_id_col, table_name
@@ -772,7 +800,8 @@ impl Database {
                 let value = Self::get_column_as_json(&row, i);
 
                 // Parse extension JSON strings
-                let is_extension = self.extension_tables.iter().any(|(tbl, _)| tbl == name);
+                let is_extension = self.extension_tables.iter()
+                    .any(|(ext, _)| ext.table_name() == name);
                 if is_extension {
                     if let serde_json::Value::String(json_str) = &value {
                         match serde_json::from_str::<serde_json::Value>(json_str) {
@@ -1071,7 +1100,7 @@ mod tests {
         let extensions = vec![ExtensionInfo {
             row_type: "http://rs.gbif.org/terms/1.0/Multimedia".to_string(),
             location: multimedia_path.clone(),
-            table_name: "multimedia".to_string(),
+            extension: chuck_core::DwcaExtension::SimpleMultimedia,
             core_id_column: "occurrenceID".to_string(),
         }];
 
@@ -1088,7 +1117,7 @@ mod tests {
 
         // Verify extension table is tracked
         assert_eq!(db.extension_tables.len(), 1);
-        assert_eq!(db.extension_tables[0].0, "multimedia");
+        assert_eq!(db.extension_tables[0].0, chuck_core::DwcaExtension::SimpleMultimedia);
         assert_eq!(db.extension_tables[0].1, "occurrenceID");
 
         // Search and verify extensions are included
@@ -1158,7 +1187,7 @@ mod tests {
         let extensions = vec![ExtensionInfo {
             row_type: "http://rs.gbif.org/terms/1.0/Multimedia".to_string(),
             location: multimedia_path,
-            table_name: "multimedia".to_string(),
+            extension: chuck_core::DwcaExtension::SimpleMultimedia,
             core_id_column: "occurrenceID".to_string(),
         }];
 
@@ -1175,7 +1204,7 @@ mod tests {
 
         // Verify it has the extension table info
         assert_eq!(reopened_db.extension_tables.len(), 1);
-        assert_eq!(reopened_db.extension_tables[0].0, "multimedia");
+        assert_eq!(reopened_db.extension_tables[0].0, chuck_core::DwcaExtension::SimpleMultimedia);
         assert_eq!(reopened_db.extension_tables[0].1, "occurrenceID");
 
         // Cleanup
@@ -1276,7 +1305,7 @@ mod tests {
         let extensions = vec![ExtensionInfo {
             row_type: "http://rs.gbif.org/terms/1.0/Multimedia".to_string(),
             location: multimedia_path,
-            table_name: "multimedia".to_string(),
+            extension: chuck_core::DwcaExtension::SimpleMultimedia,
             core_id_column: "occurrenceID".to_string(),
         }];
 

@@ -77,12 +77,12 @@ static CANCEL_FLAG: AtomicBool = AtomicBool::new(false);
 /// Convert observations to multimedia records based on enabled extensions
 fn convert_observations_to_multimedia(
     observations: &[inaturalist::models::Observation],
-    extensions: &[chuck_core::DwcExtension],
+    extensions: &[chuck_core::DwcaExtension],
     photo_mapping: &std::collections::HashMap<i32, String>,
 ) -> Vec<chuck_core::darwin_core::Multimedia> {
     use chuck_core::darwin_core::Multimedia;
 
-    if !extensions.contains(&chuck_core::DwcExtension::SimpleMultimedia) {
+    if !extensions.contains(&chuck_core::DwcaExtension::SimpleMultimedia) {
         return Vec::new();
     }
 
@@ -101,12 +101,12 @@ fn convert_observations_to_multimedia(
 /// Convert observations to audiovisual records based on enabled extensions
 fn convert_observations_to_audiovisual(
     observations: &[inaturalist::models::Observation],
-    extensions: &[chuck_core::DwcExtension],
+    extensions: &[chuck_core::DwcaExtension],
     photo_mapping: &std::collections::HashMap<i32, String>,
 ) -> Vec<chuck_core::darwin_core::Audiovisual> {
     use chuck_core::darwin_core::Audiovisual;
 
-    if !extensions.contains(&chuck_core::DwcExtension::Audiovisual) {
+    if !extensions.contains(&chuck_core::DwcaExtension::Audiovisual) {
         return Vec::new();
     }
 
@@ -125,12 +125,12 @@ fn convert_observations_to_audiovisual(
 /// Convert observations to identification records based on enabled extensions
 fn convert_observations_to_identifications(
     observations: &[inaturalist::models::Observation],
-    extensions: &[chuck_core::DwcExtension],
+    extensions: &[chuck_core::DwcaExtension],
     taxa_hash: &std::collections::HashMap<i32, inaturalist::models::ShowTaxon>,
 ) -> Vec<chuck_core::darwin_core::Identification> {
     use chuck_core::darwin_core::Identification;
 
-    if !extensions.contains(&chuck_core::DwcExtension::Identifications) {
+    if !extensions.contains(&chuck_core::DwcaExtension::Identifications) {
         return Vec::new();
     }
 
@@ -151,7 +151,13 @@ pub async fn generate_inat_archive(
     app: AppHandle,
     params: GenerateParams,
 ) -> Result<(), String> {
-    use chuck_core::darwin_core::{ArchiveBuilder, Occurrence, Metadata};
+    use chuck_core::darwin_core::{
+        ArchiveBuilder,
+        Occurrence,
+        Metadata,
+        collect_taxon_ids,
+        fetch_taxa_for_observations,
+    };
     use inaturalist::apis::observations_api;
     use std::collections::HashMap;
 
@@ -162,9 +168,9 @@ pub async fn generate_inat_archive(
     let mut extensions = Vec::new();
     for ext in &params.extensions {
         match ext.as_str() {
-            "SimpleMultimedia" => extensions.push(chuck_core::DwcExtension::SimpleMultimedia),
-            "Audiovisual" => extensions.push(chuck_core::DwcExtension::Audiovisual),
-            "Identifications" => extensions.push(chuck_core::DwcExtension::Identifications),
+            "SimpleMultimedia" => extensions.push(chuck_core::DwcaExtension::SimpleMultimedia),
+            "Audiovisual" => extensions.push(chuck_core::DwcaExtension::Audiovisual),
+            "Identifications" => extensions.push(chuck_core::DwcaExtension::Identifications),
             _ => {
                 log::warn!("Unknown extension: {}", ext);
             }
@@ -269,7 +275,8 @@ pub async fn generate_inat_archive(
                     total: total_observations.unwrap_or(0),
                 });
 
-                // Collect taxon IDs for later fetching
+                // Collect taxon IDs for taxonomic hierarchy. This was part of a previous
+                // effort to fetch taxa and may be vestigial.
                 for obs in &results {
                     if let Some(taxon) = &obs.taxon {
                         if let Some(ancestor_ids) = &taxon.ancestor_ids {
@@ -278,8 +285,18 @@ pub async fn generate_inat_archive(
                     }
                 }
 
-                // Convert to occurrences (without taxa hash for now - simplified)
-                let taxa_hash = HashMap::new();
+                // Fetch taxa for this batch to populate taxonomic hierarchy
+                let taxon_ids = collect_taxon_ids(&results);
+
+                // let app_for_taxa = app.clone();
+                let taxa_hash = fetch_taxa_for_observations(
+                    &taxon_ids,
+                    // IMO updating the progress with this is just
+                    // distracting. The user is just concerned with getting
+                    // the observations
+                    None::<fn(usize, usize)>
+                ).await.map_err(|e| format!("Failed to fetch taxa: {}", e))?;
+
                 let occurrences: Vec<Occurrence> = results
                     .iter()
                     .map(|obs| Occurrence::from((obs, &taxa_hash)))
@@ -427,7 +444,7 @@ mod tests {
             }
         ];
 
-        let extensions = vec![chuck_core::DwcExtension::SimpleMultimedia];
+        let extensions = vec![chuck_core::DwcaExtension::SimpleMultimedia];
         let photo_mapping = HashMap::new();
 
         // This function should exist and convert observations to multimedia records

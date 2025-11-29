@@ -6,6 +6,7 @@ pub mod identification;
 pub mod meta;
 pub mod conversions;
 pub mod photos;
+pub mod taxa;
 
 pub use archive::ArchiveBuilder;
 pub use occurrence::Occurrence;
@@ -14,3 +15,4 @@ pub use audiovisual::Audiovisual;
 pub use identification::Identification;
 pub use meta::Metadata;
 pub use photos::PhotoDownloader;
+pub use taxa::{collect_taxon_ids, fetch_taxa_for_observations};

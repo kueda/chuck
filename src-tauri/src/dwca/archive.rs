@@ -16,18 +16,12 @@ pub struct ExtensionInfo {
     pub row_type: String,
     /// Path to the extension CSV file
     pub location: PathBuf,
-    /// Table name derived from rowType (e.g., "multimedia")
-    pub table_name: String,
+    /// The DwcaExtension enum variant for this extension
+    pub extension: chuck_core::DwcaExtension,
     /// The core ID column name that extensions reference (e.g., "gbifID" or "occurrenceID")
     pub core_id_column: String,
 }
 
-/// Supported DarwinCore Archive extension rowTypes
-const SUPPORTED_ROW_TYPES: &[&str] = &[
-    "http://rs.gbif.org/terms/1.0/Multimedia",           // Simple Multimedia
-    "http://rs.tdwg.org/ac/terms/Multimedia",             // Audiovisual
-    "http://rs.tdwg.org/dwc/terms/Identification",        // Identification
-];
 
 #[derive(Debug)]
 struct ZipFileInfo {
@@ -630,7 +624,7 @@ fn get_needed_files_from_meta(storage_dir: &Path) -> Result<std::collections::Ha
     for ext_node in doc.descendants().filter(|n| n.has_tag_name("extension")) {
         if let Some(row_type) = ext_node.attribute("rowType") {
             // Only include supported extension types
-            if SUPPORTED_ROW_TYPES.contains(&row_type) {
+            if chuck_core::DwcaExtension::from_row_type(row_type).is_some() {
                 for location_node in ext_node.descendants().filter(|n| n.has_tag_name("location")) {
                     if let Some(text) = location_node.text() {
                         needed_files.insert(text.to_string());
@@ -716,10 +710,8 @@ fn parse_meta_xml(storage_dir: &Path) -> Result<(Vec<PathBuf>, String, Vec<Exten
         .filter_map(|ext_node| {
             let row_type = ext_node.attribute("rowType")?;
 
-            // Only process supported extension types
-            if !SUPPORTED_ROW_TYPES.contains(&row_type) {
-                return None;
-            }
+            // Try to map rowType to DwcaExtension
+            let extension = chuck_core::DwcaExtension::from_row_type(row_type)?;
 
             // Extract location from <files><location>...</location></files>
             let location_text = ext_node
@@ -730,20 +722,10 @@ fn parse_meta_xml(storage_dir: &Path) -> Result<(Vec<PathBuf>, String, Vec<Exten
 
             let location = storage_dir.join(location_text);
 
-            // Derive table name from rowType
-            // e.g., "http://rs.gbif.org/terms/1.0/Multimedia" -> "multimedia"
-            // or "http://rs.tdwg.org/ac/terms/Multimedia" -> "multimedia"
-            let table_name = row_type
-                .rsplit('/')
-                .next()
-                .or_else(|| row_type.rsplit('#').next())
-                .unwrap_or("unknown")
-                .to_lowercase();
-
             Some(ExtensionInfo {
                 row_type: row_type.to_string(),
                 location,
-                table_name,
+                extension,
                 core_id_column: core_id_column.clone(),
             })
         })
@@ -1021,8 +1003,9 @@ mod tests {
         assert_eq!(core_files.len(), 1);
         assert_eq!(extensions.len(), 3);
 
-        // Check that table names are derived correctly
-        assert_eq!(extensions[0].table_name, "multimedia");
+        // Check that extensions are mapped correctly
+        assert_eq!(extensions[0].extension, chuck_core::DwcaExtension::SimpleMultimedia);
+        assert_eq!(extensions[0].extension.table_name(), "multimedia");
         assert_eq!(extensions[0].row_type, "http://rs.gbif.org/terms/1.0/Multimedia");
         assert_eq!(extensions[0].core_id_column, "occurrenceID");
         assert_eq!(
@@ -1030,7 +1013,8 @@ mod tests {
             "multimedia.csv"
         );
 
-        assert_eq!(extensions[1].table_name, "multimedia");
+        assert_eq!(extensions[1].extension, chuck_core::DwcaExtension::Audiovisual);
+        assert_eq!(extensions[1].extension.table_name(), "audiovisual");
         assert_eq!(extensions[1].row_type, "http://rs.tdwg.org/ac/terms/Multimedia");
         assert_eq!(extensions[1].core_id_column, "occurrenceID");
         assert_eq!(
@@ -1038,7 +1022,8 @@ mod tests {
             "audiovisual.csv"
         );
 
-        assert_eq!(extensions[2].table_name, "identification");
+        assert_eq!(extensions[2].extension, chuck_core::DwcaExtension::Identifications);
+        assert_eq!(extensions[2].extension.table_name(), "identifications");
         assert_eq!(extensions[2].row_type, "http://rs.tdwg.org/dwc/terms/Identification");
         assert_eq!(extensions[2].core_id_column, "occurrenceID");
         assert_eq!(
@@ -1087,9 +1072,11 @@ mod tests {
         // Occurrence extension should be filtered out as unsupported
         assert_eq!(extensions.len(), 2);
 
-        assert_eq!(extensions[0].table_name, "multimedia");
+        assert_eq!(extensions[0].extension, chuck_core::DwcaExtension::SimpleMultimedia);
+        assert_eq!(extensions[0].extension.table_name(), "multimedia");
         assert_eq!(extensions[0].core_id_column, "occurrenceID");
-        assert_eq!(extensions[1].table_name, "identification");
+        assert_eq!(extensions[1].extension, chuck_core::DwcaExtension::Identifications);
+        assert_eq!(extensions[1].extension.table_name(), "identifications");
         assert_eq!(extensions[1].core_id_column, "occurrenceID");
 
         // Verify Occurrence extension was not included

@@ -19,7 +19,7 @@ pub struct ArchiveBuilder {
     multimedia_writer: Option<csv::Writer<File>>,
     audiovisual_writer: Option<csv::Writer<File>>,
     identification_writer: Option<csv::Writer<File>>,
-    enabled_extensions: Vec<crate::DwcExtension>,
+    enabled_extensions: Vec<crate::DwcaExtension>,
     record_count: u64,
     multimedia_count: u64,
     audiovisual_count: u64,
@@ -34,7 +34,7 @@ pub struct ArchiveBuilder {
 
 impl ArchiveBuilder {
     /// Create a new DarwinCore Archive builder
-    pub fn new(dwc_extensions: Vec<crate::DwcExtension>, metadata: Metadata) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(dwc_extensions: Vec<crate::DwcaExtension>, metadata: Metadata) -> Result<Self, Box<dyn std::error::Error>> {
         let temp_dir = TempDir::new()?;
         let occurrence_file_path = temp_dir.path().join("occurrence.csv");
         let multimedia_file_path = temp_dir.path().join("multimedia.csv");

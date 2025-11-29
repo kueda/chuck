@@ -97,7 +97,7 @@ pub async fn fetch_observations(
             }
 
             let metadata = Metadata { abstract_lines };
-            let core_extensions: Vec<chuck_core::DwcExtension> = dwc_extensions.iter().map(|e| e.clone().into()).collect();
+            let core_extensions: Vec<chuck_core::DwcaExtension> = dwc_extensions.iter().map(|e| e.clone().into()).collect();
             let writer = DarwinCoreOutput::new(output_path, core_extensions, fetch_photos, metadata).unwrap();
             spawn_observation_write_task(writer, rx, progress_manager_clone)
         }

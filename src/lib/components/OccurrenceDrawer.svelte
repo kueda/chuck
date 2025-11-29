@@ -1,11 +1,26 @@
 <script lang="ts">
   import { Dialog, Portal } from '@skeletonlabs/skeleton-svelte';
+  import Agent from '$lib/components/Agent.svelte';
+  import Taxon from '$lib/components/Taxon.svelte';
+  import Markup from '$lib/components/Markup.svelte';
   import { invoke } from '$lib/tauri-api';
   import type { Occurrence, Multimedia, Audiovisual } from '$lib/types/archive';
   import PhotoViewer from './PhotoViewer.svelte';
   import OccurrenceMap from './OccurrenceMap.svelte';
   import MediaItem from './MediaItem.svelte';
-  import { ArrowLeft, ArrowLeftCircle, ArrowRight, ArrowRightCircle, Calendar, Globe, Heading, MapPin, User, X } from 'lucide-svelte';
+  import {
+    ArrowLeft,
+    ArrowLeftCircle,
+    ArrowRight,
+    ArrowRightCircle,
+    Calendar,
+    Globe,
+    Heading,
+    Info,
+    MapPin,
+    User,
+    X
+  } from 'lucide-svelte';
 
   interface Props {
     open: boolean;
@@ -31,6 +46,11 @@
   let photoViewerOpen = $state(false);
   let photoUrls = $state<string[]>([]);
   let selectedPhotoIndex = $state(0);
+  let identifications = $derived.by(() => occurrence?.identifications?.toSorted((i1, i2) => {
+    const n1 = i1.dateIdentified ? Date.parse(i1.dateIdentified) : 0;
+    const n2 = i2.dateIdentified ? Date.parse(i2.dateIdentified) : 0;
+    return n1 - n2;
+  }));
 
   // Load occurrence when occurrenceId changes
   $effect(() => {
@@ -120,6 +140,17 @@
   };
 </script>
 
+{#snippet uriLabel(uri: string)}
+  {#if uri.includes('://')}
+    <span class="flex flex-row gap-1 items-center">
+      {uri.split('/').pop()}
+      <a href={uri} target="_blank"><Info size={12} /></a>
+    </span>
+  {:else}
+    <span>{uri}</span>
+  {/if}
+{/snippet}
+
 <Dialog
   {open}
   closeOnInteractOutside={true}
@@ -188,40 +219,21 @@
           {:else if occurrence}
             <div class="mb-4">
               <h1 class="text-2xl font-bold mb-2">
-                {#if occurrence.vernacularName && occurrence.vernacularName.length > 0}
-                  {occurrence.vernacularName}
-                  (
-                {/if}{#if
-                  occurrence.taxonRank === "genus"
-                  || occurrence.taxonRank === "species"
-                  || occurrence.taxonRank === "subspecies"
-                  || occurrence.taxonRank === "variety"
-                }
-                  <i>{occurrence.scientificName}</i>
-                {:else}
-                  {occurrence.taxonRank}
-                  {occurrence.scientificName}
-                {/if}{#if occurrence.vernacularName && occurrence.vernacularName.length > 0}
-                  )
-                {/if}
+                <Taxon item={occurrence} />
               </h1>
               <div class="flex text-gray-500 gap-4">
-                <span class="flex flex-row items-center gap-2">
-                  <User size={16} />
-                  {occurrence.recordedBy}
-                </span>
-                <span class="flex flex-row items-center gap-2">
+                <Agent name={occurrence.recordedBy} id={occurrence.recordedByID} />
+                <span class="flex flex-row items-center gap-1">
                   <Calendar size={16} />
                   {occurrence.eventDate}
                 </span>
-                <span class="flex flex-row items-center gap-2">
+                <span class="flex flex-row items-center gap-1">
                   <MapPin size={16} />
                   {occurrence.verbatimLocality}
                 </span>
               </div>
             </div>
 
-            <!-- Photos Section -->
             {#if occurrence.multimedia?.length || occurrence.audiovisual?.length}
               <section class="mb-8">
                 <h2 class="text-xl font-bold mb-4">Media</h2>
@@ -254,9 +266,14 @@
               </section>
             {/if}
 
-            <!-- What Section -->
             <section class="mb-8">
               <h2 class="text-xl font-bold mb-4">What</h2>
+              {#if occurrence.occurrenceRemarks}
+                <div class="mb-4">
+                  <dt class="text-sm text-gray-500">occurrenceRemarks</dt>
+                  <dd class="font-medium"><Markup text={occurrence.occurrenceRemarks} /></dd>
+                </div>
+              {/if}
               <dl class="grid grid-cols-3 gap-4">
                 {#each coreFields.what as field}
                   {#if occurrence[field as keyof Occurrence]}
@@ -269,7 +286,6 @@
               </dl>
             </section>
 
-            <!-- Where Section -->
             <section class="mb-8">
               <h2 class="text-xl font-bold mb-4">Where</h2>
               {#if occurrence.decimalLatitude && occurrence.decimalLongitude}
@@ -295,7 +311,6 @@
               </dl>
             </section>
 
-            <!-- When Section -->
             <section class="mb-8">
               <h2 class="text-xl font-bold mb-4">When</h2>
               <dl class="grid grid-cols-2 gap-4">
@@ -310,7 +325,6 @@
               </dl>
             </section>
 
-            <!-- Who Section -->
             <section class="mb-8">
               <h2 class="text-xl font-bold mb-4">Who</h2>
               <dl class="grid grid-cols-2 gap-4">
@@ -325,12 +339,84 @@
               </dl>
             </section>
 
+            {#if identifications && identifications.length > 0}
+              <section>
+                <h2 class="text-xl font-bold mb-4">Identifications</h2>
+                <div class="grid gap-2">
+                  {#each identifications as ident}
+                    <div
+                      class={[
+                        "card",
+                        "preset-filled-surface-100-900",
+                        "border-surface-200-800",
+                        "rounded-md",
+                        "border-2",
+                        "divide-surface-200-800",
+                        "w-full",
+                        "divide-y",
+                        "flex",
+                        "flex-col",
+                        {"opacity-50": !ident.identificationCurrent}
+                      ]}
+                    >
+                      <header class="p-2 text-sm flex justify-between">
+                        <Agent name={ident.identifiedBy} id={ident.identifiedByID} />
+                        {#if ident.dateIdentified}
+                          <time
+                            datetime={ident.dateIdentified}
+                            title={ident.dateIdentified}
+                          >
+                            {(new Date(ident.dateIdentified)).toLocaleString()}
+                          </time>
+                        {/if}
+                      </header>
+                      <article class="p-2 flex flex-col gap-2">
+                        <Taxon item={ident} />
+                        <!-- <code>{JSON.stringify(ident, null, "\t")}</code> -->
+                        {#if ident.identificationRemarks}
+                          <Markup text={ident.identificationRemarks} />
+                        {/if}
+                      </article>
+                      <footer class="p-2 flex justify-between text-xs">
+                        {#if ident.identificationVerificationStatus === "https://www.inaturalist.org/terminology/supporting"}
+                          <div class="badge preset-filled-success-50-950">
+                            {@render uriLabel(ident.identificationVerificationStatus)}
+                          </div>
+                        {:else if ident.identificationVerificationStatus === "https://www.inaturalist.org/terminology/improving"}
+                          <div class="badge preset-filled-success-500">
+                            {@render uriLabel(ident.identificationVerificationStatus)}
+                          </div>
+                        {:else if ident.identificationVerificationStatus === "https://www.inaturalist.org/terminology/maverick"}
+                          <div class="badge preset-filled-error-200-800">
+                            {@render uriLabel(ident.identificationVerificationStatus)}
+                          </div>
+                        {:else if ident.identificationVerificationStatus === "https://www.inaturalist.org/terminology/leading"}
+                          <div class="badge preset-filled-warning-200-800">
+                            {@render uriLabel(ident.identificationVerificationStatus)}
+                          </div>
+                        {:else if ident.identificationVerificationStatus}
+                          <div class="badge preset-filled-surface-200-800">
+                            {@render uriLabel(ident.identificationVerificationStatus)}
+                          </div>
+                        {/if}
+                        {#if Object.keys(ident).includes('identificationCurrent')}
+                          {#if !ident.identificationCurrent}
+                            <div class="badge preset-filled-surface-200-800">Withdrawn</div>
+                          {/if}
+                        {/if}
+                      </footer>
+                    </div>
+                  {/each}
+                </div>
+              </section>
+            {/if}
+
             <!-- All Fields (expandable) -->
             <details class="mt-8">
               <summary class="text-lg font-semibold cursor-pointer">All Fields</summary>
               <dl class="mt-4 grid grid-cols-2 gap-4">
                 {#each Object.entries(occurrence) as [key, value]}
-                  {#if value && !['multimedia', 'audiovisual', 'identification'].includes(key)}
+                  {#if value && !['multimedia', 'audiovisual', 'identifications'].includes(key)}
                     <div>
                       <dt class="text-sm text-gray-500">{key}</dt>
                       <dd class="font-medium text-sm break-words">{value}</dd>

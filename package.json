@@ -24,9 +24,11 @@
     "@tauri-apps/plugin-cli": "^2.4.0",
     "@tauri-apps/plugin-dialog": "^2.4.0",
     "@tauri-apps/plugin-opener": "^2",
+    "dompurify": "^3.3.0",
     "lightningcss": "^1.30.2",
     "lucide-svelte": "^0.546.0",
     "maplibre-gl": "^5.9.0",
+    "markdown-it": "^14.1.0",
     "svelte-dnd-action": "^0.9.67"
   },
   "devDependencies": {
@@ -39,6 +41,7 @@
     "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/vite": "^4.1.13",
     "@tauri-apps/cli": "^2",
+    "@types/markdown-it": "^14.1.2",
     "jsdom": "^27.0.1",
     "svelte": "^5.0.0",
     "svelte-check": "^4.0.0",

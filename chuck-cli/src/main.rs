@@ -39,12 +39,12 @@ pub enum DwcExtension {
     Identifications,
 }
 
-impl From<DwcExtension> for chuck_core::DwcExtension {
+impl From<DwcExtension> for chuck_core::DwcaExtension {
     fn from(ext: DwcExtension) -> Self {
         match ext {
-            DwcExtension::SimpleMultimedia => chuck_core::DwcExtension::SimpleMultimedia,
-            DwcExtension::Audiovisual => chuck_core::DwcExtension::Audiovisual,
-            DwcExtension::Identifications => chuck_core::DwcExtension::Identifications,
+            DwcExtension::SimpleMultimedia => chuck_core::DwcaExtension::SimpleMultimedia,
+            DwcExtension::Audiovisual => chuck_core::DwcaExtension::Audiovisual,
+            DwcExtension::Identifications => chuck_core::DwcaExtension::Identifications,
         }
     }
 }

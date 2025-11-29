@@ -1,5 +1,4 @@
-use inaturalist::models::{Observation, ShowTaxon};
-use inaturalist::apis::taxa_api;
+use inaturalist::models::Observation;
 use chuck_core::darwin_core::{
     ArchiveBuilder,
     Audiovisual,
@@ -8,18 +7,18 @@ use chuck_core::darwin_core::{
     Multimedia,
     Occurrence,
     PhotoDownloader,
+    collect_taxon_ids,
+    fetch_taxa_for_observations,
 };
 use super::ObservationWriter;
 use crate::progress::ProgressManager;
-use chuck_core::api::{client::get_config, rate_limiter::get_rate_limiter};
-use std::collections::{HashMap, HashSet};
-use tokio::time::{sleep, Duration};
+use std::collections::HashMap;
 
 /// Handles DarwinCore ArchiveBuilder output for observations
 pub struct DarwinCoreOutput {
     archive: Option<ArchiveBuilder>,
     output_path: String,
-    dwc_extensions: Vec<chuck_core::DwcExtension>,
+    dwc_extensions: Vec<chuck_core::DwcaExtension>,
     fetch_photos: bool,
 }
 
@@ -27,7 +26,7 @@ impl DarwinCoreOutput {
     /// Create a new DarwinCore writer
     pub fn new(
         output_path: String,
-        dwc_extensions: Vec<chuck_core::DwcExtension>,
+        dwc_extensions: Vec<chuck_core::DwcaExtension>,
         fetch_photos: bool,
         metadata: Metadata
     ) -> Result<Self, Box<dyn std::error::Error>> {
@@ -51,29 +50,8 @@ impl ObservationWriter for DarwinCoreOutput {
         async move {
             if let Some(archive) = &mut self.archive {
                 // Collect unique taxon IDs from ancestor_ids for taxonomic hierarchy fetching
-                let mut all_taxon_ids = HashSet::new();
-                for obs in observations {
-                    // Collect from observation taxon
-                    if let Some(taxon) = &obs.taxon {
-                        if let Some(ancestor_ids) = &taxon.ancestor_ids {
-                            all_taxon_ids.extend(ancestor_ids.iter());
-                        }
-                    }
-                    // Collect from identification taxa
-                    if let Some(identifications) = &obs.identifications {
-                        for identification in identifications {
-                            if let Some(taxon) = &identification.taxon {
-                                if let Some(ancestor_ids) = &taxon.ancestor_ids {
-                                    all_taxon_ids.extend(ancestor_ids.iter());
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Fetch taxa in chunks of 500 to populate taxonomic hierarchy
-                let taxon_ids_vec: Vec<i32> = all_taxon_ids.into_iter().collect();
-                let taxa_hash = fetch_taxa_in_chunks(&taxon_ids_vec).await?;
+                let taxon_ids = collect_taxon_ids(observations);
+                let taxa_hash = fetch_taxa_for_observations(&taxon_ids, None::<fn(usize, usize)>).await?;
 
                 // Convert iNaturalist observations to DarwinCore occurrences.
                 // Do this first so the obs progress bar updates first
@@ -108,7 +86,7 @@ impl ObservationWriter for DarwinCoreOutput {
                 };
 
                 // Convert observation photos to multimedia records if SimpleMultimedia extension is enabled
-                if self.dwc_extensions.contains(&chuck_core::DwcExtension::SimpleMultimedia) {
+                if self.dwc_extensions.contains(&chuck_core::DwcaExtension::SimpleMultimedia) {
                     let multimedia: Vec<Multimedia> = observations
                         .iter()
                         .filter_map(|obs| {
@@ -126,7 +104,7 @@ impl ObservationWriter for DarwinCoreOutput {
                 }
 
                 // Convert observation photos to audiovisual records if Audiovisual extension is enabled
-                if self.dwc_extensions.contains(&chuck_core::DwcExtension::Audiovisual) {
+                if self.dwc_extensions.contains(&chuck_core::DwcaExtension::Audiovisual) {
                     let audiovisual: Vec<Audiovisual> = observations
                         .iter()
                         .filter_map(|obs| {
@@ -144,7 +122,7 @@ impl ObservationWriter for DarwinCoreOutput {
                 }
 
                 // Convert observation identifications to identification records if Identifications extension is enabled
-                if self.dwc_extensions.contains(&chuck_core::DwcExtension::Identifications) {
+                if self.dwc_extensions.contains(&chuck_core::DwcaExtension::Identifications) {
                     let identifications: Vec<Identification> = observations
                         .iter()
                         .filter_map(|obs| {
@@ -177,63 +155,3 @@ impl ObservationWriter for DarwinCoreOutput {
         }
     }
 }
-
-/// Fetch taxa in chunks of 500 with exponential backoff retry logic
-async fn fetch_taxa_in_chunks(taxon_ids: &[i32]) -> Result<HashMap<i32, ShowTaxon>, Box<dyn std::error::Error>> {
-    let mut taxa_hash = HashMap::new();
-    let config = get_config().await;
-    let rate_limiter = get_rate_limiter().await;
-
-    for chunk in taxon_ids.chunks(500) {
-        // Rate limiting: coordinate with other API requests
-        if !taxa_hash.is_empty() {
-            rate_limiter.wait_for_next_request().await;
-        }
-
-        let params = taxa_api::TaxaGetParams {
-            q: None,
-            is_active: None,
-            id: Some(chunk.to_vec()),
-            parent_id: None,
-            rank: None,
-            rank_level: None,
-            id_above: None,
-            id_below: None,
-            per_page: Some("500".to_string()),
-            locale: None,
-            preferred_place_id: None,
-            only_id: None,
-            all_names: None,
-            order: None,
-            order_by: None,
-        };
-
-        // Retry with exponential backoff (3 attempts total)
-        let mut attempt = 0;
-        let response = loop {
-            attempt += 1;
-            let config_read = config.read().await;
-            match taxa_api::taxa_get(&*config_read, params.clone()).await {
-                Ok(response) => break response,
-                Err(e) => {
-                    if attempt >= 3 {
-                        return Err(format!("Failed to fetch taxa after 3 attempts: {}", e).into());
-                    }
-                    let backoff_ms = 1000 * (2_u64.pow(attempt - 1));
-                    eprintln!("Taxa API request failed (attempt {}), retrying in {}ms: {}", attempt, backoff_ms, e);
-                    sleep(Duration::from_millis(backoff_ms)).await;
-                }
-            }
-        };
-
-        for taxon in response.results {
-            if let Some(id) = taxon.id {
-                taxa_hash.insert(id, taxon);
-            }
-        }
-    }
-
-    Ok(taxa_hash)
-}
-
-// Map iNaturalist observation to a DarwinCore occurrence with taxonomic hierarchy

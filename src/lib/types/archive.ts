@@ -224,6 +224,7 @@ export interface Occurrence {
   identifiedBy?: string | null;
   identifiedByID?: string | null;
   dateIdentified?: string | null;
+  identifications?: Identification[];
   identificationID?: string | null;
   identificationQualifier?: string | null;
   identificationReferences?: string | null;
