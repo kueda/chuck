@@ -11,11 +11,12 @@
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri",
     "tauri-debug": "RUST_BACKTRACE=1 RUST_LOG=debug tauri dev",
-    "test": "playwright test --project=webkit && playwright test --project=webkit-performance",
-    "test:app": "playwright test --project=webkit",
-    "test:ui": "playwright test --ui",
-    "test:headed": "playwright test --headed",
-    "test:performance": "playwright test --project=webkit-performance"
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "cargo test",
+    "test:frontend": "npm run test:frontend:unit && npm run test:frontend:integration && npm run test:frontend:performance",
+    "test:frontend:unit": "vitest run",
+    "test:frontend:integration": "playwright test --project=webkit",
+    "test:frontend:performance": "playwright test --project=webkit-performance"
   },
   "license": "MIT",
   "dependencies": {
