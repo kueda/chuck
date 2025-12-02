@@ -1,3 +1,2 @@
-mod keyring_storage;
-
-pub use keyring_storage::KeyringStorage;
+// Re-export from chuck-core instead of local implementation
+pub use chuck_core::auth::KeyringStorage;

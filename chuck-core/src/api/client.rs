@@ -2,7 +2,7 @@ use inaturalist::apis::{configuration::{Configuration, ApiKey}, observations_api
 use inaturalist::models::ObservationsResponse;
 use tokio::sync::{OnceCell, RwLock};
 
-use crate::auth::{load_auth_token, fetch_jwt};
+use crate::auth::{fetch_jwt, TokenStorage};
 
 // OnceCell ensures the config is initialized exactly once across the entire application,
 // avoiding redundant API calls and JWT fetching. RwLock provides interior mutability
@@ -23,18 +23,35 @@ async fn create_config() -> Configuration {
         ..Configuration::default()
     };
 
-    if let Ok(oauth_token) = load_auth_token() {
-        if let Ok(jwt) = fetch_jwt(&oauth_token).await {
-            config.api_key = Some(ApiKey {
-                prefix: None,
-                key: jwt,
-            });
-            eprintln!("Authenticated");
-        } else {
-            eprintln!("Not authenticated (failed to fetch JWT, try again later)");
+    match crate::auth::StorageFactory::create() {
+        Ok(storage) => {
+            match storage.load_token() {
+                Ok(Some(oauth_token)) => {
+                    match fetch_jwt(&oauth_token).await {
+                        Ok(jwt) => {
+                            config.api_key = Some(ApiKey {
+                                prefix: None,
+                                key: jwt,
+                            });
+                            eprintln!("Authenticated");
+                        }
+                        Err(_) => {
+                            eprintln!("Not authenticated (failed to fetch JWT)");
+                        }
+                    }
+                }
+                Ok(None) => {
+                    eprintln!("Not authenticated (run `chuck auth`)");
+                }
+                Err(e) => {
+                    eprintln!("Token load error: {}", e);
+                }
+            }
         }
-    } else {
-        eprintln!("Not authenticated (run `crinat auth` to make authenticated requests)");
+        Err(e) => {
+            eprintln!("Storage error: {}", e);
+            eprintln!("Run `chuck auth` to configure authentication");
+        }
     }
 
     config
@@ -58,9 +75,32 @@ pub fn create_config_with_jwt(jwt: Option<String>) -> Configuration {
     config
 }
 
+/// Create API configuration with custom base URL and optional JWT
+/// Used for testing with mock servers
+pub fn create_config_with_base_url_and_jwt(
+    base_url: String,
+    jwt: Option<String>,
+) -> Configuration {
+    let mut config = Configuration {
+        base_path: base_url,
+        ..Configuration::default()
+    };
+
+    if let Some(jwt_token) = jwt {
+        config.api_key = Some(ApiKey {
+            prefix: None,
+            key: jwt_token,
+        });
+    }
+
+    config
+}
+
 /// Refresh JWT token in the provided configuration
 pub async fn refresh_jwt_in_config(config: &RwLock<Configuration>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let oauth_token = load_auth_token()?;
+    let storage = crate::auth::StorageFactory::create()?;
+    let oauth_token = storage.load_token()?
+        .ok_or_else(|| crate::auth::AuthError::TokenNotFound)?;
     let jwt = fetch_jwt(&oauth_token).await?;
 
     let mut config_guard = config.write().await;

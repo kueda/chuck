@@ -34,12 +34,21 @@ pub fn collect_taxon_ids(observations: &[Observation]) -> Vec<i32> {
 pub async fn fetch_taxa_for_observations<F>(
     taxon_ids: &[i32],
     progress_callback: Option<F>,
+    config: Option<&inaturalist::apis::configuration::Configuration>,
 ) -> Result<HashMap<i32, ShowTaxon>, Box<dyn std::error::Error>>
 where
     F: Fn(usize, usize) + Send + Sync + Clone + 'static
 {
     let mut taxa_hash = HashMap::new();
-    let config = get_config().await;
+
+    // Use provided config or get global config
+    let config_instance = if let Some(cfg) = config {
+        cfg.clone()
+    } else {
+        get_config().await.read().await.clone()
+    };
+    let config = tokio::sync::RwLock::new(config_instance);
+
     let rate_limiter = get_rate_limiter().await;
     let total_chunks = (taxon_ids.len() + 499) / 500;
     let mut chunks_processed = 0;

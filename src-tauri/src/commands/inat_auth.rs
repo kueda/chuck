@@ -23,7 +23,7 @@ struct UserResult {
 /// Initiates OAuth authentication flow and stores the token
 #[command]
 pub async fn inat_authenticate(app: AppHandle) -> Result<AuthStatus, String> {
-    let storage = KeyringStorage::new(app.clone())
+    let storage = KeyringStorage::new()
         .map_err(|e| format!("Failed to initialize storage: {}", e))?;
 
     // Authenticate and save token
@@ -37,7 +37,7 @@ pub async fn inat_authenticate(app: AppHandle) -> Result<AuthStatus, String> {
 /// Returns the current authentication status
 #[command]
 pub async fn inat_get_auth_status(app: AppHandle) -> Result<AuthStatus, String> {
-    let storage = KeyringStorage::new(app)
+    let storage = KeyringStorage::new()
         .map_err(|e| format!("Failed to initialize storage: {}", e))?;
 
     match storage.load_token() {
@@ -66,7 +66,7 @@ pub async fn inat_get_auth_status(app: AppHandle) -> Result<AuthStatus, String> 
 /// Signs out by clearing the stored token
 #[command]
 pub async fn inat_sign_out(app: AppHandle) -> Result<(), String> {
-    let storage = KeyringStorage::new(app)
+    let storage = KeyringStorage::new()
         .map_err(|e| format!("Failed to initialize storage: {}", e))?;
 
     storage.clear_token()
@@ -77,7 +77,7 @@ pub async fn inat_sign_out(app: AppHandle) -> Result<(), String> {
 /// Returns None if not authenticated
 #[command]
 pub async fn inat_get_jwt(app: AppHandle) -> Result<Option<String>, String> {
-    let storage = KeyringStorage::new(app)
+    let storage = KeyringStorage::new()
         .map_err(|e| format!("Failed to initialize storage: {}", e))?;
 
     match storage.load_token() {

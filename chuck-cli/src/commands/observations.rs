@@ -1,9 +1,9 @@
 use tokio::sync::mpsc;
 use inaturalist::models::ObservationsResponse;
-use crate::output::{CsvOutput, DarwinCoreOutput, ObservationWriter};
-use chuck_core::api::{client, params::{build_params, extract_criteria}, rate_limiter::get_rate_limiter};
+use crate::output::{CsvOutput, ObservationWriter};
+use chuck_core::api::{client, params::build_params, rate_limiter::get_rate_limiter};
+use chuck_core::downloader::Downloader;
 use crate::progress::ProgressManager;
-use chuck_core::darwin_core::Metadata;
 
 fn setup_progress_bar(
     response: &ObservationsResponse,
@@ -76,79 +76,96 @@ pub async fn fetch_observations(
     };
 
     // Spawn writer task based on format
-    let writer_handle = match format {
+    match format {
         crate::OutputFormat::Csv => {
             let writer = CsvOutput::new(file).unwrap();
-            spawn_observation_write_task(writer, rx, progress_manager_clone)
+            let writer_handle = spawn_observation_write_task(writer, rx, progress_manager_clone);
+
+            // Spawn API fetcher task
+            let fetcher_handle = tokio::spawn(async move {
+                let mut last_id = 0;
+                let rate_limiter = get_rate_limiter().await;
+
+                loop {
+                    let mut page_params = params.clone();
+                    if last_id != 0 {
+                        page_params.id_below = Some(last_id.to_string());
+                    }
+
+                    let obs_response = match client::fetch_observations_with_retry(config, page_params).await {
+                        Ok(response) => response,
+                        Err(e) => {
+                            eprintln!("API request failed: {}", e);
+                            break;
+                        }
+                    };
+
+                    if obs_response.results.is_empty() {
+                        break;
+                    }
+
+                    if let Some(id) = obs_response.results.last().and_then(|obs| obs.id) {
+                        last_id = id;
+                    } else {
+                        break;
+                    }
+
+                    // Send observations to writer (non-blocking)
+                    if tx.send(obs_response).await.is_err() {
+                        break; // Writer task has been dropped
+                    }
+
+                    // Wait for next allowed request slot to stay under API rate limits
+                    rate_limiter.wait_for_next_request().await;
+                }
+
+                // Close the channel to signal completion
+                drop(tx);
+            });
+
+            // Wait for both tasks to complete
+            let (writer_result, fetcher_result) = tokio::join!(writer_handle, fetcher_handle);
+            writer_result.unwrap();
+            fetcher_result.unwrap();
         }
         crate::OutputFormat::Dwc => {
             let output_path = file.unwrap_or_else(|| "observations.zip".to_string());
 
-            // Extract criteria from params for use in metadata text description
-            let mut abstract_lines = vec![
-                "Observations exported from iNaturalist using the following criteria:".to_string()
-            ];
-            let param_criteria = extract_criteria(&params);
-            for criterion in param_criteria {
-                abstract_lines.push(format!("* {}", criterion));
-            }
-            if fetch_photos {
-                abstract_lines.push("* Photos downloaded and included in archive".to_string());
-            }
+            let core_extensions: Vec<chuck_core::DwcaExtension> = dwc_extensions
+                .iter()
+                .map(|e| e.clone().into())
+                .collect();
 
-            let metadata = Metadata { abstract_lines };
-            let core_extensions: Vec<chuck_core::DwcaExtension> = dwc_extensions.iter().map(|e| e.clone().into()).collect();
-            let writer = DarwinCoreOutput::new(output_path, core_extensions, fetch_photos, metadata).unwrap();
-            spawn_observation_write_task(writer, rx, progress_manager_clone)
-        }
-    };
+            // Create downloader (CLI uses file-based auth, so no JWT needed)
+            let downloader = Downloader::new(params, core_extensions, fetch_photos, None);
 
-    // Spawn API fetcher task
-    let fetcher_handle = tokio::spawn(async move {
-        let mut last_id = 0;
-        let rate_limiter = get_rate_limiter().await;
-
-        loop {
-            let mut page_params = params.clone();
-            if last_id != 0 {
-                page_params.id_below = Some(last_id.to_string());
-            }
-
-            let obs_response = match client::fetch_observations_with_retry(config, page_params).await {
-                Ok(response) => response,
-                Err(e) => {
-                    eprintln!("API request failed: {}", e);
-                    break;
+            // Create progress callback
+            let progress_callback = move |progress: chuck_core::downloader::DownloadProgress| {
+                match progress.stage {
+                    chuck_core::downloader::DownloadStage::Fetching => {
+                        if progress.observations_total as u64 > progress_manager.observations_bar.length().unwrap_or(0) {
+                            progress_manager.set_observations_total(progress.observations_total as u64);
+                        }
+                        progress_manager.observations_bar.set_position(progress.observations_current as u64);
+                    }
+                    chuck_core::downloader::DownloadStage::DownloadingPhotos => {
+                        if let Some(ref bar) = progress_manager.photos_bar {
+                            if progress.photos_total as u64 > bar.length().unwrap_or(0) {
+                                bar.set_length(progress.photos_total as u64);
+                            }
+                            bar.set_position(progress.photos_current as u64);
+                        }
+                    }
+                    chuck_core::downloader::DownloadStage::Building => {
+                        // Building message already shown by progress bar completion
+                    }
                 }
             };
 
-            if obs_response.results.is_empty() {
-                break;
-            }
-
-            if let Some(id) = obs_response.results.last().and_then(|obs| obs.id) {
-                last_id = id;
-            } else {
-                break;
-            }
-
-            // Send observations to writer (non-blocking)
-            if tx.send(obs_response).await.is_err() {
-                break; // Writer task has been dropped
-            }
-
-            // Wait for next allowed request slot to stay under API rate limits
-            rate_limiter.wait_for_next_request().await;
+            // Execute download
+            downloader.execute(&output_path, progress_callback, None).await?;
         }
-
-        // Close the channel to signal completion
-        drop(tx);
-    });
-
-    // Wait for both tasks to complete
-    let (writer_result, fetcher_result) = tokio::join!(writer_handle, fetcher_handle);
-    writer_result.unwrap();
-    fetcher_result.unwrap();
+    }
 
     Ok(())
 }

@@ -1,5 +1,6 @@
 use indicatif::{ProgressBar, MultiProgress};
 
+#[derive(Clone)]
 pub struct ProgressManager {
     pub multi: MultiProgress,
     pub observations_bar: ProgressBar,

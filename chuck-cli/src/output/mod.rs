@@ -1,5 +1,4 @@
 pub mod csv;
-pub mod darwin_core;
 
 use inaturalist::models::Observation;
 use crate::progress::ProgressManager;
@@ -17,4 +16,3 @@ pub trait ObservationWriter: Send {
 }
 
 pub use csv::CsvOutput;
-pub use darwin_core::DarwinCoreOutput;

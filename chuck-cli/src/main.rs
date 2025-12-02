@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
+use chuck_core::auth::TokenStorage;
 
 mod commands;
 mod output;
@@ -117,17 +118,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Auth { auth_command } => {
             match auth_command {
                 Some(AuthCommands::Clear) => {
-                    match chuck_core::auth::clear_auth_token() {
-                        Ok(_) => println!("Authentication token cleared successfully!"),
-                        Err(e) => eprintln!("Failed to clear token: {}", e),
+                    match chuck_core::auth::StorageFactory::create() {
+                        Ok(storage) => {
+                            match storage.clear_token() {
+                                Ok(_) => println!("Authentication token cleared successfully!"),
+                                Err(e) => eprintln!("Failed to clear token: {}", e),
+                            }
+                        }
+                        Err(e) => eprintln!("Storage error: {}", e),
                     }
                 }
                 None => {
-                    let storage = chuck_core::auth::FileStorage::new()
-                        .expect("Failed to initialize file storage");
-                    match chuck_core::auth::authenticate_user(&storage).await {
-                        Ok(_) => println!("Authentication successful!"),
-                        Err(e) => eprintln!("Authentication failed: {}", e),
+                    match chuck_core::auth::StorageFactory::create_interactive() {
+                        Ok(storage) => {
+                            match chuck_core::auth::authenticate_user(&storage).await {
+                                Ok(_) => println!("Authentication successful!"),
+                                Err(e) => eprintln!("Authentication failed: {}", e),
+                            }
+                        }
+                        Err(e) => eprintln!("Failed to initialize storage: {}", e),
                     }
                 }
             }
