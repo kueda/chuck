@@ -136,7 +136,7 @@ pub async fn fetch_observations_with_retry(
                 }
                 Err(e) => {
                     eprintln!("Failed to refresh JWT token: {}", e);
-                    eprintln!("Run `crinat auth` to re-authenticate");
+                    eprintln!("Run `chuck auth` to re-authenticate");
                     Err(Error::ResponseError(response.clone()))
                 }
             }

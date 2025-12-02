@@ -89,7 +89,7 @@ impl StorageFactory {
                 KeyringStorage::new()
                     .map(StorageInstance::Keyring)
                     .map_err(|_| AuthError::OAuthFailed(
-                        "Configured to use keyring but it's unavailable. Delete ~/.config/crinat/config.json and run 'chuck auth' to reconfigure.".to_string()
+                        "Configured to use keyring but it's unavailable. Delete ~/.config/chuck/config.json and run 'chuck auth' to reconfigure.".to_string()
                     ))
             }
             StorageBackendType::File => {

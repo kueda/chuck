@@ -36,12 +36,12 @@ fn get_auth_config_path() -> Result<PathBuf, AuthError> {
         ))
     })?;
 
-    let crinat_dir = config_dir.join("crinat");
-    if !crinat_dir.exists() {
-        fs::create_dir_all(&crinat_dir)?;
+    let chuck_dir = config_dir.join("chuck");
+    if !chuck_dir.exists() {
+        fs::create_dir_all(&chuck_dir)?;
     }
 
-    Ok(crinat_dir.join("auth.json"))
+    Ok(chuck_dir.join("auth.json"))
 }
 
 pub fn load_auth_token() -> Result<AuthToken, AuthError> {

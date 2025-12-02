@@ -57,7 +57,7 @@ impl StorageBackendConfig {
             ))
         })?;
 
-        Ok(config_dir.join("crinat").join("config.json"))
+        Ok(config_dir.join("chuck").join("config.json"))
     }
 }
 
@@ -85,14 +85,14 @@ mod tests {
         assert_eq!(loaded_config.custom_path, Some(PathBuf::from("/tmp/test_path.json")));
 
         // Clean up
-        let config_path = dirs::config_dir().unwrap().join("crinat").join("config.json");
+        let config_path = dirs::config_dir().unwrap().join("chuck").join("config.json");
         let _ = std::fs::remove_file(config_path);
     }
 
     #[test]
     fn test_config_load_nonexistent() {
         // Make sure config doesn't exist
-        let config_path = dirs::config_dir().unwrap().join("crinat").join("config.json");
+        let config_path = dirs::config_dir().unwrap().join("chuck").join("config.json");
         let _ = std::fs::remove_file(&config_path);
 
         let loaded = StorageBackendConfig::load().unwrap();
