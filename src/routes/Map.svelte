@@ -1,13 +1,16 @@
 <script lang="ts">
   import OccurrenceDrawer from '$lib/components/OccurrenceDrawer.svelte';
   import MapBoundingBoxControl from '$lib/components/MapBoundingBoxControl.svelte';
+  import { createDrawerHandlers, type DrawerState } from '$lib/utils/drawerState';
   import maplibregl from 'maplibre-gl';
   import 'maplibre-gl/dist/maplibre-gl.css';
   import { onMount, onDestroy } from 'svelte';
 
   import type { SearchParams } from '$lib/utils/filterCategories';
+  import type { Occurrence } from '$lib/types/archive';
 
   interface Props {
+    drawerState: DrawerState;
     coreIdColumn: string;
     params: SearchParams;
     center: [number, number];
@@ -17,6 +20,7 @@
   }
 
   const {
+    drawerState,
     coreIdColumn,
     params,
     center: initialCenter,
@@ -25,14 +29,19 @@
     onBoundsChange,
   }: Props = $props();
 
+  // Map doesn't support prev/next navigation (no ordered list)
+  const drawerHandlers = $derived(createDrawerHandlers({
+    state: drawerState,
+    occurrenceCache: new Map(),  // Not used for map
+    coreIdColumn,
+    count: 0,
+    scrollToIndex: undefined  // No navigation
+  }));
 
   let mapContainer: HTMLDivElement;
   let map = $state<maplibregl.Map | null>(null);
   let zoom = $state(initialZoom);
   let center: [number, number] = $state(initialCenter);
-
-  let drawerOpen = $state(false);
-  let selectedOccurrenceId = $state<string | number | null>(null);
 
   const currentBounds = $derived(
     params.nelat !== undefined && params.nelng !== undefined &&
@@ -138,8 +147,9 @@
 
         if (coreId) {
           console.log(`clicked occ ${coreId}`);
-          selectedOccurrenceId = coreId;
-          drawerOpen = true;
+          // Create temporary occurrence object for handler
+          const occurrence = { [coreIdColumn]: coreId } as Occurrence;
+          drawerHandlers.handleOccurrenceClick(occurrence, 0);
         }
       });
 
@@ -200,10 +210,10 @@
 </div>
 
 <OccurrenceDrawer
-  bind:open={drawerOpen}
-  occurrenceId={selectedOccurrenceId}
+  bind:open={drawerState.open}
+  occurrenceId={drawerState.selectedOccurrenceId}
   {coreIdColumn}
-  onClose={() => { drawerOpen = false; }}
+  onClose={drawerHandlers.handleClose}
 />
 
 <style>

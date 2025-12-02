@@ -107,3 +107,13 @@ export async function triggerMenuOpen(page: Page) {
   // Wait for archive to load
   await page.waitForTimeout(1000);
 }
+
+/**
+ * Switches to a different view (table, cards, or map)
+ */
+export async function switchToView(page: Page, view: string) {
+  // Scope to Occurrences tab to avoid conflict with Groups tab ViewSwitcher
+  const occTab = page.getByLabel('Occurrences');
+  const viewInput = occTab.locator(`input[type="radio"][value="${view}"]`);
+  return viewInput.click({ force: true });
+}

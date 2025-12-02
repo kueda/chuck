@@ -4,6 +4,8 @@
   import { dndzone } from 'svelte-dnd-action';
   import VirtualizedList from '$lib/components/VirtualizedList.svelte';
   import VirtualizedOccurrenceList from '$lib/components/VirtualizedOccurrenceList.svelte';
+  import OccurrenceDrawer from '$lib/components/OccurrenceDrawer.svelte';
+  import { createDrawerHandlers, type DrawerState } from '$lib/utils/drawerState';
   import type {
     VirtualListData,
     Props as VirtualizedListProps
@@ -12,6 +14,7 @@
   import { getColumnWidthClass } from '$lib/utils/columnWidth';
 
   interface Props extends Pick<VirtualizedListProps, 'count' | 'scrollElement' | 'onVisibleRangeChange'> {
+    drawerState: DrawerState;
     occurrenceCache: Map<number, Occurrence>;
     occurrenceCacheVersion: number;
     coreIdColumn: string;
@@ -26,6 +29,7 @@
   }
 
   const {
+    drawerState,
     occurrenceCache,
     occurrenceCacheVersion,
     count,
@@ -41,6 +45,18 @@
     onColumnHeaderClick,
     onVisibleColumnsChange,
   }: Props = $props();
+
+  // Local scrollToIndex reference (still needed for virtualizer integration)
+  let scrollToIndex = $state<((index: number, options?: { align?: 'start' | 'center' | 'end' | 'auto' }) => void) | undefined>();
+
+  // Create drawer handlers
+  const drawerHandlers = $derived(createDrawerHandlers({
+    state: drawerState,
+    occurrenceCache,
+    coreIdColumn,
+    count,
+    scrollToIndex
+  }));
 
   // Map field names to display labels
   function getColumnLabel(field: string): string {
@@ -237,6 +253,9 @@
     {scrollState}
   >
     {#snippet children(data: VirtualListData)}
+      {#if data.scrollToIndex}
+        {(scrollToIndex = data.scrollToIndex, '')}
+      {/if}
       {#key data._key}
         <div class="w-full relative" style="height: {data.totalSize}px;">
           <div
@@ -245,24 +264,24 @@
           >
             <VirtualizedOccurrenceList
               virtualItems={data.virtualItems}
-              scrollToIndex={data.scrollToIndex}
               {occurrenceCache}
               {occurrenceCacheVersion}
               {coreIdColumn}
-              {count}
+              handleOccurrenceClick={drawerHandlers.handleOccurrenceClick}
+              selectedOccurrenceIndex={drawerState.selectedOccurrenceIndex}
             >
-              {#snippet children({ virtualRow, occurrence, handleOccurrenceClick, selectedOccurrenceIndex })}
+              {#snippet children({ virtualRow, occurrence })}
               <div
                 class={{
                   "occurrence-item occurrence-row flex items-center py-2 px-2 border-b cursor-pointer hover:bg-gray-100 min-w-max": true,
-                  "outline-2 outline-primary-200": virtualRow.index === selectedOccurrenceIndex
+                  "outline-2 outline-primary-200": virtualRow.index === drawerState.selectedOccurrenceIndex
                 }}
                 style="height: {virtualRow.size}px;"
-                onclick={() => occurrence && handleOccurrenceClick(occurrence, virtualRow.index)}
+                onclick={() => occurrence && drawerHandlers.handleOccurrenceClick(occurrence, virtualRow.index)}
                 onkeydown={(e) => {
                   if (occurrence && (e.key === 'Enter' || e.key === ' ')) {
                     e.preventDefault();
-                    handleOccurrenceClick(occurrence, virtualRow.index);
+                    drawerHandlers.handleOccurrenceClick(occurrence, virtualRow.index);
                   }
                 }}
                 role="button"
@@ -288,3 +307,12 @@
   </VirtualizedList>
   {/key}
 </div>
+
+<OccurrenceDrawer
+  bind:open={drawerState.open}
+  occurrenceId={drawerState.selectedOccurrenceId}
+  {coreIdColumn}
+  onClose={drawerHandlers.handleClose}
+  onPrevious={drawerHandlers.handlePrevious}
+  onNext={drawerHandlers.handleNext}
+/>

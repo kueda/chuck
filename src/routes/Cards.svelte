@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import VirtualizedList from '$lib/components/VirtualizedList.svelte';
   import VirtualizedOccurrenceList from '$lib/components/VirtualizedOccurrenceList.svelte';
+  import OccurrenceDrawer from '$lib/components/OccurrenceDrawer.svelte';
+  import { createDrawerHandlers, type DrawerState } from '$lib/utils/drawerState';
   import type {
     VirtualListData,
     Props as VirtualizedListProps
@@ -10,6 +12,7 @@
   import OccurrenceCard, { EST_HEIGHT } from '$lib/components/OccurrenceCard.svelte';
 
   interface Props extends Pick<VirtualizedListProps, 'count' | 'scrollElement' | 'onVisibleRangeChange'> {
+    drawerState: DrawerState;
     occurrenceCache: Map<number, Occurrence>;
     occurrenceCacheVersion: number;
     coreIdColumn: string;
@@ -17,6 +20,7 @@
   }
 
   let {
+    drawerState,
     occurrenceCache,
     occurrenceCacheVersion,
     count,
@@ -25,6 +29,18 @@
     coreIdColumn,
     scrollState
   }: Props = $props();
+
+  // Local scrollToIndex reference (still needed for virtualizer integration)
+  let scrollToIndex = $state<((index: number, options?: { align?: 'start' | 'center' | 'end' | 'auto' }) => void) | undefined>();
+
+  // Create drawer handlers
+  const drawerHandlers = $derived(createDrawerHandlers({
+    state: drawerState,
+    occurrenceCache,
+    coreIdColumn,
+    count,
+    scrollToIndex
+  }));
 
   // Tanstack Virtual needs to know whether the virtualized items are arranged
   // in columns (which it calls lanes) and if so how many, so we're
@@ -89,6 +105,9 @@
   {scrollState}
 >
   {#snippet children(data: VirtualListData)}
+    {#if data.scrollToIndex}
+      {(scrollToIndex = data.scrollToIndex, '')}
+    {/if}
     <!--
       Force re-render when virtualizer recreates (tracked by data._key).
       This ensures the DOM structure is rebuilt when the virtualizer changes,
@@ -104,22 +123,22 @@
           <div class="grid gap-4 grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
             <VirtualizedOccurrenceList
               virtualItems={data.virtualItems}
-              scrollToIndex={data.scrollToIndex}
               {occurrenceCache}
               {occurrenceCacheVersion}
               {coreIdColumn}
-              {count}
+              handleOccurrenceClick={drawerHandlers.handleOccurrenceClick}
+              selectedOccurrenceIndex={drawerState.selectedOccurrenceIndex}
             >
-              {#snippet children({ virtualRow, occurrence, handleOccurrenceClick, selectedOccurrenceIndex })}
+              {#snippet children({ virtualRow, occurrence })}
               <div class="flex" style="height: {virtualRow.size}px;">
                 {#if occurrence}
                   <button
                     type="button"
                     class={{
                       "w-full text-left": true,
-                      "outline-2 outline-primary-200": virtualRow.index === selectedOccurrenceIndex
+                      "outline-2 outline-primary-200": virtualRow.index === drawerState.selectedOccurrenceIndex
                     }}
-                    onclick={() => handleOccurrenceClick(occurrence, virtualRow.index)}
+                    onclick={() => drawerHandlers.handleOccurrenceClick(occurrence, virtualRow.index)}
                   >
                     <OccurrenceCard {occurrence} />
                   </button>
@@ -140,3 +159,12 @@
   {/snippet}
 </VirtualizedList>
 {/key}
+
+<OccurrenceDrawer
+  bind:open={drawerState.open}
+  occurrenceId={drawerState.selectedOccurrenceId}
+  {coreIdColumn}
+  onClose={drawerHandlers.handleClose}
+  onPrevious={drawerHandlers.handlePrevious}
+  onNext={drawerHandlers.handleNext}
+/>

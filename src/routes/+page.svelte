@@ -42,6 +42,18 @@
   // Map state preservation
   let mapCenter = $state<[number, number]>([0, 0]);
   let mapZoom = $state(2);
+
+  // Drawer state (lifted to persist across view switches)
+  let drawerState = $state<{
+    open: boolean;
+    selectedOccurrenceId: string | number | null;
+    selectedOccurrenceIndex: number | null;
+  }>({
+    open: false,
+    selectedOccurrenceId: null,
+    selectedOccurrenceIndex: null,
+  });
+
   let archiveLoadingStatus = $state<
     null | 'importing' | 'extracting' | 'creatingDatabase'
   >(null);
@@ -483,6 +495,7 @@
           <div class="h-full overflow-y-auto" bind:this={scrollElement} data-testid="occurrences-scroll-container">
             {#if currentView === 'table'}
               <Table
+                {drawerState}
                 {occurrenceCache}
                 {occurrenceCacheVersion}
                 count={filteredTotal}
@@ -500,6 +513,7 @@
               />
             {:else if currentView === 'cards'}
               <Cards
+                {drawerState}
                 {occurrenceCache}
                 {occurrenceCacheVersion}
                 count={filteredTotal}
@@ -510,6 +524,7 @@
               />
             {:else if currentView === 'map'}
               <MapView
+                {drawerState}
                 coreIdColumn={archive.coreIdColumn}
                 params={searchParams}
                 center={mapCenter}
