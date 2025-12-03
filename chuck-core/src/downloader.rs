@@ -115,7 +115,14 @@ impl Downloader {
 
         let mut progress = DownloadProgress::default();
 
-        // Pagination loop
+        // Track pending photo download from previous batch
+        let mut pending_photos: Option<(
+            tokio::task::JoinHandle<Result<(HashMap<i32, String>, usize), String>>,
+            Vec<inaturalist::models::Observation>,
+            HashMap<i32, inaturalist::models::ShowTaxon>,
+        )> = None;
+
+        // Pagination loop with true pipeline
         let mut id_below: Option<i32> = None;
         loop {
             // Check cancellation
@@ -125,9 +132,16 @@ impl Downloader {
                 }
             }
 
-            // Fetch batch
-            let batch = self.fetch_batch(id_below).await?;
+            // Fetch next batch
+            let batch = self.fetch_batch_with_rate_limit(id_below).await?;
             if batch.results.is_empty() {
+                // Before breaking, finish any pending photo downloads
+                if let Some((photo_handle, observations, taxa_hash)) = pending_photos.take() {
+                    let (photo_mapping, photos_count) = photo_handle.await
+                        .map_err(|e| format!("Photo download task failed: {}", e))??;
+                    progress.photos_current += photos_count;
+                    self.process_extensions(&observations, &mut archive, &photo_mapping, &taxa_hash).await?;
+                }
                 break;
             }
 
@@ -136,19 +150,35 @@ impl Downloader {
                 progress.observations_total = batch.total_results.unwrap_or(0) as usize;
             }
 
-            // Process batch
-            self.process_batch(&batch, &mut archive, &mut progress, &progress_callback).await?;
+            // Prepare batch: fetch taxa, convert to occurrences, write to CSV
+            let (taxa_hash, _photos_count) = self.prepare_batch(&batch, &mut archive, &mut progress, &progress_callback).await?;
 
-            // Update pagination
-            id_below = batch.results.last().and_then(|o| o.id);
-
-            // Rate limit (skip for custom configs, e.g. tests with mock servers)
-            if self.config.is_none() {
-                crate::api::rate_limiter::get_rate_limiter()
-                    .await
-                    .wait_for_next_request()
-                    .await;
+            // If there's a pending photo download from the previous batch, wait for it and process extensions
+            if let Some((photo_handle, observations, prev_taxa_hash)) = pending_photos.take() {
+                let (photo_mapping, photos_count) = photo_handle.await
+                    .map_err(|e| format!("Photo download task failed: {}", e))??;
+                progress.photos_current += photos_count;
+                self.process_extensions(&observations, &mut archive, &photo_mapping, &prev_taxa_hash).await?;
             }
+
+            // Start photo downloads for current batch in background
+            let photo_handle = self.start_photo_downloads(
+                &batch,
+                archive.media_dir().to_path_buf(),
+                &mut progress,
+                &progress_callback,
+            );
+
+            // Store handle and data for next iteration (or process immediately if no photos)
+            if let Some(handle) = photo_handle {
+                pending_photos = Some((handle, batch.results.clone(), taxa_hash));
+            } else {
+                // No photos, process extensions immediately
+                self.process_extensions(&batch.results, &mut archive, &HashMap::new(), &taxa_hash).await?;
+            }
+
+            // Update pagination for next iteration
+            id_below = batch.results.last().and_then(|o| o.id);
         }
 
         // Build final archive
@@ -187,18 +217,104 @@ impl Downloader {
         }
     }
 
-    async fn process_batch<F>(
+    /// Fetch batch with rate limiting applied
+    async fn fetch_batch_with_rate_limit(
+        &self,
+        id_below: Option<i32>,
+    ) -> Result<inaturalist::models::ObservationsResponse, Box<dyn std::error::Error>> {
+        // Rate limit (skip for custom configs, e.g. tests with mock servers)
+        if self.config.is_none() {
+            crate::api::rate_limiter::get_rate_limiter()
+                .await
+                .wait_for_next_request()
+                .await;
+        }
+        self.fetch_batch(id_below).await
+    }
+
+    /// Start photo downloads as a background task
+    /// Returns a handle that can be awaited later to get (photo_mapping, photos_downloaded_count)
+    fn start_photo_downloads<F>(
+        &self,
+        batch: &inaturalist::models::ObservationsResponse,
+        media_dir: std::path::PathBuf,
+        progress: &mut DownloadProgress,
+        callback: &F,
+    ) -> Option<tokio::task::JoinHandle<Result<(HashMap<i32, String>, usize), String>>>
+    where
+        F: Fn(DownloadProgress) + Send + Sync + Clone + 'static,
+    {
+        use crate::darwin_core::PhotoDownloader;
+        use std::sync::Arc;
+
+        let photos_count = batch.results
+            .iter()
+            .filter_map(|o| o.photos.as_ref())
+            .flatten()
+            .count();
+
+        if !self.fetch_photos || photos_count == 0 {
+            return None;
+        }
+
+        // Estimate total photos from first batch
+        if progress.photos_total == 0 {
+            let avg_photos_per_obs = photos_count as f64 / batch.results.len() as f64;
+            progress.photos_total = (avg_photos_per_obs * progress.observations_total as f64).round() as usize;
+        }
+
+        progress.stage = DownloadStage::DownloadingPhotos;
+
+        // Create progress callback for photo downloads
+        // Note: We need to track the base photos_current value to accumulate properly
+        let photos_downloaded = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let photos_downloaded_clone = photos_downloaded.clone();
+        let base_photos_current = progress.photos_current;
+        let progress_for_callback = progress.clone();
+        let callback_clone = callback.clone();
+
+        let photo_callback = move |count: usize| {
+            let batch_photos_count = photos_downloaded_clone.fetch_add(count, std::sync::atomic::Ordering::Relaxed) + count;
+            let mut updated_progress = progress_for_callback.clone();
+            // Set absolute value: base from all previous batches + count from this batch
+            updated_progress.photos_current = base_photos_current + batch_photos_count;
+            callback_clone(updated_progress);
+        };
+
+        // Clone data needed for the spawned task
+        let observations = batch.results.clone();
+
+        // Spawn photo download task with error converted to String (Send-compatible)
+        // Returns (photo_mapping, photos_downloaded_count)
+        let handle = tokio::spawn(async move {
+            let mapping = PhotoDownloader::fetch_photos_to_dir(
+                &observations,
+                &media_dir,
+                photo_callback,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+            let count = photos_downloaded.load(std::sync::atomic::Ordering::Relaxed);
+            Ok((mapping, count))
+        });
+
+        Some(handle)
+    }
+
+    /// Prepare a batch by fetching taxa, converting to occurrences, and writing to CSV
+    /// Returns taxa_hash and photos_count for use in photo downloading and extension processing
+    async fn prepare_batch<F>(
         &self,
         batch: &inaturalist::models::ObservationsResponse,
         archive: &mut crate::darwin_core::ArchiveBuilder,
         progress: &mut DownloadProgress,
         callback: &F,
-    ) -> Result<(), Box<dyn std::error::Error>>
+    ) -> Result<(HashMap<i32, ShowTaxon>, usize), Box<dyn std::error::Error>>
     where
         F: Fn(DownloadProgress) + Send + Sync + Clone + 'static,
     {
-        use crate::darwin_core::{Occurrence, collect_taxon_ids, fetch_taxa_for_observations, PhotoDownloader};
-        use std::sync::Arc;
+        use crate::darwin_core::{Occurrence, collect_taxon_ids, fetch_taxa_for_observations};
 
         // Fetch taxa for this batch
         let taxon_ids = collect_taxon_ids(&batch.results);
@@ -222,55 +338,14 @@ impl Downloader {
         progress.stage = DownloadStage::Fetching;
         callback(progress.clone());
 
-        // Download photos if enabled
-        let photo_mapping = if self.fetch_photos {
-            let photos_count = batch.results
-                .iter()
-                .filter_map(|o| o.photos.as_ref())
-                .flatten()
-                .count();
+        // Count photos for later processing
+        let photos_count = batch.results
+            .iter()
+            .filter_map(|o| o.photos.as_ref())
+            .flatten()
+            .count();
 
-            if photos_count > 0 {
-                // Estimate total photos from first batch
-                if progress.photos_total == 0 {
-                    let avg_photos_per_obs = photos_count as f64 / batch.results.len() as f64;
-                    progress.photos_total = (avg_photos_per_obs * progress.observations_total as f64).round() as usize;
-                }
-
-                progress.stage = DownloadStage::DownloadingPhotos;
-
-                // Create progress callback for photo downloads
-                let photos_downloaded = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-                let photos_downloaded_clone = photos_downloaded.clone();
-                let progress_for_callback = progress.clone();
-                let callback_clone = callback.clone();
-
-                let photo_callback = move |count: usize| {
-                    let current = photos_downloaded_clone.fetch_add(count, std::sync::atomic::Ordering::Relaxed) + count;
-                    let mut updated_progress = progress_for_callback.clone();
-                    updated_progress.photos_current += current;
-                    callback_clone(updated_progress);
-                };
-
-                let mapping = PhotoDownloader::fetch_photos_to_dir(
-                    &batch.results,
-                    archive.media_dir(),
-                    photo_callback,
-                ).await?;
-
-                progress.photos_current += photos_downloaded.load(std::sync::atomic::Ordering::Relaxed);
-                mapping
-            } else {
-                HashMap::new()
-            }
-        } else {
-            HashMap::new()
-        };
-
-        // Process extensions
-        self.process_extensions(&batch.results, archive, &photo_mapping, &taxa_hash).await?;
-
-        Ok(())
+        Ok((taxa_hash, photos_count))
     }
 
     async fn process_extensions(
