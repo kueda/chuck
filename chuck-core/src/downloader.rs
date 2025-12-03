@@ -142,11 +142,13 @@ impl Downloader {
             // Update pagination
             id_below = batch.results.last().and_then(|o| o.id);
 
-            // Rate limit
-            crate::api::rate_limiter::get_rate_limiter()
-                .await
-                .wait_for_next_request()
-                .await;
+            // Rate limit (skip for custom configs, e.g. tests with mock servers)
+            if self.config.is_none() {
+                crate::api::rate_limiter::get_rate_limiter()
+                    .await
+                    .wait_for_next_request()
+                    .await;
+            }
         }
 
         // Build final archive
@@ -246,7 +248,7 @@ impl Downloader {
                 let photo_callback = move |count: usize| {
                     let current = photos_downloaded_clone.fetch_add(count, std::sync::atomic::Ordering::Relaxed) + count;
                     let mut updated_progress = progress_for_callback.clone();
-                    updated_progress.photos_current = current;
+                    updated_progress.photos_current += current;
                     callback_clone(updated_progress);
                 };
 
@@ -256,7 +258,7 @@ impl Downloader {
                     photo_callback,
                 ).await?;
 
-                progress.photos_current = photos_downloaded.load(std::sync::atomic::Ordering::Relaxed);
+                progress.photos_current += photos_downloaded.load(std::sync::atomic::Ordering::Relaxed);
                 mapping
             } else {
                 HashMap::new()
