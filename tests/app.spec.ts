@@ -427,7 +427,8 @@ test.describe('Frontend', () => {
 
     // Check localStorage shows default table view
     const savedView = await page.evaluate(() => {
-      return localStorage.getItem('chuck:viewPreference');
+      const prefs = JSON.parse(localStorage.getItem('chuck:viewPreferences') || '{}');
+      return prefs.globalView;
     });
     // Should be 'table' by default
     expect(savedView).toBe('table');

@@ -12,7 +12,12 @@
 
   import type { SearchParams } from '$lib/utils/filterCategories';
   import type { ArchiveInfo, Occurrence, SearchResult } from '$lib/types/archive';
-  import { getColumnPreferences, saveColumnPreferences } from '$lib/utils/columnPreferences';
+  import {
+    getColumnPreferences,
+    saveColumnPreferences,
+    getViewType,
+    saveViewType
+  } from '$lib/utils/viewPreferences';
 
   const CHUNK_SIZE = 500;
 
@@ -29,7 +34,7 @@
   let scrollElement: Element | undefined = $state(undefined);
   let searchParams = $state<SearchParams>({});
   let filteredTotal = $state<number>(0);
-  let currentView = $state<'table' | 'cards' | 'map'>('table');
+  let currentView = $state<'table' | 'cards' | 'map'>(getViewType());
   let lastVisibleRange = $state({ firstIndex: 0, lastIndex: 0, scrollOffsetIndex: 0 });
 
   // Use a simple object ref that persists across reactivity
@@ -291,9 +296,7 @@
   // Persist view preference to localStorage and capture scroll position for view switch
   let previousView: 'table' | 'cards' | 'map' | null = null;
   $effect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('chuck:viewPreference', currentView);
-    }
+    saveViewType(currentView);
   });
 
   function onViewChange() {
@@ -350,14 +353,6 @@
   }
 
   onMount(() => {
-    // Load saved view preference
-    if (typeof window !== 'undefined') {
-      const savedView = localStorage.getItem('chuck:viewPreference');
-      if (savedView === 'table' || savedView === 'cards' || savedView === 'map') {
-        currentView = savedView;
-      }
-    }
-
     invoke('current_archive')
       .then(result => {
         archive = result as ArchiveInfo;
