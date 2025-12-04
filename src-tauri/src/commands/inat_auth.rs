@@ -1,8 +1,7 @@
-use tauri::{AppHandle, command};
+use tauri::{command, State};
 use serde::{Serialize, Deserialize};
 
-use chuck_core::auth::{authenticate_user, fetch_jwt, TokenStorage};
-use crate::inat_auth::KeyringStorage;
+use chuck_core::auth::{authenticate_user, fetch_jwt, AuthCache};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AuthStatus {
@@ -20,27 +19,9 @@ struct UserResult {
     login: String,
 }
 
-/// Initiates OAuth authentication flow and stores the token
-#[command]
-pub async fn inat_authenticate(app: AppHandle) -> Result<AuthStatus, String> {
-    let storage = KeyringStorage::new()
-        .map_err(|e| format!("Failed to initialize storage: {}", e))?;
-
-    // Authenticate and save token
-    authenticate_user(&storage).await
-        .map_err(|e| format!("Authentication failed: {}", e))?;
-
-    // Return auth status (username will be fetched when get_auth_status is called)
-    inat_get_auth_status(app).await
-}
-
-/// Returns the current authentication status
-#[command]
-pub async fn inat_get_auth_status(app: AppHandle) -> Result<AuthStatus, String> {
-    let storage = KeyringStorage::new()
-        .map_err(|e| format!("Failed to initialize storage: {}", e))?;
-
-    match storage.load_token() {
+/// Internal helper to get auth status from cache
+async fn get_auth_status_from_cache(cache: &AuthCache) -> Result<AuthStatus, String> {
+    match cache.load_token() {
         Ok(Some(token)) => {
             // Fetch JWT to get username
             let jwt = fetch_jwt(&token).await
@@ -63,24 +44,43 @@ pub async fn inat_get_auth_status(app: AppHandle) -> Result<AuthStatus, String> 
     }
 }
 
+/// Initiates OAuth authentication flow and stores the token
+#[command]
+pub async fn inat_authenticate(
+    cache: State<'_, AuthCache>
+) -> Result<AuthStatus, String> {
+    // Authenticate and save token
+    authenticate_user(cache.inner()).await
+        .map_err(|e| format!("Authentication failed: {}", e))?;
+
+    // Return auth status
+    get_auth_status_from_cache(cache.inner()).await
+}
+
+/// Returns the current authentication status
+#[command]
+pub async fn inat_get_auth_status(
+    cache: State<'_, AuthCache>
+) -> Result<AuthStatus, String> {
+    get_auth_status_from_cache(cache.inner()).await
+}
+
 /// Signs out by clearing the stored token
 #[command]
-pub async fn inat_sign_out(app: AppHandle) -> Result<(), String> {
-    let storage = KeyringStorage::new()
-        .map_err(|e| format!("Failed to initialize storage: {}", e))?;
-
-    storage.clear_token()
+pub async fn inat_sign_out(
+    cache: State<'_, AuthCache>
+) -> Result<(), String> {
+    cache.clear_token()
         .map_err(|e| format!("Failed to clear token: {}", e))
 }
 
 /// Fetches a JWT for authenticated API requests
 /// Returns None if not authenticated
 #[command]
-pub async fn inat_get_jwt(app: AppHandle) -> Result<Option<String>, String> {
-    let storage = KeyringStorage::new()
-        .map_err(|e| format!("Failed to initialize storage: {}", e))?;
-
-    match storage.load_token() {
+pub async fn inat_get_jwt(
+    cache: State<'_, AuthCache>
+) -> Result<Option<String>, String> {
+    match cache.load_token() {
         Ok(Some(oauth_token)) => {
             let jwt = fetch_jwt(&oauth_token).await
                 .map_err(|e| format!("Failed to fetch JWT: {}", e))?;
@@ -112,8 +112,6 @@ async fn fetch_username_from_api(jwt: &str) -> Result<String, String> {
 
     let claims: JwtClaims = serde_json::from_slice(&payload_bytes)
         .map_err(|e| format!("JSON parse error: {}", e))?;
-
-    log::info!("JWT contains user_id: {}", claims.user_id);
 
     // Fetch user info from public API
     let url = format!("https://api.inaturalist.org/v1/users/{}", claims.user_id);

@@ -3,12 +3,12 @@ mod db;
 mod dwca;
 mod error;
 mod photo_cache;
-mod inat_auth;
 pub mod tile_server;
 mod search_params;
 
+use chuck_core::auth::AuthCache;
 use tauri::menu::{MenuItemBuilder, SubmenuBuilder};
-use tauri::{Emitter};
+use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -33,6 +33,9 @@ pub fn run() {
             commands::inat_auth::inat_get_jwt,
         ])
         .setup(|app| {
+            // Initialize auth cache (lazy - won't access keychain until first use)
+            app.manage(AuthCache::new());
+
             let open_item = MenuItemBuilder::with_id("open", "Open...")
                 .accelerator("CmdOrCtrl+O")
                 .build(app)?;

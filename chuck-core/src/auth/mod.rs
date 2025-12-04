@@ -9,6 +9,8 @@ mod storage_config;
 mod storage_factory;
 #[cfg(feature = "keyring-storage")]
 mod keyring_storage;
+#[cfg(feature = "keyring-storage")]
+mod auth_cache;
 
 pub use error::AuthError;
 pub use oauth::{authenticate_user};
@@ -21,3 +23,5 @@ pub use storage_config::{StorageBackendConfig, StorageBackendType};
 pub use storage_factory::{StorageFactory, StorageInstance};
 #[cfg(feature = "keyring-storage")]
 pub use keyring_storage::KeyringStorage;
+#[cfg(feature = "keyring-storage")]
+pub use auth_cache::AuthCache;

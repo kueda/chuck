@@ -1,10 +1,9 @@
 use chuck_core::api::{client, params};
-use chuck_core::auth::{fetch_jwt, TokenStorage};
+use chuck_core::auth::{fetch_jwt, AuthCache};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, State};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
-use crate::inat_auth::KeyringStorage;
 
 #[derive(Debug, Deserialize)]
 pub struct CountParams {
@@ -79,6 +78,7 @@ static CANCEL_FLAG: LazyLock<Arc<AtomicBool>> = LazyLock::new(|| Arc::new(Atomic
 pub async fn generate_inat_archive(
     app: AppHandle,
     params: GenerateParams,
+    cache: State<'_, AuthCache>,
 ) -> Result<(), String> {
     use chuck_core::downloader::Downloader;
 
@@ -115,16 +115,9 @@ pub async fn generate_inat_archive(
     }).map_err(|e| e.to_string())?;
 
     // Fetch JWT if authenticated
-    let jwt = match KeyringStorage::new() {
-        Ok(storage) => {
-            match storage.load_token() {
-                Ok(Some(oauth_token)) => {
-                    fetch_jwt(&oauth_token).await.ok()
-                }
-                _ => None
-            }
-        }
-        Err(_) => None
+    let jwt = match cache.load_token() {
+        Ok(Some(oauth_token)) => fetch_jwt(&oauth_token).await.ok(),
+        _ => None
     };
 
     // Create downloader with JWT for authenticated requests

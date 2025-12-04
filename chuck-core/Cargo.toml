@@ -10,7 +10,7 @@ dirs = "5.0"
 env_logger = { workspace = true }
 futures = "0.3.31"
 inaturalist = { git = "https://github.com/kueda/rust-inaturalist.git", branch = "complete-get-observations" }
-keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service"], optional = true }
+keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"], optional = true }
 log = { workspace = true }
 oauth2 = "4.4"
 open = "5.0"

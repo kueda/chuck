@@ -16,45 +16,17 @@ pub async fn get_config() -> &'static RwLock<Configuration> {
     CONFIG.get_or_init(|| async { RwLock::new(create_config().await) }).await
 }
 
-/// Create API configuration for iNaturalist with authentication if available
+/// Create API configuration for iNaturalist without authentication
+///
+/// NOTE: This is used by both CLI and GUI. For GUI apps using Tauri,
+/// authentication should be handled separately via AuthCache to avoid
+/// duplicate keychain access prompts. The CLI will use StorageFactory
+/// for auth during command execution.
 async fn create_config() -> Configuration {
-    let mut config = Configuration {
+    Configuration {
         base_path: "https://api.inaturalist.org/v1".to_string(),
         ..Configuration::default()
-    };
-
-    match crate::auth::StorageFactory::create() {
-        Ok(storage) => {
-            match storage.load_token() {
-                Ok(Some(oauth_token)) => {
-                    match fetch_jwt(&oauth_token).await {
-                        Ok(jwt) => {
-                            config.api_key = Some(ApiKey {
-                                prefix: None,
-                                key: jwt,
-                            });
-                            eprintln!("Authenticated");
-                        }
-                        Err(_) => {
-                            eprintln!("Not authenticated (failed to fetch JWT)");
-                        }
-                    }
-                }
-                Ok(None) => {
-                    eprintln!("Not authenticated (run `chuck auth`)");
-                }
-                Err(e) => {
-                    eprintln!("Token load error: {}", e);
-                }
-            }
-        }
-        Err(e) => {
-            eprintln!("Storage error: {}", e);
-            eprintln!("Run `chuck auth` to configure authentication");
-        }
     }
-
-    config
 }
 
 /// Create API configuration with optional JWT
