@@ -21,6 +21,7 @@
     User,
     X
   } from 'lucide-svelte';
+  import Identification from './Identification.svelte';
 
   interface Props {
     open: boolean;
@@ -51,6 +52,21 @@
     const n2 = i2.dateIdentified ? Date.parse(i2.dateIdentified) : 0;
     return n1 - n2;
   }));
+  let displayLocality = $derived.by(() => {
+    if (!occurrence) return;
+    if (occurrence.verbatimLocality && occurrence.verbatimLocality.length > 0 ) {
+      return occurrence.verbatimLocality
+    };
+    if (occurrence.locality && occurrence.locality.length > 0 ) {
+      return occurrence.locality
+    };
+    if (occurrence.higherGeography && occurrence.higherGeography.length > 0 ) {
+      return occurrence.higherGeography
+    };
+    if (occurrence.locationRemarks && occurrence.locationRemarks.length > 0 ) {
+      return occurrence.locationRemarks
+    };
+  });
 
   // Load occurrence when occurrenceId changes
   $effect(() => {
@@ -129,27 +145,24 @@
       'subtribe',
       'genus',
       'subgenus',
-      'species',,
+      'infragenericEpithet',
       'specificEpithet',
       'infraspecificEpithet',
-      'cultivarEpithet'
+      'cultivarEpithet',
     ],
-    where: ['decimalLatitude', 'decimalLongitude', 'coordinateUncertaintyInMeters', 'locality', 'stateProvince', 'country'],
+    where: [
+      'decimalLatitude',
+      'decimalLongitude',
+      'coordinateUncertaintyInMeters',
+      'locality',
+      'verbatimLocality',
+      'stateProvince',
+      'country'
+    ],
     when: ['eventDate', 'eventTime', 'year', 'month', 'day'],
     who: ['recordedBy', 'recordedById', 'identifiedBy', 'dateIdentified']
   };
 </script>
-
-{#snippet uriLabel(uri: string)}
-  {#if uri.includes('://')}
-    <span class="flex flex-row gap-1 items-center">
-      {uri.split('/').pop()}
-      <a href={uri} target="_blank"><Info size={12} /></a>
-    </span>
-  {:else}
-    <span>{uri}</span>
-  {/if}
-{/snippet}
 
 <Dialog
   {open}
@@ -223,13 +236,15 @@
               </h1>
               <div class="flex text-gray-500 gap-4">
                 <Agent name={occurrence.recordedBy} id={occurrence.recordedByID} />
-                <span class="flex flex-row items-center gap-1">
+                <span class="flex flex-row items-center gap-1 text-nowrap">
                   <Calendar size={16} />
                   {occurrence.eventDate}
                 </span>
-                <span class="flex flex-row items-center gap-1">
+                <span class="flex flex-row items-center gap-1 overflow-hidden">
                   <MapPin size={16} />
-                  {occurrence.verbatimLocality}
+                  <span class="text-nowrap overflow-hidden overflow-ellipsis">
+                    {displayLocality}
+                  </span>
                 </span>
               </div>
             </div>
@@ -274,12 +289,12 @@
                   <dd class="font-medium"><Markup text={occurrence.occurrenceRemarks} /></dd>
                 </div>
               {/if}
-              <dl class="grid grid-cols-3 gap-4">
+              <dl class="table">
                 {#each coreFields.what as field}
                   {#if occurrence[field as keyof Occurrence]}
-                    <div>
-                      <dt class="text-sm text-gray-500">{field}</dt>
-                      <dd class="font-medium">{occurrence[field as keyof Occurrence]}</dd>
+                    <div class="table-row ">
+                      <dt class="table-cell table-auto text-sm text-gray-500">{field}</dt>
+                      <dd class="table-cell w-full pb-2 ps-4 font-medium">{occurrence[field as keyof Occurrence]}</dd>
                     </div>
                   {/if}
                 {/each}
@@ -344,68 +359,7 @@
                 <h2 class="text-xl font-bold mb-4">Identifications</h2>
                 <div class="grid gap-2">
                   {#each identifications as ident}
-                    <div
-                      class={[
-                        "card",
-                        "preset-filled-surface-100-900",
-                        "border-surface-200-800",
-                        "rounded-md",
-                        "border-2",
-                        "divide-surface-200-800",
-                        "w-full",
-                        "divide-y",
-                        "flex",
-                        "flex-col",
-                        {"opacity-50": !ident.identificationCurrent}
-                      ]}
-                    >
-                      <header class="p-2 text-sm flex justify-between">
-                        <Agent name={ident.identifiedBy} id={ident.identifiedByID} />
-                        {#if ident.dateIdentified}
-                          <time
-                            datetime={ident.dateIdentified}
-                            title={ident.dateIdentified}
-                          >
-                            {(new Date(ident.dateIdentified)).toLocaleString()}
-                          </time>
-                        {/if}
-                      </header>
-                      <article class="p-2 flex flex-col gap-2">
-                        <Taxon item={ident} />
-                        <!-- <code>{JSON.stringify(ident, null, "\t")}</code> -->
-                        {#if ident.identificationRemarks}
-                          <Markup text={ident.identificationRemarks} />
-                        {/if}
-                      </article>
-                      <footer class="p-2 flex justify-between text-xs">
-                        {#if ident.identificationVerificationStatus === "https://www.inaturalist.org/terminology/supporting"}
-                          <div class="badge preset-filled-success-50-950">
-                            {@render uriLabel(ident.identificationVerificationStatus)}
-                          </div>
-                        {:else if ident.identificationVerificationStatus === "https://www.inaturalist.org/terminology/improving"}
-                          <div class="badge preset-filled-success-500">
-                            {@render uriLabel(ident.identificationVerificationStatus)}
-                          </div>
-                        {:else if ident.identificationVerificationStatus === "https://www.inaturalist.org/terminology/maverick"}
-                          <div class="badge preset-filled-error-200-800">
-                            {@render uriLabel(ident.identificationVerificationStatus)}
-                          </div>
-                        {:else if ident.identificationVerificationStatus === "https://www.inaturalist.org/terminology/leading"}
-                          <div class="badge preset-filled-warning-200-800">
-                            {@render uriLabel(ident.identificationVerificationStatus)}
-                          </div>
-                        {:else if ident.identificationVerificationStatus}
-                          <div class="badge preset-filled-surface-200-800">
-                            {@render uriLabel(ident.identificationVerificationStatus)}
-                          </div>
-                        {/if}
-                        {#if Object.keys(ident).includes('identificationCurrent')}
-                          {#if !ident.identificationCurrent}
-                            <div class="badge preset-filled-surface-200-800">Withdrawn</div>
-                          {/if}
-                        {/if}
-                      </footer>
-                    </div>
+                    <Identification identification={ident} />
                   {/each}
                 </div>
               </section>

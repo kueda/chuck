@@ -1,4 +1,8 @@
 <script lang="ts">
+  import {
+    Calendar,
+    MapPin,
+  } from 'lucide-svelte';
   import type { Occurrence } from '$lib/types/archive';
   import MediaItem from './MediaItem.svelte';
 
@@ -11,8 +15,21 @@
 </script>
 
 <div
-  class="occurrence-item occurrence-card card preset-filled-surface-100-900 border-surface-200-800
-  rounded-md border-2 divide-surface-200-800 w-full divide-y flex flex-col"
+  class="
+    occurrence-item
+    occurrence-card
+    card
+    preset-filled-surface-100-900
+    border-surface-200-800
+    rounded-md
+    border-2
+    divide-surface-200-800
+    w-full
+    divide-y
+    flex
+    flex-col
+    overflow-clip
+  "
 >
   <header class="rounded-t-sm">
     <div class="h-[200px] preset-filled-surface-200-800 flex justify-center items-center relative">
@@ -25,7 +42,10 @@
     </div>
     {#if occurrence.eventDate}
       <div class="text-sm text-surface-600-400 truncate">
-        <span class="font-semibold">Date:</span> {occurrence.eventDate}
+        <div class="flex flex-row gap-1 items-center">
+          <Calendar size={16} />
+          {occurrence.eventDate}
+        </div>
       </div>
     {/if}
   </article>

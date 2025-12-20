@@ -477,10 +477,10 @@
         class="flex h-full flex-col"
       >
         <Tabs.List class="border-b border-surface-200-800 px-4 mb-0 flex flex-row">
-          <Tabs.Trigger value="occurrences" class="btn hover:preset-tonal-primary grow">
+          <Tabs.Trigger value="occurrences" class="btn hover:preset-tonal grow">
             Occurrences
           </Tabs.Trigger>
-          <Tabs.Trigger value="groups" class="btn hover:preset-tonal-primary grow">
+          <Tabs.Trigger value="groups" class="btn hover:preset-tonal grow">
             Groups
           </Tabs.Trigger>
           <Tabs.Indicator class="bg-surface-950-50" />
