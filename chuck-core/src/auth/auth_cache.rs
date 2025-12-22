@@ -250,12 +250,14 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_new_cache_has_no_storage() {
         let cache = MockAuthCache::new();
         assert!(cache.storage.get().is_none());
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_multiple_load_token_calls_only_create_storage_once() {
         // Use mock credential store for this test
         keyring::set_default_credential_builder(default_credential_builder());
@@ -295,6 +297,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_load_token_caches_result() {
         keyring::set_default_credential_builder(default_credential_builder());
 
