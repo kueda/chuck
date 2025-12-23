@@ -37,6 +37,57 @@ pub struct SearchResult {
     pub results: Vec<serde_json::Map<String, serde_json::Value>>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct XmlFile {
+    pub filename: String,
+    pub content: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ArchiveMetadata {
+    pub xml_files: Vec<XmlFile>,
+}
+
+/// Internal function to get all XML metadata files from storage directory
+fn get_metadata_from_storage(storage_dir: &Path) -> Result<ArchiveMetadata> {
+    let mut xml_files = Vec::new();
+
+    // Read all .xml files from the storage directory
+    if let Ok(entries) = std::fs::read_dir(storage_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("xml") {
+                if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
+                    match std::fs::read_to_string(&path) {
+                        Ok(content) => {
+                            xml_files.push(XmlFile {
+                                filename: filename.to_string(),
+                                content,
+                            });
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to read XML file {}: {}", filename, e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort by filename to ensure consistent ordering (meta.xml first, then alphabetically)
+    xml_files.sort_by(|a, b| {
+        if a.filename == "meta.xml" {
+            std::cmp::Ordering::Less
+        } else if b.filename == "meta.xml" {
+            std::cmp::Ordering::Greater
+        } else {
+            a.filename.cmp(&b.filename)
+        }
+    });
+
+    Ok(ArchiveMetadata { xml_files })
+}
+
 fn get_local_data_dir(app: tauri::AppHandle) -> Result<PathBuf> {
     app
         .path()
@@ -211,4 +262,111 @@ pub fn aggregate_by_field(
 ) -> Result<Vec<crate::db::AggregationResult>> {
     let archive = Archive::current(&get_local_data_dir(app)?)?;
     archive.aggregate_by_field(&field_name, &search_params, limit)
+}
+
+#[tauri::command]
+pub fn get_archive_metadata(app: tauri::AppHandle) -> Result<ArchiveMetadata> {
+    let base_dir = get_local_data_dir(app)?;
+    let archive = Archive::current(&base_dir)?;
+    get_metadata_from_storage(&archive.storage_dir)
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn test_get_archive_metadata_returns_both_files() {
+        // Create temporary directory structure mimicking archive storage
+        let temp_dir = std::env::temp_dir()
+            .join("chuck_test_metadata_command");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // Create storage subdirectory (simulating archive storage)
+        let storage_dir = temp_dir.join("test-archive-abc123");
+        std::fs::create_dir_all(&storage_dir).unwrap();
+
+        // Create eml.xml
+        let eml_content = r#"<?xml version="1.0"?>
+<eml:eml xmlns:eml="eml://ecoinformatics.org/eml-2.1.1">
+  <dataset>
+    <title>Test Dataset</title>
+  </dataset>
+</eml:eml>"#;
+        let mut eml_file = std::fs::File::create(storage_dir.join("eml.xml")).unwrap();
+        eml_file.write_all(eml_content.as_bytes()).unwrap();
+
+        // Create meta.xml
+        let meta_content = r#"<?xml version="1.0"?>
+<archive>
+  <core>
+    <files><location>occurrence.csv</location></files>
+  </core>
+</archive>"#;
+        let mut meta_file = std::fs::File::create(storage_dir.join("meta.xml")).unwrap();
+        meta_file.write_all(meta_content.as_bytes()).unwrap();
+
+        // Create minimal CSV and database for Archive::current to work
+        let csv_content = b"id\n1\n";
+        std::fs::write(storage_dir.join("occurrence.csv"), csv_content).unwrap();
+        let db_path = storage_dir.join("test-archive.db");
+        let db = crate::db::Database::create_from_core_files(
+            &vec![storage_dir.join("occurrence.csv")],
+            &vec![],
+            &db_path,
+            "id"
+        ).unwrap();
+        drop(db);
+
+        // Create mock app handle - this won't work with real AppHandle
+        // We'll need to refactor to accept base_dir directly for testing
+        // For now, test the internal function directly
+
+        let result = get_metadata_from_storage(&storage_dir);
+        assert!(result.is_ok());
+
+        let metadata = result.unwrap();
+        assert_eq!(metadata.xml_files.len(), 2);
+
+        // meta.xml should be first
+        assert_eq!(metadata.xml_files[0].filename, "meta.xml");
+        assert_eq!(metadata.xml_files[0].content, meta_content);
+
+        // Then eml.xml
+        assert_eq!(metadata.xml_files[1].filename, "eml.xml");
+        assert_eq!(metadata.xml_files[1].content, eml_content);
+
+        // Cleanup
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_get_archive_metadata_handles_missing_eml() {
+        let temp_dir = std::env::temp_dir()
+            .join("chuck_test_metadata_missing_eml");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let storage_dir = temp_dir.join("test-archive-xyz789");
+        std::fs::create_dir_all(&storage_dir).unwrap();
+
+        // Only create meta.xml, not eml.xml
+        let meta_content = r#"<?xml version="1.0"?>
+<archive>
+  <core>
+    <files><location>occurrence.csv</location></files>
+  </core>
+</archive>"#;
+        std::fs::write(storage_dir.join("meta.xml"), meta_content).unwrap();
+
+        let result = get_metadata_from_storage(&storage_dir);
+        assert!(result.is_ok());
+
+        let metadata = result.unwrap();
+        assert_eq!(metadata.xml_files.len(), 1);
+        assert_eq!(metadata.xml_files[0].filename, "meta.xml");
+        assert_eq!(metadata.xml_files[0].content, meta_content);
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
 }

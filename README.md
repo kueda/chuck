@@ -12,6 +12,7 @@ A desktop application for browsing DarwinCore Archives (DwC-A), with an added op
   * decimalLatitude / decimalLongitude in bounding box
   * recordedBy (e.g. occurrences by kueda)
   * taxonomic fields (e.g. where scientific_name is "Homo sapiens" or where genus is "Vulpes")
+* view archive metadata files (eml.xml and metadata.xml)
 
 ## Tech
 Chuck is a [Tauri](https://tauri.app) application where most of the logic is in Rust. Data is accessed and queried via [DuckDB](https://duckdb.org/) (conversion of DwC-A core and extension files into DuckDB tables happens when first loaded into Chuck). SvelteKit is used for the front-end along with [Skeleton](https://www.skeleton.dev/) and [Tailwind](https://tailwindcss.com/).

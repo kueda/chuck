@@ -561,6 +561,30 @@ fn get_files_to_extract(archive_path: &Path, target_dir: &Path) -> Result<Vec<Zi
     let meta_path = target_dir.join("meta.xml");
     extract_single_file(archive_path, "meta.xml", meta_path.as_path())?;
 
+    // Also extract all other .xml files in the archive root (potential metadata files)
+    let file = std::fs::File::open(archive_path).map_err(|e| ChuckError::FileOpen {
+        path: archive_path.to_path_buf(),
+        source: e,
+    })?;
+    let mut archive = zip::ZipArchive::new(file).map_err(ChuckError::ArchiveExtraction)?;
+
+    for i in 0..archive.len() {
+        if let Ok(file) = archive.by_index(i) {
+            if let Some(enclosed_path) = file.enclosed_name() {
+                let path_str = enclosed_path.to_string_lossy().to_string();
+                // Extract .xml files that are in the root directory (not meta.xml, already extracted)
+                if path_str.ends_with(".xml")
+                    && path_str != "meta.xml"
+                    && !path_str.contains('/')
+                    && !file.is_dir()
+                {
+                    let outpath = target_dir.join(&path_str);
+                    let _ = extract_single_file(archive_path, &path_str, outpath.as_path());
+                }
+            }
+        }
+    }
+
     // Parse meta.xml to determine needed files
     let needed_files = get_needed_files_from_meta(target_dir)?;
 

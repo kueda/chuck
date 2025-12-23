@@ -1,6 +1,10 @@
 /**
  * Mock implementation of Tauri APIs for Playwright testing.
  * This allows testing the frontend without running the Rust backend.
+ *
+ * IMPORTANT: This file only exports getInjectionScript().
+ * When adding new Tauri commands, add them to the switch statement
+ * inside getInjectionScript() only.
  */
 
 import type {
@@ -8,163 +12,6 @@ import type {
   SearchResult,
   Occurrence,
 } from '../../src/lib/types/archive';
-
-interface MockState {
-  currentArchive: ArchiveInfo | null;
-  searchResults: Map<string, SearchResult>;
-}
-
-/**
- * Creates a stateful mock of Tauri's invoke command system.
- * Maintains state like which archive is currently open.
- */
-export function createMockInvoke(
-  mockArchive: ArchiveInfo,
-  mockSearchResults: SearchResult
-) {
-  const state: MockState = {
-    currentArchive: null,
-    searchResults: new Map(),
-  };
-
-  return async function invoke<T>(command: string, args?: any): Promise<T> {
-    console.log('[Mock Tauri] invoke called:', command, args);
-
-    switch (command) {
-      case 'open_archive':
-        state.currentArchive = mockArchive;
-        return mockArchive as T;
-
-      case 'current_archive':
-        if (!state.currentArchive) {
-          throw new Error('No archive currently open');
-        }
-        return state.currentArchive as T;
-
-      case 'search': {
-        const { limit, offset, searchParams, fields } = args;
-
-        // Generate cache key from search params
-        const cacheKey = JSON.stringify({ searchParams, fields });
-
-        // Filter results based on search params
-        let filteredResults = mockSearchResults.results;
-
-        // Handle flattened filter structure (filters are at top level of searchParams)
-        if (searchParams) {
-          // Extract bounding box params
-          const nelat = searchParams.nelat ? parseFloat(searchParams.nelat) : null;
-          const nelng = searchParams.nelng ? parseFloat(searchParams.nelng) : null;
-          const swlat = searchParams.swlat ? parseFloat(searchParams.swlat) : null;
-          const swlng = searchParams.swlng ? parseFloat(searchParams.swlng) : null;
-
-          // Apply bounding box filter if all params present
-          if (nelat !== null && nelng !== null && swlat !== null && swlng !== null) {
-            filteredResults = filteredResults.filter((r: Occurrence) => {
-              const lat = r.decimalLatitude;
-              const lng = r.decimalLongitude;
-              if (lat === null || lat === undefined || lng === null || lng === undefined) {
-                return false;
-              }
-              return lat >= swlat && lat <= nelat && lng >= swlng && lng <= nelng;
-            });
-          }
-
-          // Apply other filters
-          for (const [columnName, filterValue] of Object.entries(searchParams)) {
-            // Skip non-filter fields and bbox fields
-            if (columnName === 'order_by' || columnName === 'order') continue;
-            if (columnName === 'nelat' || columnName === 'nelng' || columnName === 'swlat' || columnName === 'swlng') continue;
-
-            if (filterValue && typeof filterValue === 'string') {
-              filteredResults = filteredResults.filter((r: Occurrence) => {
-                const value = (r as any)[columnName];
-                return value?.toLowerCase().includes((filterValue as string).toLowerCase());
-              });
-            }
-          }
-        }
-
-        // Apply pagination
-        const paginatedResults = filteredResults.slice(offset, offset + limit);
-
-        const result: SearchResult = {
-          total: filteredResults.length,
-          results: paginatedResults,
-        };
-
-        return result as T;
-      }
-
-      case 'get_autocomplete_suggestions': {
-        const { columnName, searchTerm, limit } = args;
-
-        if (!state.currentArchive) {
-          return [] as T;
-        }
-
-        // Get unique values from all mock results that match the search term
-        const values = new Set<string>();
-        for (const result of mockSearchResults.results) {
-          const value = (result as any)[columnName];
-          if (value && typeof value === 'string') {
-            if (value.toLowerCase().includes(searchTerm.toLowerCase())) {
-              values.add(value);
-            }
-          }
-        }
-
-        // Return as sorted array, limited
-        return Array.from(values).sort().slice(0, limit || 50) as T;
-      }
-
-      default:
-        throw new Error(`Unknown command: ${command}`);
-    }
-  };
-}
-
-/**
- * Returns the complete mock object to inject into the browser window.
- * This replaces all Tauri APIs with mock implementations.
- */
-export function getMockTauriAPIs(
-  mockArchive: ArchiveInfo,
-  mockSearchResults: SearchResult
-) {
-  const mockInvoke = createMockInvoke(mockArchive, mockSearchResults);
-
-  return {
-    // Mock @tauri-apps/api/core
-    __TAURI_INVOKE__: mockInvoke,
-
-    // Mock @tauri-apps/plugin-dialog
-    __TAURI_PLUGIN_DIALOG__: {
-      showOpenDialog: async () => '/mock/path/to/test-archive.zip',
-      showSaveDialog: async () => '/mock/path/to/test-archive.zip',
-    },
-
-    // Mock @tauri-apps/api/window
-    __TAURI_WINDOW__: {
-      getCurrentWindow: () => ({
-        setTitle: (title: string) => {
-          console.log('[Mock Tauri] Window title set to:', title);
-        },
-      }),
-    },
-
-    // Mock @tauri-apps/api/event
-    __TAURI_EVENT__: {
-      listen: async (event: string, handler: Function) => {
-        console.log('[Mock Tauri] Listening for event:', event);
-        // Return unlisten function
-        return () => {
-          console.log('[Mock Tauri] Unlistening from event:', event);
-        };
-      },
-    },
-  };
-}
 
 /**
  * Script to inject into the page that intercepts Tauri module imports.
@@ -174,7 +21,8 @@ export function getInjectionScript(
   mockArchive: ArchiveInfo,
   mockSearchResults: SearchResult,
   mockArchive2?: ArchiveInfo,
-  mockSearchResults2?: SearchResult
+  mockSearchResults2?: SearchResult,
+  customEml?: string
 ): string {
   // Serialize the mock data
   const mockArchiveJSON = JSON.stringify(mockArchive);
@@ -182,6 +30,7 @@ export function getInjectionScript(
   const mockArchive2JSON = mockArchive2 ? JSON.stringify(mockArchive2) : 'null';
   const mockSearchResults2JSON = mockSearchResults2 ?
     JSON.stringify(mockSearchResults2) : 'null';
+  const customEmlJSON = customEml ? JSON.stringify(customEml) : 'null';
 
   return `
     (function() {
@@ -191,10 +40,22 @@ export function getInjectionScript(
       const mockSearchResults = ${mockSearchResultsJSON};
       const mockArchive2 = ${mockArchive2JSON};
       const mockSearchResults2 = ${mockSearchResults2JSON};
+      const customEml = ${customEmlJSON};
 
+      // Restore state from localStorage to persist across page navigations
+      let openCount = parseInt(localStorage.getItem('__MOCK_OPEN_COUNT__') || '0', 10);
       let currentArchive = null;
       let currentSearchResults = null;
-      let openCount = 0;
+
+      // If an archive was opened in a previous page, restore it
+      if (openCount === 1) {
+        currentArchive = mockArchive;
+        currentSearchResults = mockSearchResults;
+      } else if (openCount === 2 && mockArchive2) {
+        currentArchive = mockArchive2;
+        currentSearchResults = mockSearchResults2;
+      }
+
       let eventListeners = new Map();
 
       // Mock invoke function
@@ -207,6 +68,7 @@ export function getInjectionScript(
         switch (command) {
           case 'open_archive':
             openCount++;
+            localStorage.setItem('__MOCK_OPEN_COUNT__', openCount.toString());
             if (openCount === 1) {
               currentArchive = mockArchive;
               currentSearchResults = mockSearchResults;
@@ -423,6 +285,54 @@ export function getInjectionScript(
 
             // Apply limit
             return aggregated.slice(0, limit);
+          }
+
+          case 'get_archive_metadata': {
+            if (!currentArchive) {
+              throw new Error('No archive currently open');
+            }
+
+            const defaultEmlContent = \`<?xml version="1.0"?>
+<eml:eml xmlns:eml="eml://ecoinformatics.org/eml-2.1.1">
+  <dataset>
+    <title>Test Archive Dataset</title>
+    <creator>
+      <individualName>
+        <givenName>Test</givenName>
+        <surName>Creator</surName>
+      </individualName>
+      <electronicMailAddress>test@example.org</electronicMailAddress>
+    </creator>
+    <abstract>
+      <para>This is a test dataset for integration testing.</para>
+    </abstract>
+  </dataset>
+</eml:eml>\`;
+
+            const mockMetadata = {
+              xml_files: [
+                {
+                  filename: 'meta.xml',
+                  content: \`<?xml version="1.0"?>
+<archive>
+  <core rowType="http://rs.tdwg.org/dwc/terms/Occurrence">
+    <files>
+      <location>occurrence.csv</location>
+    </files>
+    <id index="0" />
+    <field index="0" term="http://rs.gbif.org/terms/1.0/gbifID"/>
+    <field index="1" term="http://rs.tdwg.org/dwc/terms/scientificName"/>
+  </core>
+</archive>\`
+                },
+                {
+                  filename: 'eml.xml',
+                  content: customEml || defaultEmlContent
+                }
+              ]
+            };
+
+            return mockMetadata;
           }
 
           default:

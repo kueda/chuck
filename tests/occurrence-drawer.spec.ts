@@ -159,7 +159,10 @@ test.describe('OccurrenceDrawer Keyboard Navigation', () => {
 test.describe('OccurrenceDrawer with non-occurrenceID core columns', () => {
   test.beforeEach(async ({ page }) => {
     // Setup with gbifID archive
-    await setupMockTauri(page, mockArchiveWithGbifID, mockSearchResultWithGbifID);
+    await setupMockTauri(page, {
+      archive: mockArchiveWithGbifID,
+      searchResult: mockSearchResultWithGbifID
+    });
     await page.goto('/');
     await waitForAppReady(page);
     await openArchive(page);

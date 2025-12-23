@@ -13,18 +13,27 @@ import {
 
 import type { ArchiveInfo, SearchResult } from '../../src/lib/types/archive';
 
+export interface SetupMockTauriOptions {
+  archive?: ArchiveInfo;
+  searchResult?: SearchResult;
+  eml?: string;
+}
+
 /**
  * Sets up Tauri API mocks before the page loads.
  * This must be called before navigating to the page.
  */
 export async function setupMockTauri(
   page: Page,
-  archive: ArchiveInfo = mockArchive,
-  searchResult: SearchResult = mockSearchResult
+  options?: SetupMockTauriOptions
 ) {
+  const archive = options?.archive ?? mockArchive;
+  const searchResult = options?.searchResult ?? mockSearchResult;
+  const eml = options?.eml;
+
   // Add initialization script that runs before any page code
   await page.addInitScript(
-    getInjectionScript(archive, searchResult, mockArchive2, mockSearchResult2)
+    getInjectionScript(archive, searchResult, mockArchive2, mockSearchResult2, eml)
   );
 }
 

@@ -1,0 +1,180 @@
+<eml:eml packageId="00000000-0000-0000-0000-000000000001/v1.0" scope="system" system="http://gbif.org" xml:lang="eng" xmlns:dc="http://purl.org/dc/terms/" xmlns:eml="eml://ecoinformatics.org/eml-2.1.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="eml://ecoinformatics.org/eml-2.1.1 http://rs.gbif.org/schema/eml-gbif-profile/1.1/eml.xsd">
+  <dataset>
+    <alternateIdentifier>00000000-0000-0000-0000-000000000001</alternateIdentifier>
+    <alternateIdentifier>http://example.org/ipt/resource?r=example_collection</alternateIdentifier>
+    <title xml:lang="eng">Example Natural History Collection</title>
+    <creator>
+      <individualName>
+        <givenName>Jane</givenName>
+        <surName>Smith</surName>
+      </individualName>
+      <organizationName>Example University Museum of Natural History</organizationName>
+      <positionName>Curator of Collections</positionName>
+      <address>
+        <deliveryPoint>123 Museum Street</deliveryPoint>
+        <city>Springfield</city>
+        <administrativeArea>CA</administrativeArea>
+        <postalCode>12345-6789</postalCode>
+        <country>US</country>
+      </address>
+      <phone>+1 555-123-4567</phone>
+      <electronicMailAddress>jsmith@example.edu</electronicMailAddress>
+      <onlineUrl>http://www.example.edu/people/jsmith</onlineUrl>
+    </creator>
+    <metadataProvider>
+      <individualName>
+        <givenName>Jay</givenName>
+        <surName>Blue</surName>
+      </individualName>
+      <organizationName>Example University Museum of Natural History</organizationName>
+      <positionName>Munger of Data</positionName>
+      <address>
+        <deliveryPoint>123 Museum Street</deliveryPoint>
+        <city>Springfield</city>
+        <administrativeArea>CA</administrativeArea>
+        <postalCode>12345-6789</postalCode>
+        <country>US</country>
+      </address>
+      <phone>+1 555-123-4567</phone>
+      <electronicMailAddress>jblue@example.edu</electronicMailAddress>
+      <onlineUrl>http://www.example.edu/people/jblue</onlineUrl>
+    </metadataProvider>
+    <associatedParty>
+      <individualName>
+        <givenName>Robert</givenName>
+        <surName>Johnson</surName>
+      </individualName>
+      <organizationName>Example Data Network</organizationName>
+      <positionName>Coordinator</positionName>
+      <electronicMailAddress>rjohnson@example.org</electronicMailAddress>
+      <onlineUrl>http://www.example.org</onlineUrl>
+      <role>programmer</role>
+    </associatedParty>
+    <associatedParty>
+      <individualName>
+        <givenName>Michael</givenName>
+        <surName>Williams</surName>
+      </individualName>
+      <organizationName>Museum of Natural Sciences at Example State</organizationName>
+      <positionName>Information Architect</positionName>
+      <electronicMailAddress>mwilliams@example.edu</electronicMailAddress>
+      <role>programmer</role>
+    </associatedParty>
+    <associatedParty>
+      <individualName>
+        <givenName>Sarah</givenName>
+        <surName>Davis</surName>
+      </individualName>
+      <organizationName>Example University Museum of Natural History</organizationName>
+      <positionName>Collections Manager</positionName>
+      <address>
+        <deliveryPoint>123 Museum Street</deliveryPoint>
+        <city>Springfield</city>
+        <administrativeArea>CA</administrativeArea>
+        <postalCode>12345-6789</postalCode>
+        <country>US</country>
+      </address>
+      <phone>+1 555-123-4568</phone>
+      <electronicMailAddress>sdavis@example.edu</electronicMailAddress>
+      <onlineUrl>http://www.example.edu</onlineUrl>
+      <role>pointOfContact</role>
+    </associatedParty>
+    <pubDate>2020-01-15</pubDate>
+    <language>eng</language>
+    <abstract>
+      <para>This collection is great and you will like it.</para>
+      <para>It contains many interesting specimens from various locations.</para>
+      <para>The data has been carefully curated and documented.</para>
+    </abstract>
+    <keywordSet>
+      <keyword>Specimen</keyword>
+      <keywordThesaurus>GBIF Dataset Subtype Vocabulary: http://rs.gbif.org/vocabulary/gbif/dataset_subtype.xml</keywordThesaurus>
+    </keywordSet>
+    <keywordSet>
+      <keyword>Occurrence</keyword>
+      <keywordThesaurus>GBIF Dataset Type Vocabulary: http://rs.gbif.org/vocabulary/gbif/dataset_type.xml</keywordThesaurus>
+    </keywordSet>
+    <additionalInfo>
+      <para>http://example.org/resources/norms.html</para>
+    </additionalInfo>
+    <intellectualRights>
+      <para>To the extent possible under law, the publisher has waived all rights to these data and has dedicated them to the <ulink url="http://creativecommons.org/publicdomain/zero/1.0/legalcode"><citetitle>Public Domain (CC0 1.0)</citetitle></ulink>. Users may copy, modify, distribute and use the work, including for commercial purposes, without restriction.</para>
+    </intellectualRights>
+    <distribution scope="document">
+      <online>
+        <url function="information">https://www.example.edu/</url>
+      </online>
+    </distribution>
+    <coverage>
+      <geographicCoverage>
+        <geographicDescription>The collection spans the entire globe.</geographicDescription>
+        <boundingCoordinates>
+          <westBoundingCoordinate>-180</westBoundingCoordinate>
+          <eastBoundingCoordinate>180</eastBoundingCoordinate>
+          <northBoundingCoordinate>90</northBoundingCoordinate>
+          <southBoundingCoordinate>-90</southBoundingCoordinate>
+        </boundingCoordinates>
+      </geographicCoverage>
+      <taxonomicCoverage>
+        <taxonomicClassification>
+          <taxonRankName>class</taxonRankName>
+          <taxonRankValue>Amphibia</taxonRankValue>
+        </taxonomicClassification>
+        <taxonomicClassification>
+          <taxonRankName>class</taxonRankName>
+          <taxonRankValue>Reptilia</taxonRankValue>
+        </taxonomicClassification>
+      </taxonomicCoverage>
+    </coverage>
+    <maintenance>
+      <description>
+        <para/>
+      </description>
+      <maintenanceUpdateFrequency>unkown</maintenanceUpdateFrequency>
+    </maintenance>
+    <contact>
+      <individualName>
+        <givenName>Jane</givenName>
+        <surName>Smith</surName>
+      </individualName>
+      <organizationName>Example University Museum of Natural History</organizationName>
+      <positionName>Curator of Collections</positionName>
+      <address>
+        <deliveryPoint>123 Museum Street</deliveryPoint>
+        <city>Springfield</city>
+        <administrativeArea>CA</administrativeArea>
+        <postalCode>12345-6789</postalCode>
+        <country>US</country>
+      </address>
+      <phone>+1 555-123-4567</phone>
+      <electronicMailAddress>jsmith@example.edu</electronicMailAddress>
+      <onlineUrl>http://www.example.edu</onlineUrl>
+    </contact>
+  </dataset>
+  <additionalMetadata>
+    <metadata>
+      <gbif>
+        <dateStamp>2020-01-15T10:00:00.000-05:00</dateStamp>
+        <hierarchyLevel>dataset</hierarchyLevel>
+        <citation>Example University Museum of Natural History, Natural History Collection</citation>
+        <resourceLogoUrl>http://example.org/ipt/logo.do?r=example_collection</resourceLogoUrl>
+        <livingTimePeriod>1900 to present</livingTimePeriod>
+        <dc:replaces>00000000-0000-0000-0000-000000000001/v1.0.xml</dc:replaces>
+        <physical>
+          <objectName>Darwin Core Archive</objectName>
+          <characterEncoding>UTF-8</characterEncoding>
+          <dataFormat>
+            <externallyDefinedFormat>
+              <formatName>Darwin Core Archive</formatName>
+            </externallyDefinedFormat>
+          </dataFormat>
+          <distribution>
+            <online>
+              <url function="download">https://example.org/archive/download.zip</url>
+            </online>
+          </distribution>
+        </physical>
+      </gbif>
+    </metadata>
+  </additionalMetadata>
+</eml:eml>

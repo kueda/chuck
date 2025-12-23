@@ -13,3 +13,7 @@ table thead th {
 a {
   text-decoration: underline;
 }
+
+.btn-chuck-outlined {
+  @apply btn btn-sm preset-outlined-surface-300-700 shadow;
+}

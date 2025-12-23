@@ -24,6 +24,7 @@ pub fn run() {
             commands::archive::get_occurrence,
             commands::archive::get_photo,
             commands::archive::aggregate_by_field,
+            commands::archive::get_archive_metadata,
             commands::inat_download::get_observation_count,
             commands::inat_download::generate_inat_archive,
             commands::inat_download::cancel_inat_archive,
@@ -41,6 +42,10 @@ pub fn run() {
                 .build(app)?;
 
             let download_item = MenuItemBuilder::with_id("download-from-inaturalist", "Download from iNaturalist")
+                .build(app)?;
+
+            let metadata_item = MenuItemBuilder::with_id("show-metadata", "Show Metadata")
+                .accelerator("CmdOrCtrl+I")
                 .build(app)?;
 
             // Get the existing menu and add to the File submenu
@@ -76,6 +81,28 @@ pub fn run() {
                         .build()?;
                     menu.append(&tools_submenu)?;
                 }
+
+                // Get or create View submenu
+                let mut view_submenu_exists = false;
+                for item in menu.items()? {
+                    if let Some(submenu) = item.as_submenu() {
+                        if let Ok(text) = submenu.text() {
+                            if text == "View" {
+                                submenu.append(&metadata_item)?;
+                                view_submenu_exists = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // If View submenu doesn't exist, create it
+                if !view_submenu_exists {
+                    let view_submenu = SubmenuBuilder::new(app, "View")
+                        .item(&metadata_item)
+                        .build()?;
+                    menu.append(&view_submenu)?;
+                }
             }
 
             app.on_menu_event(move |app, event| {
@@ -95,6 +122,21 @@ pub fn run() {
 
                     if let Err(e) = window {
                         log::error!("Failed to open iNat download window: {}", e);
+                    }
+                } else if event.id() == "show-metadata" {
+                    // Open new window for archive metadata
+                    let window = tauri::WebviewWindowBuilder::new(
+                        app,
+                        "metadata",
+                        tauri::WebviewUrl::App("metadata".into())
+                    )
+                    .title("Archive Metadata")
+                    .inner_size(1024.0, 680.0)
+                    .resizable(true)
+                    .build();
+
+                    if let Err(e) = window {
+                        log::error!("Failed to open metadata window: {}", e);
                     }
                 }
             });
