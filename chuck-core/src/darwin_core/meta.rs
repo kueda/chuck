@@ -194,31 +194,20 @@ pub fn generate_eml(metadata: &Metadata) -> String {
          xsi:schemaLocation="eml://ecoinformatics.org/eml-2.1.1 http://rs.gbif.org/schema/eml-gbif-profile/1.1/eml.xsd"
          packageId="{package_id}" system="http://gbif.org" scope="system">
   <dataset>
-    <title>An Example DarwinCore Archive</title>
+    <title>Chuck DarwinCore Archive</title>
     <creator>
-      <individualName><surName>Some Organization</surName></individualName>
-      <electronicMailAddress>help@some.org</electronicMailAddress>
-      <onlineUrl>https://www.some.org</onlineUrl>
+      <organizationName>Chuck</organizationName>
     </creator>
     <metadataProvider>
-      <individualName><surName>Some Organization</surName></individualName>
+      <organizationName>Chuck</organizationName>
     </metadataProvider>
     <pubDate>{now}</pubDate>
     <language>en</language>
-    <abstract>{abstract_paras}
+    <abstract>
+      {abstract_paras}
     </abstract>
-    <intellectualRights>
-      <para>
-        This work is licensed under a
-        <ulink url="https://creativecommons.org/licenses/by/4.0">
-          <citetitle>Creative Commons Attribution 4.0 International License.</citetitle>
-        </ulink>
-      </para>
-    </intellectualRights>
     <contact>
-      <individualName><surName>Some Organization</surName></individualName>
-      <electronicMailAddress>help@some.org</electronicMailAddress>
-      <onlineUrl>https://www.some.org</onlineUrl>
+      <organizationName>Chuck</organizationName>
     </contact>
   </dataset>
 </eml:eml>"#, abstract_paras = abstract_paras)
