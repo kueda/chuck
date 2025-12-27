@@ -5,7 +5,7 @@
   import type { EMLData, MetaData } from '$lib/utils/xmlParser';
   import { getCurrentWindow, invoke } from '$lib/tauri-api';
   import { onMount } from 'svelte';
-  import { parseEML, parseMeta } from '$lib/utils/xmlParser';
+  import { parseEML, parseMeta, prettify } from '$lib/utils/xmlParser';
   import { Tabs } from '@skeletonlabs/skeleton-svelte';
   import { Switch } from '@skeletonlabs/skeleton-svelte';
 
@@ -181,7 +181,7 @@
       {#each processedFiles as file}
         <Tabs.Content value={file.filename} class="flex-1 overflow-auto">
           {#if viewingSource}
-            <pre class="overflow-auto text-xs">{file.content}</pre>
+            <pre class="overflow-auto text-xs">{prettify(file.content)}</pre>
           {:else}
             {#if file.type === 'eml' && file.emlData}
               <EMLDisplay data={file.emlData} />
@@ -191,7 +191,7 @@
               <div class="preset-filled-error-50-950 rounded p-4">
                 Failed to make this pretty. Here's the source anyway.
               </div>
-              <pre class="overflow-auto text-xs">{file.content}</pre>
+              <pre class="overflow-auto text-xs">{prettify(file.content)}</pre>
             {/if}
           {/if}
         </Tabs.Content>
