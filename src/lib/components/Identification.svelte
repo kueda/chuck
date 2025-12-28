@@ -5,6 +5,14 @@
   import { Info } from 'lucide-svelte';
 
   let { identification: ident } = $props();
+
+  let date = $derived.by(() => {
+    if (ident.dateIdentified.match(/\d+:\d+:\d+/)) {
+      const d = new Date(ident.dateIdentified);
+      if (d.getTime()) return d;
+    }
+    return null;
+  });
 </script>
 
 {#snippet uriLabel(uri: string)}
@@ -30,17 +38,17 @@
     "divide-y",
     "flex",
     "flex-col",
-    {"opacity-50": !ident.identificationCurrent}
+    {"opacity-50": ident.identificationCurrent === false}
   ]}
 >
   <header class="p-2 text-sm flex justify-between">
     <Agent name={ident.identifiedBy} id={ident.identifiedByID} />
     {#if ident.dateIdentified}
       <time
-        datetime={ident.dateIdentified}
+        datetime={date ? ident.dateIdentified : ""}
         title={ident.dateIdentified}
       >
-        {(new Date(ident.dateIdentified)).toLocaleString()}
+        {date ? date.toLocaleString() : `"${ident.dateIdentified}"`}
       </time>
     {/if}
   </header>
