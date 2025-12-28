@@ -239,7 +239,8 @@ export function getInjectionScript(
 
               // Apply other filters
               for (const [columnName, filterValue] of Object.entries(searchParams)) {
-                if (columnName === 'order_by' || columnName === 'order') continue;
+                // Skip sorting parameters (old and new names)
+                if (columnName === 'order_by' || columnName === 'order' || columnName === 'sort_by' || columnName === 'sort_direction') continue;
                 if (columnName === 'nelat' || columnName === 'nelng' || columnName === 'swlat' || columnName === 'swlng') continue;
 
                 if (filterValue && typeof filterValue === 'string') {
