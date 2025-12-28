@@ -17,10 +17,17 @@ pub struct AggregationResult {
 
 // Most DwC attributes are strings, but a few should have different types to
 // enable better queries
-const TYPE_OVERRIDES: [(&str, &str); 13] = [
+const TYPE_OVERRIDES: [(&str, &str); 12] = [
     ("decimalLatitude", "DOUBLE"),
     ("decimalLongitude", "DOUBLE"),
-    ("eventDate", "DATE"),
+    // DarwinCore allows ISO 8601-1:2019 dates *and* datetimes in this field
+    // (https://dwc.tdwg.org/terms/#dwc:eventDate), and that standard
+    // supports ranges (e.g. 2025-01-04/2025-02-14), imprecise years
+    // (e.g. 2025) and year-months (e.g. 2025-04), none of which duckdb
+    // handles. Unless there's a very compelling need to use a DATE here,
+    // best left as  VARCHAR
+    //
+    // ("eventDate", "DATE"),
     ("gbifID", "BIGINT"),
 
     // Boolean fields
@@ -942,8 +949,11 @@ mod tests {
         let fixture = TestFixture::new(
             "multiple_cores",
             vec![
-                b"id,name\n1,Collins\n2,Gardiner\n",
-                b"3,Lizzy\n4,Jane\n"
+                b"id,name\n
+                  1,Collins\n
+                  2,Gardiner\n",
+                b"3,Lizzy\n
+                  4,Jane\n"
             ]
         );
 
@@ -958,6 +968,34 @@ mod tests {
         assert_eq!(db.count_records().unwrap(), 4);
 
         // Cleanup happens automatically via Drop
+    }
+
+    // DwC-A accepts a variety of date formats that won't be captured in a
+    // duckdb DATE column, so we just need to use a VARCHAR
+    #[test]
+    fn test_create_with_multiple_date_formats() {
+        let fixture = TestFixture::new(
+            "multiple_date_formats",
+            vec![
+                // For some reason, when you have one line with partial dates
+                // and another with mixed formats like this, the
+                // auto-detected date_format ends up as %m/%d/%Y... but not
+                // if you only have the one line with mixed formats. duckdb
+                // will choke on the partials as well
+                b"id,eventDate,verbatimEventDate\n
+                  1,,\n
+                  2,1988-10-25,10/25/1988\n
+                  3,1967-07,1967-07-\n"
+            ]
+        );
+        let result = Database::create_from_core_files(
+            &fixture.csv_paths,
+            &vec![],
+            &fixture.db_path,
+            "id"
+        );
+        let db = result.unwrap();
+        assert_eq!(db.count_records().unwrap(), 3);
     }
 
     #[test]
