@@ -40,13 +40,13 @@
   $effect(() => {
     // Only update if the PROPS changed (not internal state)
     syncingFromProp = true;
-    if (searchParams?.order_by !== lastInitialSortBy) {
-      sortBy = searchParams?.order_by || '';
-      lastInitialSortBy = searchParams?.order_by;
+    if (searchParams?.sort_by !== lastInitialSortBy) {
+      sortBy = searchParams?.sort_by || '';
+      lastInitialSortBy = searchParams?.sort_by;
     }
-    if (searchParams?.order !== lastInitialSortDirection) {
-      sortDirection = searchParams?.order || '';
-      lastInitialSortDirection = searchParams?.order;
+    if (searchParams?.sort_direction !== lastInitialSortDirection) {
+      sortDirection = searchParams?.sort_direction || '';
+      lastInitialSortDirection = searchParams?.sort_direction;
     }
     syncingFromProp = false;
   });
@@ -98,9 +98,9 @@
 
       // Add sorting
       if (sortBy) {
-        params.order_by = sortBy;
+        params.sort_by = sortBy;
         if (sortDirection) {
-          params.order = sortDirection;
+          params.sort_direction = sortDirection;
         }
       }
 

@@ -118,7 +118,7 @@ export function getInjectionScript(
               // Apply other filters
               for (const [columnName, filterValue] of Object.entries(searchParams)) {
                 // Skip reserved sorting fields and bbox fields
-                if (columnName === 'order_by' || columnName === 'order') continue;
+                if (columnName === 'sort_by' || columnName === 'sort_direction') continue;
                 if (columnName === 'nelat' || columnName === 'nelng' || columnName === 'swlat' || columnName === 'swlng') continue;
 
                 if (filterValue && typeof filterValue === 'string') {
@@ -131,13 +131,13 @@ export function getInjectionScript(
             }
 
             // Apply sorting if specified
-            if (searchParams?.order_by) {
-              const orderBy = searchParams.order_by;
-              const direction = searchParams.order || 'ASC';
+            if (searchParams?.sort_by) {
+              const sortBy = searchParams.sort_by;
+              const direction = searchParams.sort_direction || 'ASC';
 
               filteredResults = [...filteredResults].sort((a, b) => {
-                const aVal = a[orderBy];
-                const bVal = b[orderBy];
+                const aVal = a[sortBy];
+                const bVal = b[sortBy];
 
                 // Handle null/undefined
                 if (aVal == null && bVal == null) return 0;

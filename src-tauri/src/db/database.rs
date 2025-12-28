@@ -414,6 +414,12 @@ impl Database {
         }
     }
 
+    /// Quotes an identifier for use in SQL queries to handle reserved keywords
+    /// like "order", "class", "type", etc.
+    fn quote_identifier(identifier: &str) -> String {
+        format!("\"{}\"", identifier)
+    }
+
     pub fn sql_parts(
         search_params: SearchParams,
         fields: Option<Vec<String>>,
@@ -431,7 +437,10 @@ impl Database {
             if validated.is_empty() {
                 "occurrences.*".to_string()
             } else {
-                validated.iter().map(|f| format!("occurrences.{}", f)).collect::<Vec<_>>().join(", ")
+                validated.iter()
+                    .map(|f| format!("occurrences.{}", Self::quote_identifier(f)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             }
         } else {
             "occurrences.*".to_string()
@@ -442,13 +451,15 @@ impl Database {
         // looks like it should be less effecient than loading extension rows
         // in subsequent queries, but benchmarking showed that it's
         // actually *faster* with larger result sets
+        let quoted_core_id = Self::quote_identifier(core_id_column);
         let extension_subqueries: Vec<String> = extension_tables
             .iter()
             .map(|(extension, ext_core_id_col)| {
                 let table_name = extension.table_name();
+                let quoted_ext_core_id = Self::quote_identifier(ext_core_id_col);
                 format!(
                     "(SELECT COALESCE(to_json(list({})), '[]') FROM {} WHERE {}.{} = occurrences.{}) as {}",
-                    table_name, table_name, table_name, ext_core_id_col, core_id_column, table_name
+                    table_name, table_name, table_name, quoted_ext_core_id, quoted_core_id, table_name
                 )
             })
             .collect();
@@ -485,7 +496,8 @@ impl Database {
                             let increment = 10_f64.powi(-(decimal_places as i32));
                             let upper_bound = lower_bound + increment;
 
-                            where_clauses.push(format!("{} >= ? AND {} < ?", column_name, column_name));
+                            let quoted = Self::quote_identifier(column_name);
+                            where_clauses.push(format!("{} >= ? AND {} < ?", quoted, quoted));
                             where_interpolations.push(Box::new(lower_bound));
                             where_interpolations.push(Box::new(upper_bound));
                         }
@@ -493,12 +505,14 @@ impl Database {
                     }
                     Some("DATE") => {
                         // For date types, cast to string and use prefix matching
-                        where_clauses.push(format!("CAST({} AS VARCHAR) LIKE ?", column_name));
+                        let quoted = Self::quote_identifier(column_name);
+                        where_clauses.push(format!("CAST({} AS VARCHAR) LIKE ?", quoted));
                         where_interpolations.push(Box::new(format!("{}%", filter_value)));
                     }
                     _ => {
                         // For VARCHAR (default), use ILIKE with substring matching
-                        where_clauses.push(format!("{} ILIKE ?", column_name));
+                        let quoted = Self::quote_identifier(column_name);
+                        where_clauses.push(format!("{} ILIKE ?", quoted));
                         where_interpolations.push(Box::new(format!("%{}%", filter_value)));
                     }
                 }
@@ -530,9 +544,9 @@ impl Database {
         };
 
         // Build ORDER clause
-        let order_clause = if let Some(order_by) = search_params.order_by {
-            if Occurrence::FIELD_NAMES.contains(&order_by.as_str()) {
-                let direction = search_params.order
+        let order_clause = if let Some(sort_by) = search_params.sort_by {
+            if Occurrence::FIELD_NAMES.contains(&sort_by.as_str()) {
+                let direction = search_params.sort_direction
                     .as_ref()
                     .and_then(|d| {
                         let upper = d.to_uppercase();
@@ -543,7 +557,7 @@ impl Database {
                         }
                     })
                     .unwrap_or_else(|| "ASC".to_string());
-                format!(" ORDER BY {} {}", order_by, direction)
+                format!(" ORDER BY {} {}", Self::quote_identifier(&sort_by), direction)
             } else {
                 String::new()
             }
@@ -664,9 +678,10 @@ impl Database {
             });
         }
 
+        let quoted = Self::quote_identifier(column_name);
         let query = format!(
             "SELECT DISTINCT {} FROM occurrences WHERE {} IS NOT NULL AND {} ILIKE ? ORDER BY {} LIMIT ?",
-            column_name, column_name, column_name, column_name
+            quoted, quoted, quoted, quoted
         );
 
         let mut stmt = self.conn.prepare(&query)?;
@@ -706,16 +721,18 @@ impl Database {
             );
 
         // Build subquery for aggregation with MIN(core_id_column)
+        let quoted_field = Self::quote_identifier(field_name);
+        let quoted_core_id = Self::quote_identifier(core_id_column);
         let mut subquery = format!(
             "SELECT {} as value, COUNT(*) as count, MIN({}) as min_core_id FROM occurrences",
-            field_name, core_id_column
+            quoted_field, quoted_core_id
         );
 
         if !where_clause.is_empty() {
             subquery.push_str(&where_clause);
         }
 
-        subquery.push_str(&format!(" GROUP BY {}", field_name));
+        subquery.push_str(&format!(" GROUP BY {}", quoted_field));
 
         // Build JOIN clauses based on available extension tables
         let mut joins = String::new();
@@ -735,12 +752,14 @@ impl Database {
                 .iter()
                 .find(|(ext, _)| *ext == chuck_core::DwcaExtension::Audiovisual)
                 .unwrap();
+            let quoted_mm_coreid = Self::quote_identifier(multimedia_coreid);
+            let quoted_av_coreid = Self::quote_identifier(audiovisual_coreid);
             joins.push_str(&format!(
                 " LEFT JOIN {} m ON m.{} = agg.min_core_id LEFT JOIN {} a ON a.{} = agg.min_core_id",
                 chuck_core::DwcaExtension::SimpleMultimedia.table_name(),
-                multimedia_coreid,
+                quoted_mm_coreid,
                 chuck_core::DwcaExtension::Audiovisual.table_name(),
-                audiovisual_coreid
+                quoted_av_coreid
             ));
             photo_select = "COALESCE(m.identifier, a.access_uri)".to_string();
         } else if has_multimedia {
@@ -748,10 +767,11 @@ impl Database {
                 .iter()
                 .find(|(ext, _)| *ext == chuck_core::DwcaExtension::SimpleMultimedia)
                 .unwrap();
+            let quoted_mm_coreid = Self::quote_identifier(multimedia_coreid);
             joins.push_str(&format!(
                 " LEFT JOIN {} m ON m.{} = agg.min_core_id",
                 chuck_core::DwcaExtension::SimpleMultimedia.table_name(),
-                multimedia_coreid
+                quoted_mm_coreid
             ));
             photo_select = "m.identifier".to_string();
         } else if has_audiovisual {
@@ -759,10 +779,11 @@ impl Database {
                 .iter()
                 .find(|(ext, _)| *ext == chuck_core::DwcaExtension::Audiovisual)
                 .unwrap();
+            let quoted_av_coreid = Self::quote_identifier(audiovisual_coreid);
             joins.push_str(&format!(
                 " LEFT JOIN {} a ON a.{} = agg.min_core_id",
                 chuck_core::DwcaExtension::Audiovisual.table_name(),
-                audiovisual_coreid
+                quoted_av_coreid
             ));
             photo_select = "a.access_uri".to_string();
         }
@@ -804,13 +825,15 @@ impl Database {
         occurrence_id: &str,
     ) -> Result<serde_json::Map<String, serde_json::Value>> {
         // Build extension subqueries (same pattern as search method)
+        let quoted_core_id = Self::quote_identifier(core_id_column);
         let extension_subqueries: Vec<String> = self.extension_tables
             .iter()
             .map(|(extension, ext_core_id_col)| {
                 let table_name = extension.table_name();
+                let quoted_ext_core_id = Self::quote_identifier(ext_core_id_col);
                 format!(
                     "(SELECT COALESCE(to_json(list({})), '[]') FROM {} WHERE {}.{} = occurrences.{}) as {}",
-                    table_name, table_name, table_name, ext_core_id_col, core_id_column, table_name
+                    table_name, table_name, table_name, quoted_ext_core_id, quoted_core_id, table_name
                 )
             })
             .collect();
@@ -824,7 +847,7 @@ impl Database {
         // Build query with WHERE clause on core_id_column
         let query = format!(
             "SELECT {} FROM occurrences WHERE {} = ?",
-            select_fields, core_id_column
+            select_fields, quoted_core_id
         );
 
         let mut stmt = self.conn.prepare(&query)?;
@@ -1075,8 +1098,8 @@ mod tests {
         filters.insert("scientificName".to_string(), "foo".to_string());
         let search_result = db.search(10, 0, SearchParams {
             filters,
-            order_by: Some("occurrenceID".to_string()),
-            order: None,
+            sort_by: Some("occurrenceID".to_string()),
+            sort_direction: None,
             nelat: None,
             nelng: None,
             swlat: None,
@@ -1282,11 +1305,11 @@ mod tests {
     }
 
     #[test]
-    fn test_sql_parts_only_allows_known_order_by() {
+    fn test_sql_parts_only_allows_known_sort_by() {
         let params = crate::search_params::SearchParams {
             filters: HashMap::new(),
-            order_by: Some("foo".to_string()),
-            order: None,
+            sort_by: Some("foo".to_string()),
+            sort_direction: None,
             nelat: None,
             nelng: None,
             swlat: None,
@@ -1301,8 +1324,8 @@ mod tests {
         // Create params with bbox fields populated
         let params = crate::search_params::SearchParams {
             filters: HashMap::new(),
-            order_by: None,
-            order: None,
+            sort_by: None,
+            sort_direction: None,
             nelat: Some("40.0".to_string()),
             nelng: Some("-120.0".to_string()),
             swlat: Some("35.0".to_string()),
@@ -1330,8 +1353,8 @@ mod tests {
 
         let params = crate::search_params::SearchParams {
             filters,
-            order_by: None,
-            order: None,
+            sort_by: None,
+            sort_direction: None,
             nelat: Some("40.0".to_string()),
             nelng: Some("-120.0".to_string()),
             swlat: Some("35.0".to_string()),
@@ -1478,8 +1501,8 @@ mod tests {
         // Test ASC order
         let params_asc = SearchParams {
             filters: HashMap::new(),
-            order_by: Some("scientificName".to_string()),
-            order: Some("ASC".to_string()),
+            sort_by: Some("scientificName".to_string()),
+            sort_direction: Some("ASC".to_string()),
             nelat: None,
             nelng: None,
             swlat: None,
@@ -1492,8 +1515,8 @@ mod tests {
         // Test DESC order
         let params_desc = SearchParams {
             filters: HashMap::new(),
-            order_by: Some("scientificName".to_string()),
-            order: Some("DESC".to_string()),
+            sort_by: Some("scientificName".to_string()),
+            sort_direction: Some("DESC".to_string()),
             nelat: None,
             nelng: None,
             swlat: None,
@@ -1529,8 +1552,8 @@ mod tests {
         // Test ASC order - should be numeric ordering
         let params_asc = SearchParams {
             filters: HashMap::new(),
-            order_by: Some("decimalLatitude".to_string()),
-            order: Some("ASC".to_string()),
+            sort_by: Some("decimalLatitude".to_string()),
+            sort_direction: Some("ASC".to_string()),
             nelat: None,
             nelng: None,
             swlat: None,
@@ -1554,8 +1577,8 @@ mod tests {
         // Test DESC order
         let params_desc = SearchParams {
             filters: HashMap::new(),
-            order_by: Some("decimalLatitude".to_string()),
-            order: Some("DESC".to_string()),
+            sort_by: Some("decimalLatitude".to_string()),
+            sort_direction: Some("DESC".to_string()),
             nelat: None,
             nelng: None,
             swlat: None,
@@ -1590,8 +1613,8 @@ mod tests {
         filters.insert("decimalLatitude".to_string(), "3".to_string());
         let search_result = db.search(10, 0, SearchParams {
             filters: filters.clone(),
-            order_by: Some("occurrenceID".to_string()),
-            order: None,
+            sort_by: Some("occurrenceID".to_string()),
+            sort_direction: None,
             nelat: None,
             nelng: None,
             swlat: None,
@@ -1609,8 +1632,8 @@ mod tests {
         filters.insert("decimalLatitude".to_string(), "3.1".to_string());
         let search_result = db.search(10, 0, SearchParams {
             filters: filters.clone(),
-            order_by: Some("occurrenceID".to_string()),
-            order: None,
+            sort_by: Some("occurrenceID".to_string()),
+            sort_direction: None,
             nelat: None,
             nelng: None,
             swlat: None,
@@ -1628,8 +1651,8 @@ mod tests {
         filters.insert("decimalLatitude".to_string(), "3.14".to_string());
         let search_result = db.search(10, 0, SearchParams {
             filters: filters.clone(),
-            order_by: Some("occurrenceID".to_string()),
-            order: None,
+            sort_by: Some("occurrenceID".to_string()),
+            sort_direction: None,
             nelat: None,
             nelng: None,
             swlat: None,
@@ -1647,8 +1670,8 @@ mod tests {
         filters.insert("decimalLatitude".to_string(), "30".to_string());
         let search_result = db.search(10, 0, SearchParams {
             filters: filters.clone(),
-            order_by: Some("occurrenceID".to_string()),
-            order: None,
+            sort_by: Some("occurrenceID".to_string()),
+            sort_direction: None,
             nelat: None,
             nelng: None,
             swlat: None,
@@ -1789,5 +1812,90 @@ mod tests {
 
         // Cleanup
         std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_search_filter_by_reserved_keyword_order() {
+        // Test that filtering, sorting, and aggregating by SQL reserved keyword
+        // columns like "order" works correctly. Without proper quoting, these
+        // operations would fail with SQL syntax errors.
+
+        let csv_data = br#"occurrenceID,scientificName,class,order,family
+1,Quercus agrifolia,Magnoliopsida,Fagales,Fagaceae
+2,Pinus radiata,Pinopsida,Pinales,Pinaceae
+3,Sequoiadendron giganteum,Pinopsida,Pinales,Cupressaceae
+4,Rosa californica,Magnoliopsida,Rosales,Rosaceae
+"#;
+
+        let fixture = TestFixture::new("reserved_keyword_order", vec![csv_data]);
+        let db = Database::create_from_core_files(
+            &fixture.csv_paths,
+            &vec![],
+            &fixture.db_path,
+            "occurrenceID"
+        ).unwrap();
+
+        // Test 1: Filter by "order" column (SQL reserved keyword)
+        let mut filters = HashMap::new();
+        filters.insert("order".to_string(), "Pinales".to_string());
+        let search_result = db.search(10, 0, SearchParams {
+            filters,
+            sort_by: None,
+            sort_direction: None,
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
+        }, None).unwrap();
+
+        assert_eq!(search_result.total, 2, "Should find 2 Pinales records");
+
+        // Test 2: Sort by "order" column
+        let params = SearchParams {
+            filters: HashMap::new(),
+            sort_by: Some("order".to_string()),
+            sort_direction: Some("ASC".to_string()),
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
+        };
+        let sorted_result = db.search(10, 0, params, Some(vec!["order".to_string()])).unwrap();
+        assert_eq!(sorted_result.results.len(), 4);
+        // Should be sorted: Fagales, Pinales, Pinales, Rosales
+        let first_order = sorted_result.results[0].get("order")
+            .and_then(|v| v.as_str());
+        assert_eq!(first_order, Some("Fagales"));
+
+        // Test 3: Autocomplete on "order" column
+        let suggestions = db.get_autocomplete_suggestions("order", "Pin", 10).unwrap();
+        assert_eq!(suggestions.len(), 1);
+        assert_eq!(suggestions[0], "Pinales");
+
+        // Test 4: Aggregate by "order" column
+        let params = SearchParams::default();
+        let agg_result = db.aggregate_by_field("order", &params, 10, "occurrenceID").unwrap();
+        assert_eq!(agg_result.len(), 3); // Fagales, Pinales, Rosales
+
+        // Verify Pinales appears in aggregation with count of 2
+        let pinales = agg_result.iter().find(|r| {
+            r.value.as_ref().map(|v| v.as_str()) == Some("Pinales")
+        });
+        assert!(pinales.is_some());
+        assert_eq!(pinales.unwrap().count, 2);
+
+        // Test 5: Also verify "class" column works (another SQL keyword)
+        let mut filters = HashMap::new();
+        filters.insert("class".to_string(), "Pinopsida".to_string());
+        let search_result = db.search(10, 0, SearchParams {
+            filters,
+            sort_by: None,
+            sort_direction: None,
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
+        }, None).unwrap();
+        assert_eq!(search_result.total, 2, "Should find 2 Pinopsida records");
     }
 }

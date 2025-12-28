@@ -5,8 +5,8 @@ use url::Url;
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct SearchParams {
-    pub order_by: Option<String>,
-    pub order: Option<String>,
+    pub sort_by: Option<String>,
+    pub sort_direction: Option<String>,
 
     // Bounding box parameters (all four must be present to filter by bbox)
     pub nelat: Option<String>,
@@ -27,8 +27,8 @@ impl SearchParams {
         let query_hash: HashMap<String, String> = url.query_pairs().into_owned().collect();
 
         let mut filters = HashMap::new();
-        let mut order_by = None;
-        let mut order = None;
+        let mut sort_by = None;
+        let mut sort_direction = None;
         let mut nelat = None;
         let mut nelng = None;
         let mut swlat = None;
@@ -36,8 +36,8 @@ impl SearchParams {
 
         for (key, value) in query_hash {
             match key.as_str() {
-                "order_by" => order_by = Some(value),
-                "order" => order = Some(value),
+                "sort_by" => sort_by = Some(value),
+                "sort_direction" => sort_direction = Some(value),
                 "nelat" => nelat = Some(value),
                 "nelng" => nelng = Some(value),
                 "swlat" => swlat = Some(value),
@@ -50,8 +50,8 @@ impl SearchParams {
 
         SearchParams {
             filters,
-            order_by,
-            order,
+            sort_by,
+            sort_direction,
             nelat,
             nelng,
             swlat,
@@ -83,27 +83,27 @@ mod tests {
     }
 
     #[test]
-    fn test_search_params_from_uri_with_order_by() {
+    fn test_search_params_from_uri_with_sort_by() {
         assert_eq!(
-            params_from_url("http://local/?order_by=foo".to_string()).order_by,
+            params_from_url("http://local/?sort_by=foo".to_string()).sort_by,
             Some("foo".to_string())
         );
     }
 
     #[test]
-    fn test_search_params_from_uri_with_order() {
+    fn test_search_params_from_uri_with_sort_direction() {
         assert_eq!(
-            params_from_url("http://local/?order=foo".to_string()).order,
+            params_from_url("http://local/?sort_direction=foo".to_string()).sort_direction,
             Some("foo".to_string())
         );
     }
 
     #[test]
     fn test_search_params_from_uri_with_filters_and_sorting() {
-        let params = params_from_url("http://local/?scientificName=foo&order_by=genus&order=DESC".to_string());
+        let params = params_from_url("http://local/?scientificName=foo&sort_by=genus&sort_direction=DESC".to_string());
         assert_eq!(params.filters.get("scientificName"), Some(&"foo".to_string()));
-        assert_eq!(params.order_by, Some("genus".to_string()));
-        assert_eq!(params.order, Some("DESC".to_string()));
+        assert_eq!(params.sort_by, Some("genus".to_string()));
+        assert_eq!(params.sort_direction, Some("DESC".to_string()));
     }
 
     #[test]

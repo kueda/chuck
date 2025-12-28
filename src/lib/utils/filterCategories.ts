@@ -1,15 +1,13 @@
 // Categorizes Darwin Core column names into logical groups for filter organization
 
 // SearchParams matches the backend's flattened structure (using #[serde(flatten)])
-// All Darwin Core fields are at the same level as order_by/order
-// Note: The Darwin Core "order" taxonomy field conflicts with the sort "order" field,
-// so it cannot be filtered (backend reserves "order" and "order_by")
+// All Darwin Core fields are at the same level as sort_by/sort_direction
 export interface SearchParams {
   // Taxonomy
   scientificName?: string;
   genus?: string;
   family?: string;
-  // order?: string;  // CONFLICT: reserved for sort direction
+  order?: string;
   class?: string;
   phylum?: string;
   kingdom?: string;
@@ -77,8 +75,8 @@ export interface SearchParams {
   collectionCode?: string;
 
   // Sorting (reserved field names, not filters)
-  order_by?: string;
-  order?: 'ASC' | 'DESC';
+  sort_by?: string;
+  sort_direction?: 'ASC' | 'DESC';
 }
 
 export interface FilterCategory {
@@ -91,8 +89,7 @@ const TAXONOMY_COLUMNS: (keyof SearchParams)[] = [
   'kingdom',
   'phylum',
   'class',
-  // TODO: figure out a way to support filtering by order that doesn't conflict with sort control
-  // 'order',
+  'order',
   'superfamily',
   'family',
   'subfamily',

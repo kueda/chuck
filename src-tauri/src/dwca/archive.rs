@@ -188,7 +188,7 @@ impl Archive {
         fields: Option<Vec<String>>,
     ) -> Result<crate::commands::archive::SearchResult> {
         let params = SearchParams {
-            order_by: search_params.order_by.clone().or(Some(self.core_id_column.clone())),
+            sort_by: search_params.sort_by.clone().or(Some(self.core_id_column.clone())),
             ..search_params
         };
         self.db.search(

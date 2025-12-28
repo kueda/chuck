@@ -223,16 +223,16 @@
     // Toggle between ASC and DESC (no "clear" state since results are always sorted)
     let newDirection: 'ASC' | 'DESC' = 'ASC';
 
-    if (searchParams.order_by === column) {
+    if (searchParams.sort_by === column) {
       // Same column - toggle direction
-      newDirection = searchParams.order === 'ASC' ? 'DESC' : 'ASC';
+      newDirection = searchParams.sort_direction === 'ASC' ? 'DESC' : 'ASC';
     }
     // Different column - start with ASC
 
     const params: SearchParams = {
       ...searchParams,
-      order_by: column,
-      order: newDirection,
+      sort_by: column,
+      sort_direction: newDirection,
     };
 
     handleSearchChange(params);
@@ -287,8 +287,8 @@
 
       // Set default sort to Core ID
       searchParams = {
-        order_by: archive.coreIdColumn,
-        order: 'ASC',
+        sort_by: archive.coreIdColumn,
+        sort_direction: 'ASC',
       };
     }
   });
@@ -501,8 +501,8 @@
                 availableColumns={archive.availableColumns}
                 {visibleColumns}
                 {scrollState}
-                currentSortColumn={searchParams.order_by}
-                currentSortDirection={searchParams.order}
+                currentSortColumn={searchParams.sort_by}
+                currentSortDirection={searchParams.sort_direction}
                 onColumnHeaderClick={handleColumnHeaderClick}
                 onVisibleColumnsChange={handleVisibleColumnsChange}
               />
