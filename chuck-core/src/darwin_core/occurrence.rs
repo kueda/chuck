@@ -74,9 +74,9 @@ pub struct Occurrence {
     #[serde(rename = "infraspecificEpithet")]
     pub infraspecific_epithet: Option<String>,
 
-    /// iNaturalist taxon ID
+    /// Taxon identifier
     #[serde(rename = "taxonID")]
-    pub taxon_id: Option<i32>,
+    pub taxon_id: Option<String>,
 
     /// Comments or notes about the Occurrence
     #[serde(rename = "occurrenceRemarks")]
@@ -1019,7 +1019,7 @@ impl Occurrence {
             self.genus.clone().unwrap_or_default(),
             self.specific_epithet.clone().unwrap_or_default(),
             self.infraspecific_epithet.clone().unwrap_or_default(),
-            self.taxon_id.map_or(String::new(), |taxon_id| taxon_id.to_string()),
+            self.taxon_id.clone().unwrap_or_default(),
             self.occurrence_remarks.clone().unwrap_or_default(),
             self.establishment_means.clone().unwrap_or_default(),
             self.georeferenced_date.clone().unwrap_or_default(),

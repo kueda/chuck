@@ -280,7 +280,7 @@ impl From<(&Observation, &HashMap<i32, ShowTaxon>)> for Occurrence {
 
         Occurrence {
             id: None,
-            occurrence_id: obs.id.map(|id| format!("{}", id)).unwrap_or_default(),
+            occurrence_id: obs.id.map(|id| format!("https://www.inaturalist.org/observations/{}", id)).unwrap_or_default(),
             basis_of_record: "HumanObservation".to_string(),
             recorded_by,
             event_date,
@@ -298,7 +298,12 @@ impl From<(&Observation, &HashMap<i32, ShowTaxon>)> for Occurrence {
             genus,
             specific_epithet: None, // Would need name parsing
             infraspecific_epithet: None, // Would need name parsing
-            taxon_id: obs.taxon.as_ref().and_then(|t| t.id),
+            taxon_id: obs.taxon.as_ref()
+                .and_then(|t|
+                    t.id.and_then(|id|
+                        Some(format!("https://www.inaturalist.org/taxa/{}", id))
+                    )
+                ),
             occurrence_remarks,
             establishment_means,
             georeferenced_date: None, // iNaturalist doesn't provide this specifically
@@ -555,7 +560,7 @@ impl From<(&inaturalist::models::Photo, &str, Option<&inaturalist::models::User>
 
         Self {
             coreid: None,
-            occurrence_id: occurrence_id.to_string(),
+            occurrence_id: format!("https://www.inaturalist.org/observations/{}", occurrence_id),
             r#type: Some("StillImage".to_string()),
             format: Some("image/jpeg".to_string()), // iNaturalist photos are typically JPEG
             identifier,
@@ -630,7 +635,7 @@ impl From<(&inaturalist::models::Photo, &str, &Observation, &HashMap<i32, String
 
         Self {
             coreid: None,
-            occurrence_id: occurrence_id.to_string(),
+            occurrence_id: format!("https://www.inaturalist.org/observations/{}", occurrence_id),
             identifier,
             r#type: Some("StillImage".to_string()),
             title: None,
@@ -840,13 +845,16 @@ impl From<(&inaturalist::models::Identification, &str, &HashMap<i32, ShowTaxon>)
 
         Self {
             coreid: None,
-            occurrence_id: occurrence_id.to_string(),
+            occurrence_id: format!("https://www.inaturalist.org/observations/{}", occurrence_id),
             identification_id: identification.id.map(|id| id.to_string()),
             identified_by,
             identified_by_id,
             date_identified: identification.created_at.clone(),
             identification_remarks: identification.body.clone(),
-            taxon_id: identification.taxon.as_ref().and_then(|t| t.id.map(|id| id.to_string())),
+            taxon_id: identification.taxon.as_ref()
+                .and_then(|t|
+                    t.id.map(|id| format!("https://www.inaturalist.org/taxa/{}", id))
+                ),
             scientific_name: identification.taxon.as_ref().and_then(|t| t.name.clone()),
             taxon_rank: identification.taxon.as_ref().and_then(|t| t.rank.clone()),
             vernacular_name: identification.taxon.as_ref().and_then(|t| t.preferred_common_name.clone()),
@@ -875,7 +883,7 @@ impl From<(&inaturalist::models::Identification, &str, &HashMap<i32, ShowTaxon>)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use inaturalist::models::Observation;
+    use inaturalist::models::{Observation, ObservationTaxon};
 
     static LAT: f64 = 1.0;
     static LNG: f64 = 2.0;
@@ -1419,5 +1427,33 @@ mod tests {
         let occurrence = Occurrence::from(&obs);
 
         assert_eq!(occurrence.reproductive_condition, Some("fruiting".to_string()));
+    }
+
+    #[test]
+    fn test_occ_occurrence_id_to_uri() {
+        let mut obs = Observation::default();
+        obs.id = Some(123);
+        let occ = Occurrence::from(&obs);
+        assert!(obs.id.is_some());
+        assert_eq!(
+            occ.occurrence_id,
+            format!("https://www.inaturalist.org/observations/{}", obs.id.unwrap())
+        );
+    }
+
+    #[test]
+    fn test_occ_taxon_id_to_uri() {
+        let mut obs = Observation::default();
+        let mut taxon = ObservationTaxon::default();
+        let taxon_id = 456;
+        taxon.id = Some(taxon_id);
+        obs.taxon = Some(Box::new(taxon));
+        let occ = Occurrence::from(&obs);
+        assert!(obs.taxon.is_some());
+        assert!(obs.taxon.unwrap().id.is_some());
+        assert_eq!(
+            occ.taxon_id,
+            Some(format!("https://www.inaturalist.org/taxa/{}", taxon_id))
+        );
     }
 }

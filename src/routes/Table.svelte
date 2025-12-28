@@ -139,6 +139,14 @@
     event.stopPropagation();
     onColumnHeaderClick(columnField);
   }
+
+  function shorten(text: string) {
+    if (text?.toString().match(/http/)) {
+      const pieces = text.split('/');
+      return `...${pieces[pieces.length - 1]}`;
+    }
+    return text;
+  }
 </script>
 
 <!--
@@ -277,7 +285,10 @@
                   "outline-2 outline-primary-200": virtualRow.index === drawerState.selectedOccurrenceIndex
                 }}
                 style="height: {virtualRow.size}px;"
-                onclick={() => occurrence && drawerHandlers.handleOccurrenceClick(occurrence, virtualRow.index)}
+                onclick={() => (
+                  occurrence
+                  && drawerHandlers.handleOccurrenceClick(occurrence, virtualRow.index)
+                )}
                 onkeydown={(e) => {
                   if (occurrence && (e.key === 'Enter' || e.key === ' ')) {
                     e.preventDefault();
@@ -290,8 +301,17 @@
                 {#if occurrence}
                   <div class="table-cell w-8 shrink-0"></div>
                   {#each dndColumns as column, index}
-                    <div class="table-cell truncate shrink-0 {getColumnWidthClass(column.field)} p-1 {draggedColumnIndex === index ? 'opacity-40' : ''}">
-                      {occurrence[column.field as keyof Occurrence]}
+                    <div
+                      class="
+                        table-cell
+                        truncate
+                        shrink-0
+                        {getColumnWidthClass(column.field)}
+                        p-1
+                        {draggedColumnIndex === index ? 'opacity-40' : ''}
+                      "
+                    >
+                      {shorten(occurrence[column.field as keyof Occurrence])}
                     </div>
                   {/each}
                 {:else}

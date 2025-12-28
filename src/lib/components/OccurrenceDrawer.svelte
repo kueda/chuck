@@ -214,7 +214,7 @@
               </button>
             {/if}
           </div>
-          <div>{coreIdColumn}: {occurrenceId}</div>
+          <div class="center"><Markup text={`${coreIdColumn}: ${occurrenceId}`} /></div>
           <Dialog.CloseTrigger class="btn btn-sm">
             <X size={20} />
             Close
@@ -373,7 +373,7 @@
                   {#if value && !['multimedia', 'audiovisual', 'identifications'].includes(key)}
                     <div>
                       <dt class="text-sm text-gray-500">{key}</dt>
-                      <dd class="font-medium text-sm break-words">{value}</dd>
+                      <dd class="font-medium text-sm break-words"><Markup text={value.toString()} /></dd>
                     </div>
                   {/if}
                 {/each}

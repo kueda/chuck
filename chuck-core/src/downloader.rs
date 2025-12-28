@@ -498,7 +498,10 @@ mod tests {
         let multimedia = convert_to_multimedia(&observations, &photo_mapping);
 
         assert_eq!(multimedia.len(), 1);
-        assert_eq!(multimedia[0].occurrence_id, "123");
+        assert_eq!(
+            multimedia[0].occurrence_id,
+            "https://www.inaturalist.org/observations/123"
+        );
     }
 
     #[test]
@@ -542,7 +545,10 @@ mod tests {
         let audiovisual = convert_to_audiovisual(&observations, &photo_mapping);
 
         assert_eq!(audiovisual.len(), 1);
-        assert_eq!(audiovisual[0].occurrence_id, "123");
+        assert_eq!(
+            audiovisual[0].occurrence_id,
+            "https://www.inaturalist.org/observations/123"
+        );
     }
 
     #[test]
@@ -564,7 +570,10 @@ mod tests {
         let identifications = convert_to_identifications(&observations, &taxa_hash);
 
         assert_eq!(identifications.len(), 1);
-        assert_eq!(identifications[0].occurrence_id, "123");
+        assert_eq!(
+            identifications[0].occurrence_id,
+            "https://www.inaturalist.org/observations/123"
+        );
     }
 
 }

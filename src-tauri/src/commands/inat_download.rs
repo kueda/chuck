@@ -199,7 +199,7 @@ mod tests {
 
         // Should have created multimedia records
         assert_eq!(multimedia.len(), 1);
-        assert_eq!(multimedia[0].occurrence_id, "123");
+        assert_eq!(multimedia[0].occurrence_id, "https://www.inaturalist.org/observations/123");
     }
 
     #[test]
