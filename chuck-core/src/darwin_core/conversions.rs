@@ -279,6 +279,7 @@ impl From<(&Observation, &HashMap<i32, ShowTaxon>)> for Occurrence {
         let license = obs.license_code.clone();
 
         Occurrence {
+            id: None,
             occurrence_id: obs.id.map(|id| format!("{}", id)).unwrap_or_default(),
             basis_of_record: "HumanObservation".to_string(),
             recorded_by,
@@ -553,6 +554,7 @@ impl From<(&inaturalist::models::Photo, &str, Option<&inaturalist::models::User>
         let rights_holder = user.and_then(|u| u.login.clone());
 
         Self {
+            coreid: None,
             occurrence_id: occurrence_id.to_string(),
             r#type: Some("StillImage".to_string()),
             format: Some("image/jpeg".to_string()), // iNaturalist photos are typically JPEG
@@ -627,6 +629,7 @@ impl From<(&inaturalist::models::Photo, &str, &Observation, &HashMap<i32, String
         let (pixel_x_dimension, pixel_y_dimension) = (None, None);
 
         Self {
+            coreid: None,
             occurrence_id: occurrence_id.to_string(),
             identifier,
             r#type: Some("StillImage".to_string()),
@@ -836,6 +839,7 @@ impl From<(&inaturalist::models::Identification, &str, &HashMap<i32, ShowTaxon>)
         };
 
         Self {
+            coreid: None,
             occurrence_id: occurrence_id.to_string(),
             identification_id: identification.id.map(|id| id.to_string()),
             identified_by,

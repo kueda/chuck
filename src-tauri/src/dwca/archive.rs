@@ -1,4 +1,5 @@
 use rayon::prelude::*;
+use roxmltree::Node;
 use std::collections::HashSet;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
@@ -151,7 +152,7 @@ impl Archive {
         // Parse meta.xml to get extension information
         let (_core_files, core_id_column, extensions) = parse_meta_xml(&storage_dir)?;
 
-        let db = Database::open(&db_path, &extensions)?;
+        let db = Database::open(&db_path, core_id_column.clone(), &extensions)?;
 
         Ok(Self {
             storage_dir,
@@ -247,7 +248,12 @@ impl Archive {
             where_clause,
             mut where_interpolations,
             _
-        ) = Database::sql_parts(search_params, None, &vec![]);
+        ) = Database::sql_parts(
+            search_params,
+            None,
+            self.core_id_column.as_ref(),
+            &vec![]
+        );
 
         // Determine grid cell size based on zoom level
         // At low zoom, use coarse grid to reduce points while preserving spatial extent
@@ -661,6 +667,55 @@ fn get_needed_files_from_meta(storage_dir: &Path) -> Result<std::collections::Ha
     Ok(needed_files)
 }
 
+fn parse_core_id_column(node: Node, index_elt_name: &str) -> Option<String> {
+    // Parse core ID field - this is the column that extensions will reference
+    let index_elt_index = node
+        .descendants()
+        .find(|n| n.has_tag_name(index_elt_name))
+        .and_then(|id_node| id_node.attribute("index"))
+        .and_then(|idx| idx.parse::<usize>().ok());
+
+    // Find the core ID column name by looking up the field at that index
+    if let Some(id_index) = index_elt_index {
+        let mut col = node
+            .descendants()
+            .filter(|n| n.has_tag_name("field"))
+            .find(|field_node| {
+                field_node
+                    .attribute("index")
+                    .and_then(|idx| idx.parse::<usize>().ok())
+                == Some(id_index)
+            })
+            .and_then(|field_node| field_node.attribute("term"))
+            .and_then(|term| {
+                // Extract the column name from the term URL
+                // e.g., "http://rs.gbif.org/terms/1.0/gbifID" -> "gbifID"
+                term.rsplit('/')
+                    .next()
+                    .or_else(|| term.rsplit('#').next())
+            })
+            .map(|s| s.to_string());
+        // If there's no <field> element matching the index, make sure the
+        // index elt (<id> or <coreid>) is present
+        if col.is_none() {
+            let idx_elt = node.descendants()
+                .filter(|n| n.has_tag_name(index_elt_name))
+                .find(|field_node| {
+                    field_node
+                        .attribute("index")
+                        .and_then(|idx| idx.parse::<usize>().ok())
+                    == Some(id_index)
+                });
+            if idx_elt.is_some() {
+                col = Some(index_elt_name.to_string());
+            }
+        }
+        col
+    } else {
+        None
+    }
+}
+
 fn parse_meta_xml(storage_dir: &Path) -> Result<(Vec<PathBuf>, String, Vec<ExtensionInfo>)> {
     let meta_path = storage_dir.join("meta.xml");
     let contents = std::fs::read_to_string(&meta_path).map_err(|e| ChuckError::FileRead {
@@ -691,36 +746,7 @@ fn parse_meta_xml(storage_dir: &Path) -> Result<(Vec<PathBuf>, String, Vec<Exten
         return Err(ChuckError::NoCoreFiles);
     }
 
-    // Parse core ID field - this is the column that extensions will reference
-    let core_id_index = core_node
-        .descendants()
-        .find(|n| n.has_tag_name("id"))
-        .and_then(|id_node| id_node.attribute("index"))
-        .and_then(|idx| idx.parse::<usize>().ok());
-
-    // Find the core ID column name by looking up the field at that index
-    let core_id_column = if let Some(id_index) = core_id_index {
-        core_node
-            .descendants()
-            .filter(|n| n.has_tag_name("field"))
-            .find(|field_node| {
-                field_node
-                    .attribute("index")
-                    .and_then(|idx| idx.parse::<usize>().ok())
-                    == Some(id_index)
-            })
-            .and_then(|field_node| field_node.attribute("term"))
-            .and_then(|term| {
-                // Extract the column name from the term URL
-                // e.g., "http://rs.gbif.org/terms/1.0/gbifID" -> "gbifID"
-                term.rsplit('/')
-                    .next()
-                    .or_else(|| term.rsplit('#').next())
-            })
-            .map(|s| s.to_string())
-    } else {
-        None
-    };
+    let core_id_column = parse_core_id_column(core_node, "id");
 
     let core_id_column = core_id_column.unwrap_or_else(|| {
         log::warn!("Could not determine core ID column from meta.xml, defaulting to 'occurrenceID'");
@@ -746,11 +772,14 @@ fn parse_meta_xml(storage_dir: &Path) -> Result<(Vec<PathBuf>, String, Vec<Exten
 
             let location = storage_dir.join(location_text);
 
+            let ext_core_id_column = parse_core_id_column(ext_node, "coreid")
+                .ok_or_else(|| ChuckError::NoExtensionCoreId(row_type.to_string()));
+
             Some(ExtensionInfo {
                 row_type: row_type.to_string(),
                 location,
                 extension,
-                core_id_column: core_id_column.clone(),
+                core_id_column: ext_core_id_column.unwrap()
             })
         })
         .collect();
@@ -998,21 +1027,29 @@ mod tests {
     <files>
       <location>occurrence.csv</location>
     </files>
+    <id index="0" />
+    <field index="0" term="http://rs.gbif.org/terms/1.0/gbifID"/>
   </core>
   <extension encoding="UTF-8" rowType="http://rs.gbif.org/terms/1.0/Multimedia">
     <files>
       <location>multimedia.csv</location>
     </files>
+    <coreid index="0" />
+    <field index="0" term="http://rs.gbif.org/terms/1.0/gbifID"/>
   </extension>
   <extension encoding="UTF-8" rowType="http://rs.tdwg.org/ac/terms/Multimedia">
     <files>
       <location>audiovisual.csv</location>
     </files>
+    <coreid index="0" />
+    <field index="0" term="http://rs.gbif.org/terms/1.0/gbifID"/>
   </extension>
   <extension encoding="UTF-8" rowType="http://rs.tdwg.org/dwc/terms/Identification">
     <files>
       <location>identification.csv</location>
     </files>
+    <coreid index="0" />
+    <field index="0" term="http://rs.gbif.org/terms/1.0/gbifID"/>
   </extension>
 </archive>"#;
         let fixture = UnzippedArchiveFixture::new(
@@ -1031,7 +1068,7 @@ mod tests {
         assert_eq!(extensions[0].extension, chuck_core::DwcaExtension::SimpleMultimedia);
         assert_eq!(extensions[0].extension.table_name(), "multimedia");
         assert_eq!(extensions[0].row_type, "http://rs.gbif.org/terms/1.0/Multimedia");
-        assert_eq!(extensions[0].core_id_column, "occurrenceID");
+        assert_eq!(extensions[0].core_id_column, "gbifID");
         assert_eq!(
             extensions[0].location.file_name().unwrap(),
             "multimedia.csv"
@@ -1040,7 +1077,7 @@ mod tests {
         assert_eq!(extensions[1].extension, chuck_core::DwcaExtension::Audiovisual);
         assert_eq!(extensions[1].extension.table_name(), "audiovisual");
         assert_eq!(extensions[1].row_type, "http://rs.tdwg.org/ac/terms/Multimedia");
-        assert_eq!(extensions[1].core_id_column, "occurrenceID");
+        assert_eq!(extensions[1].core_id_column, "gbifID");
         assert_eq!(
             extensions[1].location.file_name().unwrap(),
             "audiovisual.csv"
@@ -1049,7 +1086,7 @@ mod tests {
         assert_eq!(extensions[2].extension, chuck_core::DwcaExtension::Identifications);
         assert_eq!(extensions[2].extension.table_name(), "identifications");
         assert_eq!(extensions[2].row_type, "http://rs.tdwg.org/dwc/terms/Identification");
-        assert_eq!(extensions[2].core_id_column, "occurrenceID");
+        assert_eq!(extensions[2].core_id_column, "gbifID");
         assert_eq!(
             extensions[2].location.file_name().unwrap(),
             "identification.csv"
@@ -1064,21 +1101,29 @@ mod tests {
     <files>
       <location>occurrence.csv</location>
     </files>
+    <id index="0" />
+    <field index="0" term="http://rs.gbif.org/terms/1.0/gbifID"/>
   </core>
   <extension encoding="UTF-8" rowType="http://rs.gbif.org/terms/1.0/Multimedia">
     <files>
       <location>multimedia.csv</location>
     </files>
+    <coreid index="0" />
+    <field index="0" term="http://rs.gbif.org/terms/1.0/gbifID"/>
   </extension>
   <extension encoding="UTF-8" rowType="http://rs.tdwg.org/dwc/terms/Occurrence">
     <files>
       <location>verbatim.csv</location>
     </files>
+    <coreid index="0" />
+    <field index="0" term="http://rs.gbif.org/terms/1.0/gbifID"/>
   </extension>
   <extension encoding="UTF-8" rowType="http://rs.tdwg.org/dwc/terms/Identification">
     <files>
       <location>identification.csv</location>
     </files>
+    <coreid index="0" />
+    <field index="0" term="http://rs.gbif.org/terms/1.0/gbifID"/>
   </extension>
 </archive>"#;
         let fixture = UnzippedArchiveFixture::new(
@@ -1098,10 +1143,10 @@ mod tests {
 
         assert_eq!(extensions[0].extension, chuck_core::DwcaExtension::SimpleMultimedia);
         assert_eq!(extensions[0].extension.table_name(), "multimedia");
-        assert_eq!(extensions[0].core_id_column, "occurrenceID");
+        assert_eq!(extensions[0].core_id_column, "gbifID");
         assert_eq!(extensions[1].extension, chuck_core::DwcaExtension::Identifications);
         assert_eq!(extensions[1].extension.table_name(), "identifications");
-        assert_eq!(extensions[1].core_id_column, "occurrenceID");
+        assert_eq!(extensions[1].core_id_column, "gbifID");
 
         // Verify Occurrence extension was not included
         assert!(!extensions.iter().any(|ext| ext.row_type == "http://rs.tdwg.org/dwc/terms/Occurrence"));
@@ -1123,6 +1168,8 @@ mod tests {
     <files>
       <location>multimedia.csv</location>
     </files>
+    <coreid index="0" />
+    <field index="0" term="http://rs.gbif.org/terms/1.0/gbifID"/>
   </extension>
 </archive>"#;
         let fixture = UnzippedArchiveFixture::new(

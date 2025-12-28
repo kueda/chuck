@@ -38,6 +38,7 @@ const TYPE_OVERRIDES: [(&str, &str); 13] = [
 /// Represents a DuckDB database for Darwin Core Archive data
 pub struct Database {
     conn: duckdb::Connection,
+    core_id_column: String,
     /// Extension table metadata: (extension, core_id_column)
     extension_tables: Vec<(chuck_core::DwcaExtension, String)>,
 }
@@ -145,7 +146,7 @@ impl Database {
         // Create extension tables
         let extension_tables = Self::create_extension_tables(&conn, extensions)?;
 
-        Ok(Self { conn, extension_tables })
+        Ok(Self { conn, core_id_column: core_id_column.to_string(), extension_tables })
     }
 
     /// Helper to get column names for a table
@@ -297,7 +298,11 @@ impl Database {
     }
 
     /// Opens an existing database with extension metadata
-    pub fn open(db_path: &Path, extensions: &[ExtensionInfo]) -> Result<Self> {
+    pub fn open(
+        db_path: &Path,
+        core_id_column: String,
+        extensions: &[ExtensionInfo]
+    ) -> Result<Self> {
         let conn = duckdb::Connection::open(db_path)?;
 
         // Build extension_tables from provided extension info
@@ -306,7 +311,7 @@ impl Database {
             .map(|ext| (ext.extension, ext.core_id_column.clone()))
             .collect();
 
-        Ok(Self { conn, extension_tables })
+        Ok(Self { conn, core_id_column, extension_tables })
     }
 
     /// Counts the number of observations in the database
@@ -405,6 +410,7 @@ impl Database {
     pub fn sql_parts(
         search_params: SearchParams,
         fields: Option<Vec<String>>,
+        core_id_column: &str,
         extension_tables: &Vec<(chuck_core::DwcaExtension, String)>,
     ) -> (String, String, Vec<Box<dyn duckdb::ToSql>>, String) {
         // Validate and filter requested fields against allowlist
@@ -431,11 +437,11 @@ impl Database {
         // actually *faster* with larger result sets
         let extension_subqueries: Vec<String> = extension_tables
             .iter()
-            .map(|(extension, core_id_col)| {
+            .map(|(extension, ext_core_id_col)| {
                 let table_name = extension.table_name();
                 format!(
                     "(SELECT COALESCE(to_json(list({})), '[]') FROM {} WHERE {}.{} = occurrences.{}) as {}",
-                    table_name, table_name, table_name, core_id_col, core_id_col, table_name
+                    table_name, table_name, table_name, ext_core_id_col, core_id_column, table_name
                 )
             })
             .collect();
@@ -553,7 +559,12 @@ impl Database {
             where_clause,
             mut where_interpolations,
             order_clause
-        ) = Self::sql_parts(search_params, fields, self.extension_tables.as_ref());
+        ) = Self::sql_parts(
+            search_params,
+            fields,
+            &self.core_id_column,
+            self.extension_tables.as_ref()
+        );
 
         // Execute COUNT query
         let count_query = format!("SELECT COUNT(*) FROM occurrences{}", where_clause);
@@ -680,7 +691,12 @@ impl Database {
         }
 
         let (_, where_clause, where_interpolations, _) =
-            Self::sql_parts(search_params.clone(), None, &self.extension_tables);
+            Self::sql_parts(
+                search_params.clone(),
+                None,
+                core_id_column,
+                &self.extension_tables
+            );
 
         // Build subquery for aggregation with MIN(core_id_column)
         let mut subquery = format!(
@@ -704,26 +720,42 @@ impl Database {
             .any(|(ext, _)| *ext == chuck_core::DwcaExtension::Audiovisual);
 
         if has_multimedia && has_audiovisual {
+            let (_, multimedia_coreid) = self.extension_tables
+                .iter()
+                .find(|(ext, _)| *ext == chuck_core::DwcaExtension::SimpleMultimedia)
+                .unwrap();
+            let (_, audiovisual_coreid) = self.extension_tables
+                .iter()
+                .find(|(ext, _)| *ext == chuck_core::DwcaExtension::Audiovisual)
+                .unwrap();
             joins.push_str(&format!(
                 " LEFT JOIN {} m ON m.{} = agg.min_core_id LEFT JOIN {} a ON a.{} = agg.min_core_id",
                 chuck_core::DwcaExtension::SimpleMultimedia.table_name(),
-                core_id_column,
+                multimedia_coreid,
                 chuck_core::DwcaExtension::Audiovisual.table_name(),
-                core_id_column
+                audiovisual_coreid
             ));
             photo_select = "COALESCE(m.identifier, a.access_uri)".to_string();
         } else if has_multimedia {
+            let (_, multimedia_coreid) = self.extension_tables
+                .iter()
+                .find(|(ext, _)| *ext == chuck_core::DwcaExtension::SimpleMultimedia)
+                .unwrap();
             joins.push_str(&format!(
                 " LEFT JOIN {} m ON m.{} = agg.min_core_id",
                 chuck_core::DwcaExtension::SimpleMultimedia.table_name(),
-                core_id_column
+                multimedia_coreid
             ));
             photo_select = "m.identifier".to_string();
         } else if has_audiovisual {
+            let (_, audiovisual_coreid) = self.extension_tables
+                .iter()
+                .find(|(ext, _)| *ext == chuck_core::DwcaExtension::Audiovisual)
+                .unwrap();
             joins.push_str(&format!(
                 " LEFT JOIN {} a ON a.{} = agg.min_core_id",
                 chuck_core::DwcaExtension::Audiovisual.table_name(),
-                core_id_column
+                audiovisual_coreid
             ));
             photo_select = "a.access_uri".to_string();
         }
@@ -767,11 +799,11 @@ impl Database {
         // Build extension subqueries (same pattern as search method)
         let extension_subqueries: Vec<String> = self.extension_tables
             .iter()
-            .map(|(extension, core_id_col)| {
+            .map(|(extension, ext_core_id_col)| {
                 let table_name = extension.table_name();
                 format!(
                     "(SELECT COALESCE(to_json(list({})), '[]') FROM {} WHERE {}.{} = occurrences.{}) as {}",
-                    table_name, table_name, table_name, core_id_col, core_id_col, table_name
+                    table_name, table_name, table_name, ext_core_id_col, core_id_column, table_name
                 )
             })
             .collect();
@@ -1200,7 +1232,7 @@ mod tests {
         ).unwrap();
 
         // Reopen the database with extension info
-        let reopened_db = Database::open(&db_path, &extensions).unwrap();
+        let reopened_db = Database::open(&db_path, "occurrenceID".to_string(), &extensions).unwrap();
 
         // Verify it has the extension table info
         assert_eq!(reopened_db.extension_tables.len(), 1);
@@ -1222,7 +1254,7 @@ mod tests {
             swlat: None,
             swlng: None,
         };
-        let (_, _, _, order_clause) = Database::sql_parts(params, None, &vec![]);
+        let (_, _, _, order_clause) = Database::sql_parts(params, None, "", &vec![]);
         assert_eq!(order_clause, "");
     }
 
@@ -1239,7 +1271,12 @@ mod tests {
             swlng: Some("-125.0".to_string()),
         };
 
-        let (_select_fields, where_clause, where_interpolations, _order_clause) = Database::sql_parts(params, None, &vec![]);
+        let (
+            _select_fields,
+            where_clause,
+            where_interpolations,
+            _order_clause
+        ) = Database::sql_parts(params, None, "", &vec![]);
 
         // Bbox params should generate WHERE clause conditions
         assert!(where_clause.contains("decimalLatitude"), "Should filter by decimalLatitude");
@@ -1263,7 +1300,12 @@ mod tests {
             swlng: Some("-125.0".to_string()),
         };
 
-        let (_select_fields, where_clause, where_interpolations, _order_clause) = Database::sql_parts(params, None, &vec![]);
+        let (
+            _select_fields,
+            where_clause,
+            where_interpolations,
+            _order_clause
+        ) = Database::sql_parts(params, None, "", &vec![]);
 
         // Should have both scientificName filter AND bbox conditions
         assert!(where_clause.contains("scientificName"), "Should have scientificName filter");
@@ -1650,7 +1692,7 @@ mod tests {
         ).unwrap();
         drop(conn);
 
-        let db = Database::open(&db_path, &vec![]).unwrap();
+        let db = Database::open(&db_path, "".to_string(), &vec![]).unwrap();
 
         let params = SearchParams::default();
         let result = db.aggregate_by_field("basisOfRecord", &params, 1000, "occurrenceID").unwrap();
@@ -1687,7 +1729,7 @@ mod tests {
         ).unwrap();
         drop(conn);
 
-        let db = Database::open(&db_path, &vec![]).unwrap();
+        let db = Database::open(&db_path, "".to_string(), &vec![]).unwrap();
         let params = SearchParams::default();
 
         // Test that a valid field name works

@@ -4,6 +4,10 @@ use serde::Serialize;
 /// Based on the DarwinCore Occurrence standard: https://dwc.tdwg.org/terms/#occurrence
 #[derive(Debug, Serialize)]
 pub struct Occurrence {
+    /// Default core ID if <id> element specified
+    #[serde(rename = "id")]
+    pub id: Option<String>,
+
     /// An identifier for the Occurrence
     #[serde(rename = "occurrenceID")]
     pub occurrence_id: String,
@@ -890,7 +894,7 @@ pub struct Occurrence {
 impl Occurrence {
     /// All supported DarwinCore occurrence fields for reading
     pub const FIELD_NAMES: &'static [&'static str] = &[
-        "occurrenceID", "basisOfRecord", "recordedBy", "eventDate",
+        "id", "occurrenceID", "basisOfRecord", "recordedBy", "eventDate",
         "decimalLatitude", "decimalLongitude", "scientificName", "taxonRank",
         "taxonomicStatus", "vernacularName", "kingdom", "phylum", "class",
         "order", "family", "genus", "specificEpithet", "infraspecificEpithet",
@@ -955,6 +959,7 @@ impl Occurrence {
     /// Get the CSV headers for DarwinCore occurrence records
     pub fn csv_headers() -> Vec<&'static str> {
         vec![
+            "id",
             "occurrenceID",
             "basisOfRecord",
             "recordedBy",
@@ -995,6 +1000,7 @@ impl Occurrence {
     /// Convert to CSV record values
     pub fn to_csv_record(&self) -> Vec<String> {
         vec![
+            self.id.clone().unwrap_or_default(),
             self.occurrence_id.clone(),
             self.basis_of_record.clone(),
             self.recorded_by.clone(),

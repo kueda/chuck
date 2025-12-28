@@ -3,6 +3,7 @@
 #[derive(Debug, Clone)]
 pub struct Audiovisual {
     // Core identifier and linkage
+    pub coreid: Option<String>,
     pub occurrence_id: String,
     pub identifier: Option<String>,
 
@@ -60,6 +61,7 @@ impl Audiovisual {
     /// Returns the CSV headers for audiovisual records
     pub fn csv_headers() -> Vec<&'static str> {
         vec![
+            "coreid",
             "occurrenceID",
             "identifier",
             "type",
@@ -103,6 +105,7 @@ impl Audiovisual {
     /// Converts the audiovisual record to a CSV record
     pub fn to_csv_record(&self) -> Vec<String> {
         vec![
+            self.coreid.clone().unwrap_or_default(),
             self.occurrence_id.clone(),
             self.identifier.clone().unwrap_or_default(),
             self.r#type.clone().unwrap_or_default(),

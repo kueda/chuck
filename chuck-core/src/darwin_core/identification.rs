@@ -6,6 +6,8 @@ use serde::Serialize;
 /// DarwinCore Identification record for the Identification History extension
 #[derive(Debug, Serialize)]
 pub struct Identification {
+    #[serde(rename = "coreid")]
+    pub coreid: Option<String>,
     #[serde(rename = "occurrenceID")]
     pub occurrence_id: String,
     #[serde(rename = "identificationID")]
@@ -68,6 +70,7 @@ impl Identification {
     /// Get the CSV header row for identification records
     pub fn csv_headers() -> Vec<&'static str> {
         vec![
+            "coreid",
             "occurrenceID",
             "identificationID",
             "identifiedBy",
@@ -102,6 +105,7 @@ impl Identification {
     /// Convert to CSV record for writing
     pub fn to_csv_record(&self) -> Vec<String> {
         vec![
+            self.coreid.clone().unwrap_or_default(),
             self.occurrence_id.clone(),
             self.identification_id.clone().unwrap_or_default(),
             self.identified_by.clone().unwrap_or_default(),

@@ -57,6 +57,9 @@ pub enum ChuckError {
         column: String,
         column_type: String,
     },
+
+    #[error("Extension missing core ID: {0}")]
+    NoExtensionCoreId(String),
 }
 
 impl Serialize for ChuckError {

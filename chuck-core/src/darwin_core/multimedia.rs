@@ -2,6 +2,7 @@
 /// https://rs.gbif.org/extension/gbif/1.0/multimedia.xml
 #[derive(Debug, Clone)]
 pub struct Multimedia {
+    pub coreid: Option<String>,
     pub occurrence_id: String,
     pub r#type: Option<String>,
     pub format: Option<String>,
@@ -24,6 +25,7 @@ impl Multimedia {
     /// Returns the CSV headers for multimedia records
     pub fn csv_headers() -> Vec<&'static str> {
         vec![
+            "coreid",
             "occurrenceID",
             "type",
             "format",
@@ -46,6 +48,7 @@ impl Multimedia {
     /// Converts the multimedia record to a CSV record
     pub fn to_csv_record(&self) -> Vec<String> {
         vec![
+            self.coreid.clone().unwrap_or_default(),
             self.occurrence_id.clone(),
             self.r#type.clone().unwrap_or_default(),
             self.format.clone().unwrap_or_default(),
