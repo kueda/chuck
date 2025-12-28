@@ -188,7 +188,7 @@
     if (kingdom === 'bacteria') return '🦠';
     if (kingdom === 'viruses') return '🦠';
 
-    return '🧬';
+    return '';
   });
 
   let displaySciName = $derived.by(() => {
