@@ -1,10 +1,27 @@
 <script lang="ts">
   import { Dialog, Portal } from '@skeletonlabs/skeleton-svelte';
-  import { ChevronLeft, ChevronRight } from 'lucide-svelte';
+  import { ChevronLeft, ChevronRight, X } from 'lucide-svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { convertFileSrc } from '@tauri-apps/api/core';
 
   const DEFAULT_ZOOM = 0.5;
+  const BTN_BASE_CLASSES = [
+    "btn",
+    "preset-filled-surface-900-100",
+    "absolute",
+    "z-10",
+  ];
+  const NAV_BTN_CLASSES = [
+    ...BTN_BASE_CLASSES,
+    "top-1/2",
+    "-translate-y-1/2",
+    "w-12",
+    "h-12",
+    "p-0",
+    "flex",
+    "items-center",
+    "justify-center",
+  ];
 
   interface Props {
     open: boolean;
@@ -224,7 +241,7 @@
 <Dialog {open} closeOnInteractOutside={true} onOpenChange={(details) => { open = details.open; }}>
   <Portal>
     <Dialog.Backdrop class="fixed inset-0 z-[60] bg-black/90" />
-    <Dialog.Positioner class="fixed inset-0 z-[60] flex items-center justify-center p-8">
+    <Dialog.Positioner class="fixed inset-0 z-[60] flex items-center justify-center">
       <Dialog.Content
         class="relative w-full h-full flex items-center justify-center"
         tabindex={0}
@@ -238,16 +255,15 @@
           }
         }}
       >
-        <Dialog.CloseTrigger
-          class="absolute top-4 right-4 btn preset-filled-surface z-10"
-        >
+        <Dialog.CloseTrigger class={`${BTN_BASE_CLASSES.join(' ')} top-4 right-4`}>
+          <X size={24} />
           Close
         </Dialog.CloseTrigger>
 
         {#if photos.length > 1}
           <button
             type="button"
-            class="absolute left-4 top-1/2 -translate-y-1/2 btn preset-filled-surface z-10 w-12 h-12 p-0 flex items-center justify-center"
+            class={`${NAV_BTN_CLASSES.join(' ')} left-4`}
             onclick={navigatePrevious}
             aria-label="Previous photo"
           >
@@ -256,7 +272,7 @@
 
           <button
             type="button"
-            class="absolute right-4 top-1/2 -translate-y-1/2 btn preset-filled-surface z-10 w-12 h-12 p-0 flex items-center justify-center"
+            class={`${NAV_BTN_CLASSES.join(' ')} right-4`}
             onclick={navigateNext}
             aria-label="Next photo"
           >
