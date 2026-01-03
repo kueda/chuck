@@ -1,10 +1,22 @@
 <script lang="ts">
   import { Dialog, Portal } from '@skeletonlabs/skeleton-svelte';
-  import { ChevronLeft, ChevronRight, X } from 'lucide-svelte';
+  import {
+    ArrowDown,
+    ArrowLeft as ArrowLeftIcon,
+    ArrowRight as ArrowRightIcon,
+    ArrowUp,
+    ChevronLeft,
+    ChevronRight,
+    Maximize,
+    X,
+    ZoomIn,
+    ZoomOut,
+  } from 'lucide-svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { convertFileSrc } from '@tauri-apps/api/core';
 
   const DEFAULT_ZOOM = 0.5;
+  const PAN_INCREMENT = 50; // pixels to pan with button click
   const BTN_BASE_CLASSES = [
     "btn",
     "preset-filled-surface-900-100",
@@ -15,6 +27,18 @@
     ...BTN_BASE_CLASSES,
     "top-1/2",
     "-translate-y-1/2",
+    "w-12",
+    "h-12",
+    "p-0",
+    "flex",
+    "items-center",
+    "justify-center",
+  ];
+  const CONTROL_BTN_CLASSES = [
+    "btn",
+    "preset-filled-surface-900-100",
+    "absolute",
+    "z-10",
     "w-12",
     "h-12",
     "p-0",
@@ -42,6 +66,15 @@
   let imgElement: HTMLImageElement | null = $state(null);
   let containerElement: HTMLDivElement | null = $state(null);
   let convertedPhotoUrl = $state<string | null>(null);
+  let navPrevButton: HTMLButtonElement | null = $state(null);
+  let navNextButton: HTMLButtonElement | null = $state(null);
+  let panLeftButton: HTMLButtonElement | null = $state(null);
+  let panRightButton: HTMLButtonElement | null = $state(null);
+  let panUpButton: HTMLButtonElement | null = $state(null);
+  let panDownButton: HTMLButtonElement | null = $state(null);
+  let zoomInButton: HTMLButtonElement | null = $state(null);
+  let zoomOutButton: HTMLButtonElement | null = $state(null);
+  let resetZoomButton: HTMLButtonElement | null = $state(null);
 
   // Check if a path is a local file path (not a URL)
   function isLocalPath(path: string): boolean {
@@ -71,14 +104,19 @@
   // Use converted URL for display
   const displayPhotoUrl = $derived(convertedPhotoUrl);
 
-  const isPannable = $derived(() => {
-    if (!imgElement || !containerElement) return false;
+  const isPannable = $derived.by(() => {
+    // Explicitly depend on zoom to trigger reactivity
+    if (!imgElement || !containerElement || !zoom) return false;
 
-    const imgRect = imgElement.getBoundingClientRect();
     const containerRect = containerElement.getBoundingClientRect();
 
-    // Image is pannable if it's larger than container in either dimension
-    return imgRect.width > containerRect.width || imgRect.height > containerRect.height;
+    // Use natural dimensions scaled by zoom for accurate calculation
+    // This avoids timing issues with getBoundingClientRect after zoom changes
+    const scaledWidth = imgElement.naturalWidth * zoom;
+    const scaledHeight = imgElement.naturalHeight * zoom;
+
+    // Image is pannable if scaled dimensions are larger than container
+    return scaledWidth > containerRect.width || scaledHeight > containerRect.height;
   });
 
   let isDragging = $state(false);
@@ -146,18 +184,123 @@
     zoom = newZoom;
   }
 
+  function zoomIn() {
+    if (zoomInButton) {
+      zoomInButton.classList.add('bg-surface-700-300');
+      setTimeout(() => zoomInButton?.classList?.remove('bg-surface-700-300'), 80);
+    }
+
+    const oldZoom = zoom;
+    const newZoom = Math.max(0.5, Math.min(5, zoom * 1.2));
+
+    if (newZoom === oldZoom) return;
+
+    zoom = newZoom;
+  }
+
+  function zoomOut() {
+    if (zoomOutButton) {
+      zoomOutButton.classList.add('bg-surface-700-300');
+      setTimeout(() => zoomOutButton?.classList?.remove('bg-surface-700-300'), 80);
+    }
+
+    const oldZoom = zoom;
+    const newZoom = Math.max(0.5, Math.min(5, zoom / 1.2));
+
+    if (newZoom === oldZoom) return;
+
+    zoom = newZoom;
+  }
+
+  function resetZoom() {
+    if (resetZoomButton) {
+      resetZoomButton.classList.add('bg-surface-700-300');
+      setTimeout(() => resetZoomButton?.classList?.remove('bg-surface-700-300'), 80);
+    }
+
+    zoom = DEFAULT_ZOOM;
+    panX = 0;
+    panY = 0;
+  }
+
+  function panUp() {
+    if (!isPannable || !imgElement || !containerElement) return;
+
+    if (panUpButton) {
+      panUpButton.classList.add('bg-surface-700-300');
+      setTimeout(() => panUpButton?.classList?.remove('bg-surface-700-300'), 80);
+    }
+    const imgRect = imgElement.getBoundingClientRect();
+    const containerRect = containerElement.getBoundingClientRect();
+    const maxPanY = Math.max(0, (imgRect.height - containerRect.height) / 2);
+
+    panY = Math.max(-maxPanY, Math.min(maxPanY, panY + PAN_INCREMENT));
+  }
+
+  function panDown() {
+    if (!isPannable || !imgElement || !containerElement) return;
+
+    if (panDownButton) {
+      panDownButton.classList.add('bg-surface-700-300');
+      setTimeout(() => panDownButton?.classList?.remove('bg-surface-700-300'), 80);
+    }
+    const imgRect = imgElement.getBoundingClientRect();
+    const containerRect = containerElement.getBoundingClientRect();
+    const maxPanY = Math.max(0, (imgRect.height - containerRect.height) / 2);
+
+    panY = Math.max(-maxPanY, Math.min(maxPanY, panY - PAN_INCREMENT));
+  }
+
+  function panLeft() {
+    if (!isPannable || !imgElement || !containerElement) return;
+
+    if (panLeftButton) {
+      panLeftButton.classList.add('bg-surface-700-300');
+      setTimeout(() => panLeftButton?.classList?.remove('bg-surface-700-300'), 80);
+    }
+    const imgRect = imgElement.getBoundingClientRect();
+    const containerRect = containerElement.getBoundingClientRect();
+    const maxPanX = Math.max(0, (imgRect.width - containerRect.width) / 2);
+
+    panX = Math.max(-maxPanX, Math.min(maxPanX, panX + PAN_INCREMENT));
+  }
+
+  function panRight() {
+    if (!isPannable || !imgElement || !containerElement) return;
+
+    if (panRightButton) {
+      panRightButton.classList.add('bg-surface-700-300');
+      setTimeout(() => panRightButton?.classList?.remove('bg-surface-700-300'), 80);
+    }
+    const imgRect = imgElement.getBoundingClientRect();
+    const containerRect = containerElement.getBoundingClientRect();
+    const maxPanX = Math.max(0, (imgRect.width - containerRect.width) / 2);
+
+    panX = Math.max(-maxPanX, Math.min(maxPanX, panX - PAN_INCREMENT));
+  }
+
   function navigateNext() {
     if (photos.length === 0) return;
+
+    if (navNextButton) {
+      navNextButton.classList.add('bg-surface-700-300');
+      setTimeout(() => navNextButton?.classList?.remove('bg-surface-700-300'), 80);
+    }
     currentIndex = (currentIndex + 1) % photos.length;
   }
 
   function navigatePrevious() {
     if (photos.length === 0) return;
+
+    if (navPrevButton) {
+      navPrevButton.classList.add('bg-surface-700-300');
+      setTimeout(() => navPrevButton?.classList?.remove('bg-surface-700-300'), 80);
+    }
     currentIndex = (currentIndex - 1 + photos.length) % photos.length;
   }
 
   function handleMouseDown(e: MouseEvent) {
-    if (!isPannable()) return;
+    if (!isPannable) return;
 
     isDragging = true;
     hasDragged = false;
@@ -208,7 +351,7 @@
     hasDragged = false;
 
     // If we didn't drag (just clicked) and image is fully visible, zoom to max
-    if (!didDrag && !isPannable() && zoom < 5 && imgElement && containerElement) {
+    if (!didDrag && !isPannable && zoom < 5 && imgElement && containerElement) {
       // Calculate click position relative to image center
       const imgRect = imgElement.getBoundingClientRect();
       const containerRect = containerElement.getBoundingClientRect();
@@ -244,14 +387,43 @@
     <Dialog.Positioner class="fixed inset-0 z-[60] flex items-center justify-center">
       <Dialog.Content
         class="relative w-full h-full flex items-center justify-center"
-        tabindex={0}
+        tabindex={-1}
         onkeydown={(e) => {
+          // Handle all keyboard shortcuts at dialog level via event bubbling
+          // These work regardless of which child element has focus
+
+          // Arrow keys: context-aware (pan vs navigate)
           if (e.key === 'ArrowLeft') {
             e.preventDefault();
-            navigatePrevious();
+            if (isPannable) {
+              panLeft();
+            } else {
+              navigatePrevious();
+            }
           } else if (e.key === 'ArrowRight') {
             e.preventDefault();
-            navigateNext();
+            if (isPannable) {
+              panRight();
+            } else {
+              navigateNext();
+            }
+          } else if (e.key === 'ArrowUp' && isPannable) {
+            e.preventDefault();
+            panUp();
+          } else if (e.key === 'ArrowDown' && isPannable) {
+            e.preventDefault();
+            panDown();
+          }
+          // Zoom controls
+          else if (e.key === '+' || e.key === '=') {
+            e.preventDefault();
+            zoomIn();
+          } else if (e.key === '-') {
+            e.preventDefault();
+            zoomOut();
+          } else if (e.key === '0') {
+            e.preventDefault();
+            resetZoom();
           }
         }}
       >
@@ -260,50 +432,149 @@
           Close
         </Dialog.CloseTrigger>
 
-        {#if photos.length > 1}
+        {#if photos.length > 1 && !isPannable}
           <button
+            bind:this={navPrevButton}
             type="button"
             class={`${NAV_BTN_CLASSES.join(' ')} left-4`}
             onclick={navigatePrevious}
             aria-label="Previous photo"
+            title="Previous photo (&larr;)"
           >
             <ChevronLeft size={24} />
           </button>
 
           <button
+            bind:this={navNextButton}
             type="button"
             class={`${NAV_BTN_CLASSES.join(' ')} right-4`}
             onclick={navigateNext}
             aria-label="Next photo"
+            title="Next photo (&rarr;)"
           >
             <ChevronRight size={24} />
           </button>
         {/if}
 
         {#if displayPhotoUrl}
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
           <div
             bind:this={containerElement}
             class="overflow-auto w-full h-full flex items-center justify-center"
+            role="application"
+            tabindex="0"
             onwheel={handleWheel}
             onmousedown={handleMouseDown}
             onmousemove={handleMouseMove}
             onmouseup={handleMouseUp}
             onmouseleave={handleMouseUp}
-            role="img"
-            aria-label="Full size photo"
+            aria-label="Photo zoom and pan container"
           >
             <img
               bind:this={imgElement}
               src={displayPhotoUrl}
               alt="Full size"
               class="max-w-none"
-              style="transform: translate({panX}px, {panY}px) scale({zoom}); cursor: {isDragging ? 'grabbing' : isPannable() ? 'grab' : zoom > 1 ? 'zoom-out' : 'zoom-in'};"
+              style="transform: translate({panX}px, {panY}px) scale({zoom}); cursor: {isDragging ? 'grabbing' : isPannable ? 'grab' : zoom > 1 ? 'zoom-out' : 'zoom-in'};"
             />
           </div>
-          <div class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/50 text-white px-4 py-2 rounded">
-            Zoom: {Math.round(zoom * 100)}% • Scroll to zoom
+
+          <!-- Zoom Controls -->
+          <button
+            bind:this={zoomInButton}
+            type="button"
+            class={`${CONTROL_BTN_CLASSES.join(' ')} bottom-34 right-4`}
+            onclick={zoomIn}
+            disabled={zoom >= 5}
+            aria-label="Zoom in"
+            title="Zoom in (+)"
+          >
+            <ZoomIn size={20} />
+          </button>
+          <button
+            bind:this={zoomOutButton}
+            type="button"
+            class={`${CONTROL_BTN_CLASSES.join(' ')} bottom-20 right-4`}
+            onclick={zoomOut}
+            disabled={zoom <= 0.5}
+            aria-label="Zoom out"
+            title="Zoom out (-)"
+          >
+            <ZoomOut size={20} />
+          </button>
+          <button
+            bind:this={resetZoomButton}
+            type="button"
+            class={`${CONTROL_BTN_CLASSES.join(' ')} bottom-6 right-4`}
+            onclick={resetZoom}
+            disabled={zoom === DEFAULT_ZOOM && panX === 0 && panY === 0}
+            aria-label="Reset zoom"
+            title="Reset zoom (0)"
+          >
+            <Maximize size={20} />
+          </button>
+
+          <!-- Pan Controls (only when pannable) -->
+          {#if isPannable}
+            <button
+              bind:this={panUpButton}
+              type="button"
+              class={`${CONTROL_BTN_CLASSES.join(' ')} bottom-20 left-18`}
+              onclick={panUp}
+              aria-label="Pan up"
+              title="Pan up (&uarr;)"
+            >
+              <ArrowUp size={20} />
+            </button>
+            <button
+              bind:this={panLeftButton}
+              type="button"
+              class={`${CONTROL_BTN_CLASSES.join(' ')} bottom-6 left-4`}
+              onclick={panLeft}
+              aria-label="Pan left"
+              title="Pan left (&larr;)"
+            >
+              <ArrowLeftIcon size={20} />
+            </button>
+            <button
+              bind:this={panRightButton}
+              type="button"
+              class={`${CONTROL_BTN_CLASSES.join(' ')} bottom-6 left-32`}
+              onclick={panRight}
+              aria-label="Pan right"
+              title="Pan right (&rarr;)"
+            >
+              <ArrowRightIcon size={20} />
+            </button>
+            <button
+              bind:this={panDownButton}
+              type="button"
+              class={`${CONTROL_BTN_CLASSES.join(' ')} bottom-6 left-18`}
+              onclick={panDown}
+              aria-label="Pan down"
+              title="Pan down (&darr;)"
+            >
+              <ArrowDown size={20} />
+            </button>
+          {/if}
+
+          <div
+            class="
+              absolute
+              bottom-4
+              left-1/2
+              -translate-x-1/2
+              bg-black/50
+              text-white
+              px-4
+              py-2
+              rounded
+            "
+          >
+            Zoom: {Math.round(zoom * 100)}%
             {#if photos.length > 1}
-              • {currentIndex + 1} / {photos.length}
+              • {currentIndex + 1} / {photos.length} photos
             {/if}
           </div>
         {:else}
