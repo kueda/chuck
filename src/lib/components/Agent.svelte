@@ -23,11 +23,13 @@
   });
 </script>
 
-<span class="flex flex-row items-center gap-1" title={id}>
+<span class="flex flex-row items-center gap-1 overflow-hidden" title={id}>
   <User size={16} />
-  {#if url}
-    <a class="link" href={url} target="_blank">{displayName}</a>
-  {:else}
-    {displayName}
-  {/if}
+  <span class="shrink-4 text-nowrap overflow-hidden overflow-ellipsis">
+    {#if url}
+      <a class="link" href={url} target="_blank">{displayName}</a>
+    {:else}
+      {displayName}
+    {/if}
+  </span>
 </span>
