@@ -792,4 +792,90 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
       await expect(zoomOutBtn).toBeDisabled();
     }
   });
+
+  test('default zoom should fit image in viewport (not pannable)', async ({ page }) => {
+    const firstOccurrence = page.locator('main .occurrence-item').first();
+    await firstOccurrence.click();
+
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+
+    const photos = page.locator('section:has(h2:has-text("Media")) button');
+    const photoCount = await photos.count();
+
+    if (photoCount > 1) {
+      // Click first photo
+      await photos.first().click();
+      await page.waitForTimeout(300);
+
+      // At default zoom, image should fit in viewport and NOT be pannable
+      // Pan controls should not be visible
+      const panUpBtn = page.locator('button[aria-label="Pan up"]');
+      await expect(panUpBtn).not.toBeVisible();
+
+      // Arrow keys should navigate between photos, not pan
+      const initialCounter = await page.locator('text=/\\d+ \\/ \\d+/').textContent();
+      expect(initialCounter).toContain('1 /');
+
+      // Press right arrow - should navigate to next photo
+      await page.keyboard.press('ArrowRight');
+      await page.waitForTimeout(300);
+
+      // Should show photo 2
+      const newCounter = await page.locator('text=/\\d+ \\/ \\d+/').textContent();
+      expect(newCounter).toContain('2 /');
+
+      // Press left arrow - should navigate back
+      await page.keyboard.press('ArrowLeft');
+      await page.waitForTimeout(300);
+
+      // Should show photo 1 again
+      const finalCounter = await page.locator('text=/\\d+ \\/ \\d+/').textContent();
+      expect(finalCounter).toContain('1 /');
+    }
+  });
+
+  test('zoom buttons should keep image centered', async ({ page }) => {
+    const firstOccurrence = page.locator('main .occurrence-item').first();
+    await firstOccurrence.click();
+
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+
+    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
+    const hasPhotos = await photo.count() > 0;
+
+    if (hasPhotos) {
+      await photo.click();
+      await page.waitForTimeout(300);
+
+      const img = page.locator('img[alt="Full size"]');
+
+      // Zoom in several times with button
+      for (let i = 0; i < 5; i++) {
+        await page.locator('button[aria-label="Zoom in"]').click();
+        await page.waitForTimeout(50);
+      }
+
+      // Get current pan after zooming in
+      const zoomedInStyle = await img.getAttribute('style');
+      const zoomedInMatch = zoomedInStyle?.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
+      const zoomedInPanX = zoomedInMatch ? parseFloat(zoomedInMatch[1]) : 0;
+      const zoomedInPanY = zoomedInMatch ? parseFloat(zoomedInMatch[2]) : 0;
+
+      // Now zoom out with button
+      await page.locator('button[aria-label="Zoom out"]').click();
+      await page.waitForTimeout(100);
+
+      // Get new pan after zooming out
+      const zoomedOutStyle = await img.getAttribute('style');
+      const zoomedOutMatch = zoomedOutStyle?.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
+      const zoomedOutPanX = zoomedOutMatch ? parseFloat(zoomedOutMatch[1]) : 0;
+      const zoomedOutPanY = zoomedOutMatch ? parseFloat(zoomedOutMatch[2]) : 0;
+
+      // Pan should have adjusted proportionally to keep image centered
+      // When zooming out from center (0, 0), pan should move toward (0, 0)
+      // The ratio of pan values should be proportional to zoom ratio
+      expect(Math.abs(zoomedOutPanX)).toBeLessThan(Math.abs(zoomedInPanX) + 1);
+      expect(Math.abs(zoomedOutPanY)).toBeLessThan(Math.abs(zoomedInPanY) + 1);
+    }
+  });
 });

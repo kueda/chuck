@@ -15,8 +15,9 @@
   import { invoke } from '@tauri-apps/api/core';
   import { convertFileSrc } from '@tauri-apps/api/core';
 
-  const DEFAULT_ZOOM = 0.5;
   const PAN_INCREMENT = 50; // pixels to pan with button click
+  const MAX_ZOOM = 5;
+  const FALLBACK_MIN_ZOOM = 0.5; // Fallback when image not loaded
   const BTN_BASE_CLASSES = [
     "btn",
     "preset-filled-surface-900-100",
@@ -60,7 +61,7 @@
   }: Props = $props();
 
   let currentIndex = $state(initialIndex);
-  let zoom = $state(DEFAULT_ZOOM);
+  let zoom = $state(FALLBACK_MIN_ZOOM);
   let panX = $state(0);
   let panY = $state(0);
   let imgElement: HTMLImageElement | null = $state(null);
@@ -104,6 +105,26 @@
   // Use converted URL for display
   const displayPhotoUrl = $derived(convertedPhotoUrl);
 
+  // Calculate minimum zoom to fit image in viewport
+  const minZoom = $derived.by(() => {
+    if (!imgElement || !containerElement) return FALLBACK_MIN_ZOOM;
+
+    const containerRect = containerElement.getBoundingClientRect();
+    const { naturalWidth, naturalHeight } = imgElement;
+
+    if (!naturalWidth || !naturalHeight || !containerRect.width || !containerRect.height) {
+      return FALLBACK_MIN_ZOOM;
+    }
+
+    // Calculate zoom to fit width and height
+    const fitWidthZoom = containerRect.width / naturalWidth;
+    const fitHeightZoom = containerRect.height / naturalHeight;
+
+    // Use the smaller zoom to ensure image fits in both dimensions
+    // Add a small margin (0.95) to ensure it fits comfortably
+    return Math.min(fitWidthZoom, fitHeightZoom) * 0.95;
+  });
+
   const isPannable = $derived.by(() => {
     // Explicitly depend on zoom to trigger reactivity
     if (!imgElement || !containerElement || !zoom) return false;
@@ -130,14 +151,14 @@
   $effect(() => {
     if (open && photos.length > 0) {
       currentIndex = Math.min(initialIndex, photos.length - 1);
-      zoom = DEFAULT_ZOOM;
+      zoom = minZoom;
     }
   });
 
   // Reset zoom and pan when displayPhotoUrl changes
   $effect(() => {
     if (displayPhotoUrl) {
-      zoom = DEFAULT_ZOOM;
+      zoom = minZoom;
       panX = 0;
       panY = 0;
     }
@@ -166,7 +187,7 @@
 
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
     const oldZoom = zoom;
-    const newZoom = Math.max(0.5, Math.min(5, zoom * delta));
+    const newZoom = Math.max(minZoom, Math.min(MAX_ZOOM, zoom * delta));
 
     if (newZoom === oldZoom) return; // No change
 
@@ -191,9 +212,15 @@
     }
 
     const oldZoom = zoom;
-    const newZoom = Math.max(0.5, Math.min(5, zoom * 1.2));
+    const newZoom = Math.max(minZoom, Math.min(MAX_ZOOM, zoom * 1.2));
 
     if (newZoom === oldZoom) return;
+
+    // Adjust pan to keep the viewport center fixed
+    // Same logic as handleWheel but with mouseX=0, mouseY=0 (center of viewport)
+    const zoomRatio = newZoom / oldZoom;
+    panX = zoomRatio * panX;
+    panY = zoomRatio * panY;
 
     zoom = newZoom;
   }
@@ -205,9 +232,15 @@
     }
 
     const oldZoom = zoom;
-    const newZoom = Math.max(0.5, Math.min(5, zoom / 1.2));
+    const newZoom = Math.max(minZoom, Math.min(MAX_ZOOM, zoom / 1.2));
 
     if (newZoom === oldZoom) return;
+
+    // Adjust pan to keep the viewport center fixed
+    // Same logic as handleWheel but with mouseX=0, mouseY=0 (center of viewport)
+    const zoomRatio = newZoom / oldZoom;
+    panX = zoomRatio * panX;
+    panY = zoomRatio * panY;
 
     zoom = newZoom;
   }
@@ -218,7 +251,7 @@
       setTimeout(() => resetZoomButton?.classList?.remove('bg-surface-700-300'), 80);
     }
 
-    zoom = DEFAULT_ZOOM;
+    zoom = minZoom;
     panX = 0;
     panY = 0;
   }
@@ -351,7 +384,7 @@
     hasDragged = false;
 
     // If we didn't drag (just clicked) and image is fully visible, zoom to max
-    if (!didDrag && !isPannable && zoom < 5 && imgElement && containerElement) {
+    if (!didDrag && !isPannable && zoom < MAX_ZOOM && imgElement && containerElement) {
       // Calculate click position relative to image center
       const imgRect = imgElement.getBoundingClientRect();
       const containerRect = containerElement.getBoundingClientRect();
@@ -370,7 +403,7 @@
 
       // Zoom to max
       const oldZoom = zoom;
-      zoom = 5;
+      zoom = MAX_ZOOM;
 
       // Calculate new pan to keep the clicked point in the same place
       // After zoom, the image will be larger, so we need to adjust pan
@@ -486,7 +519,7 @@
             type="button"
             class={`${CONTROL_BTN_CLASSES.join(' ')} bottom-34 right-4`}
             onclick={zoomIn}
-            disabled={zoom >= 5}
+            disabled={zoom >= MAX_ZOOM}
             aria-label="Zoom in"
             title="Zoom in (+)"
           >
@@ -497,7 +530,7 @@
             type="button"
             class={`${CONTROL_BTN_CLASSES.join(' ')} bottom-20 right-4`}
             onclick={zoomOut}
-            disabled={zoom <= 0.5}
+            disabled={zoom <= minZoom}
             aria-label="Zoom out"
             title="Zoom out (-)"
           >
@@ -508,7 +541,7 @@
             type="button"
             class={`${CONTROL_BTN_CLASSES.join(' ')} bottom-6 right-4`}
             onclick={resetZoom}
-            disabled={zoom === DEFAULT_ZOOM && panX === 0 && panY === 0}
+            disabled={zoom === minZoom && panX === 0 && panY === 0}
             aria-label="Reset zoom"
             title="Reset zoom (0)"
           >
