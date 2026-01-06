@@ -1,5 +1,8 @@
 // Categorizes Darwin Core column names into logical groups for filter organization
 
+import { Archive, Calendar, Clock, Globe, Leaf, SlidersHorizontal, User } from "lucide-svelte";
+import type { ComponentType } from "svelte";
+
 // SearchParams matches the backend's flattened structure (using #[serde(flatten)])
 // All Darwin Core fields are at the same level as sort_by/sort_direction
 export interface SearchParams {
@@ -51,7 +54,7 @@ export interface SearchParams {
   swlat?: string;
   swlng?: string;
 
-  // Temporal
+  // Date / Time
   eventDate?: string;
   eventTime?: string;
   year?: string;
@@ -82,6 +85,7 @@ export interface SearchParams {
 export interface FilterCategory {
   name: string;
   columns: (keyof SearchParams)[];
+  icon?: ComponentType;
 }
 
 const TAXONOMY_COLUMNS: (keyof SearchParams)[] = [
@@ -132,7 +136,7 @@ const GEOGRAPHY_COLUMNS: (keyof SearchParams)[] = [
   'swlng',
 ];
 
-const TEMPORAL_COLUMNS: (keyof SearchParams)[] = [
+const DATE_TIME_COLUMNS: (keyof SearchParams)[] = [
   'eventDate',
   'eventTime',
   'year',
@@ -167,33 +171,33 @@ export function categorizeColumns(availableColumns: (keyof SearchParams)[]): Fil
   const categorized = new Set<string>();
 
   // Helper to add category if it has columns
-  const addCategory = (name: string, columnList: (keyof SearchParams)[]) => {
+  const addCategory = (name: string, columnList: (keyof SearchParams)[], icon?: ComponentType) => {
     const matchingColumns = columnList.filter(col => availableColumns.includes(col));
     if (matchingColumns.length > 0) {
-      categories.push({ name, columns: matchingColumns });
+      categories.push({ name, columns: matchingColumns, icon });
       matchingColumns.forEach(col => categorized.add(col));
     }
   };
 
-  addCategory('Taxonomy', TAXONOMY_COLUMNS);
+  addCategory('Taxonomy', TAXONOMY_COLUMNS, Leaf);
 
   // Geography gets special handling to always include synthetic bbox fields
   const geographyColumns = GEOGRAPHY_COLUMNS.filter(col =>
     availableColumns.includes(col) || SYNTHETIC_FIELDS.includes(col)
   );
   if (geographyColumns.length > 0) {
-    categories.push({ name: 'Geography', columns: geographyColumns });
+    categories.push({ name: 'Geography', columns: geographyColumns, icon: Globe });
     geographyColumns.forEach(col => categorized.add(col));
   }
 
-  addCategory('Temporal', TEMPORAL_COLUMNS);
-  addCategory('Catalog', CATALOG_COLUMNS);
-  addCategory('Person', PERSON_COLUMNS);
+  addCategory('Date / Time', DATE_TIME_COLUMNS, Calendar);
+  addCategory('Catalog', CATALOG_COLUMNS, Archive);
+  addCategory('Person', PERSON_COLUMNS, User);
 
   // Add "Other" category for uncategorized columns
   const otherColumns = availableColumns.filter(col => !categorized.has(col));
   if (otherColumns.length > 0) {
-    categories.push({ name: 'Other', columns: otherColumns });
+    categories.push({ name: 'Other', columns: otherColumns, icon: SlidersHorizontal });
   }
 
   return categories;

@@ -18,6 +18,7 @@
     getViewType,
     saveViewType
   } from '$lib/utils/viewPreferences';
+    import { Combine, Grid3x3, Rows4 } from 'lucide-svelte';
 
   const CHUNK_SIZE = 500;
 
@@ -478,9 +479,11 @@
       >
         <Tabs.List class="border-b border-surface-200-800 px-4 mb-0 flex flex-row">
           <Tabs.Trigger value="occurrences" class="btn hover:preset-tonal grow">
+            <Grid3x3 size={18} />
             Occurrences
           </Tabs.Trigger>
           <Tabs.Trigger value="groups" class="btn hover:preset-tonal grow">
+            <Combine size={18} />
             Groups
           </Tabs.Trigger>
           <Tabs.Indicator class="bg-surface-950-50" />

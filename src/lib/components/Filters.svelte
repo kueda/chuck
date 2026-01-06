@@ -3,7 +3,7 @@
   import ComboboxFilter from './ComboboxFilter.svelte';
   import { categorizeColumns } from '$lib/utils/filterCategories';
   import type { SearchParams } from '$lib/utils/filterCategories';
-  import { MinusIcon, PlusIcon } from 'lucide-svelte';
+  import { ArrowUpDown, MinusIcon, PlusIcon } from 'lucide-svelte';
 
   const NUMERIC_COLUMNS = [
     'decimalLatitude',
@@ -145,8 +145,9 @@
 <div id="Filters" class="mb-4">
   <Accordion multiple collapsible>
     <Accordion.Item value="sort" class="[&[data-state=open]]:bg-gray-100 p-2 hover:bg-gray-100">
-      <Accordion.ItemTrigger class="flex justify-between items-center p-0 hover:bg-transparent">
-        Sort
+      <Accordion.ItemTrigger class="flex justify-between items-center p-0 hover:bg-transparent gap-2">
+        <ArrowUpDown size={18} />
+        <span class="flex justify-start grow-2">Sort</span>
         <Accordion.ItemIndicator class="group">
           <MinusIcon class="size-4 group-data-[state=open]:block hidden" />
           <PlusIcon class="size-4 group-data-[state=open]:hidden block" />
@@ -189,16 +190,17 @@
         value={category.name}
         class="p-0 [&[data-state=open]]:bg-gray-100 hover:bg-gray-100"
       >
-        <Accordion.ItemTrigger class="flex justify-between items-center p-2 hover:bg-transparent">
-          {#if hasActive}
-            <span>
-              {category.name} (<span class="font-bold">{activeCount}</span> / {category.columns.length})
-            </span>
-          {:else}
-            <span>
-              {category.name} ({category.columns.length})
-            </span>
+        <Accordion.ItemTrigger class="flex justify-between items-center p-2 hover:bg-transparent gap-2">
+          {#if category.icon}
+            <svelte:component this={category.icon} size={18} />
           {/if}
+          <span class="flex justify-start grow-2">
+            {#if hasActive}
+              {category.name} (<span class="font-bold">{activeCount}</span> / {category.columns.length})
+            {:else}
+              {category.name} ({category.columns.length})
+            {/if}
+          </span>
           <Accordion.ItemIndicator class="group">
             <MinusIcon class="size-4 group-data-[state=open]:block hidden" />
             <PlusIcon class="size-4 group-data-[state=open]:hidden block" />
