@@ -9,7 +9,7 @@ pub fn generate_tile(
     z: u8,
     x: u32,
     y: u32,
-    occurrences: Vec<(i64, f64, f64, Option<String>)>
+    occurrences: Vec<(String, f64, f64, Option<String>)>
 ) -> Vec<u8> {
     // Convert occurrences to tile coordinates
     let points: Vec<OccurrencePoint> = occurrences
@@ -51,6 +51,7 @@ pub fn handle_tile_request<R: Runtime>(
             responder.respond(
                 tauri::http::Response::builder()
                     .status(400)
+                    .header("Access-Control-Allow-Origin", "*")
                     .body(b"Invalid tile coordinates".to_vec())
                     .unwrap()
             );
@@ -63,6 +64,7 @@ pub fn handle_tile_request<R: Runtime>(
                 responder.respond(
                     tauri::http::Response::builder()
                         .status(400)
+                        .header("Access-Control-Allow-Origin", "*")
                         .body(b"Invalid zoom level".to_vec())
                         .unwrap()
                 );
@@ -76,6 +78,7 @@ pub fn handle_tile_request<R: Runtime>(
                 responder.respond(
                     tauri::http::Response::builder()
                         .status(400)
+                        .header("Access-Control-Allow-Origin", "*")
                         .body(b"Invalid x coordinate".to_vec())
                         .unwrap()
                 );
@@ -89,6 +92,7 @@ pub fn handle_tile_request<R: Runtime>(
                 responder.respond(
                     tauri::http::Response::builder()
                         .status(400)
+                        .header("Access-Control-Allow-Origin", "*")
                         .body(b"Invalid y coordinate".to_vec())
                         .unwrap()
                 );
@@ -136,6 +140,7 @@ pub fn handle_tile_request<R: Runtime>(
                 responder.respond(
                     tauri::http::Response::builder()
                         .status(500)
+                        .header("Access-Control-Allow-Origin", "*")
                         .body(format!("Error: {}", e).into_bytes())
                         .unwrap()
                 );
@@ -158,7 +163,7 @@ mod tests {
     #[test]
     fn test_generate_tile_with_data() {
         let occurrences = vec![
-            (1, 0.0, 0.0, Some("Test species".to_string())),
+            ("1".to_string(), 0.0, 0.0, Some("Test species".to_string())),
         ];
         let tile = generate_tile(0, 0, 0, occurrences);
         assert!(!tile.is_empty());

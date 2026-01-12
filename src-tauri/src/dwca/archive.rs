@@ -240,7 +240,7 @@ impl Archive {
         north: f64,
         zoom: u8,
         search_params: SearchParams,
-    ) -> Result<Vec<(i64, f64, f64, Option<String>)>> {
+    ) -> Result<Vec<(String, f64, f64, Option<String>)>> {
         let conn = self.db.connection();
 
         let (
@@ -324,7 +324,7 @@ impl Archive {
             // .query_map([south, north, west, east], |row| {
             .query_map(select_param_refs.as_slice(), |row| {
                 Ok((
-                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(0)?,
                     row.get::<_, f64>(1)?,
                     row.get::<_, f64>(2)?,
                     row.get::<_, Option<String>>(3)?,
@@ -1453,6 +1453,64 @@ mod tests {
         assert!(info.available_columns.contains(&"id".to_string()));
         assert!(info.available_columns.contains(&"scientificName".to_string()));
         assert!(info.available_columns.contains(&"eventDate".to_string()));
+    }
+
+    #[test]
+    fn test_query_tile_returns_occurrences_with_text_core_id() {
+        let meta_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<archive xmlns="http://rs.tdwg.org/dwc/text/">
+  <core rowType="http://rs.tdwg.org/dwc/terms/Occurrence">
+    <files><location>occurrence.csv</location></files>
+    <id index="0"/>
+    <field index="0" term="http://rs.tdwg.org/dwc/terms/occurrenceID"/>
+    <field index="1" term="http://rs.tdwg.org/dwc/terms/decimalLatitude"/>
+    <field index="2" term="http://rs.tdwg.org/dwc/terms/decimalLongitude"/>
+    <field index="3" term="http://rs.tdwg.org/dwc/terms/scientificName"/>
+  </core>
+</archive>"#;
+
+        // Create CSV with text occurrenceID values and coordinates
+        let csv_content = b"occurrenceID,decimalLatitude,decimalLongitude,scientificName
+obs123,37.7749,-122.4194,Quercus agrifolia
+obs456,37.8044,-122.2712,Sequoia sempervirens
+obs789,34.0522,-118.2437,Pinus coulteri
+";
+
+        let fixture = UnzippedArchiveFixture::with_structure(
+            "query_tile_text_core_id",
+            "test.zip",
+            &[
+                ("meta.xml", meta_xml),
+                ("occurrence.csv", csv_content),
+            ],
+            true, // create database
+        );
+
+        let archive = Archive::current(fixture.base_dir()).unwrap();
+
+        // Query a tile that should contain the San Francisco area points
+        let results = archive.query_tile(
+            -123.0, // west
+            37.0,   // south
+            -122.0, // east
+            38.0,   // north
+            10,     // high zoom - no sampling
+            SearchParams::default(),
+        ).unwrap();
+
+        // Should return 2 points (obs123 and obs456) in the SF Bay Area
+        assert_eq!(results.len(), 2);
+
+        // Verify the results have the expected structure (core_id, lat, lng, name)
+        let core_ids: Vec<_> = results.iter().map(|(id, _, _, _)| id.clone()).collect();
+        assert!(core_ids.contains(&"obs123".to_string()));
+        assert!(core_ids.contains(&"obs456".to_string()));
+
+        // Verify coordinates are preserved
+        let first_point = results.iter().find(|(id, _, _, _)| id == "obs123").unwrap();
+        assert_eq!(first_point.1, 37.7749); // latitude
+        assert_eq!(first_point.2, -122.4194); // longitude
+        assert_eq!(first_point.3, Some("Quercus agrifolia".to_string())); // scientific name
     }
 }
 

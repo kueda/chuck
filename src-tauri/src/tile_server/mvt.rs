@@ -2,7 +2,7 @@ use mvt::{GeomEncoder, GeomType, Tile};
 use pointy::Transform;
 
 pub struct OccurrencePoint {
-    pub core_id: i64,
+    pub core_id: String,
     pub x: f64,
     pub y: f64,
     pub scientific_name: Option<String>,
@@ -27,7 +27,7 @@ pub fn encode_tile(points: Vec<OccurrencePoint>) -> Vec<u8> {
         let mut feature = layer.into_feature(geom_data);
 
         // Add properties
-        feature.add_tag_string("core_id", &point.core_id.to_string());
+        feature.add_tag_string("core_id", &point.core_id);
         if let Some(name) = point.scientific_name {
             feature.add_tag_string("scientificName", &name);
         }
@@ -54,7 +54,7 @@ mod tests {
     fn test_encode_tile_with_points() {
         let points = vec![
             OccurrencePoint {
-                core_id: 1,
+                core_id: "1".to_string(),
                 x: 2048.0,
                 y: 2048.0,
                 scientific_name: Some("Quercus alba".to_string()),
