@@ -16,6 +16,8 @@ A desktop application for browsing biodiversity occurrences in [DarwinCore Archi
 
 Under active development, hoping to get some builds up for testing in early 2026. Still very rough in terms of... well in terms of everything.
 
+Shooting for a 1.0.0 release that views DarwinCore Archives from GBIF, Symbiota, and iNat (via Chuck) and is capable of creating a backup of my (fairly expansive) iNat contributions.
+
 ## Tech
 Chuck is a [Tauri](https://tauri.app) application where most of the logic is in Rust. Data is stored and queried via [DuckDB](https://duckdb.org/). SvelteKit is used for the front-end along with [Skeleton](https://www.skeleton.dev/) and [Tailwind](https://tailwindcss.com/).
 
