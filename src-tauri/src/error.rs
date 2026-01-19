@@ -60,6 +60,9 @@ pub enum ChuckError {
 
     #[error("Extension missing core ID: {0}")]
     NoExtensionCoreId(String),
+
+    #[error("TYPE_OVERRIDES contains core_id column '{0}' - core ID must always be VARCHAR to handle all ID formats (numeric, text, UUIDs, etc.)")]
+    CoreIdTypeOverride(String),
 }
 
 impl Serialize for ChuckError {

@@ -17,7 +17,7 @@ pub struct AggregationResult {
 
 // Most DwC attributes are strings, but a few should have different types to
 // enable better queries
-const TYPE_OVERRIDES: [(&str, &str); 12] = [
+const TYPE_OVERRIDES: [(&str, &str); 11] = [
     ("decimalLatitude", "DOUBLE"),
     ("decimalLongitude", "DOUBLE"),
     // DarwinCore allows ISO 8601-1:2019 dates *and* datetimes in this field
@@ -28,7 +28,11 @@ const TYPE_OVERRIDES: [(&str, &str); 12] = [
     // best left as  VARCHAR
     //
     // ("eventDate", "DATE"),
-    ("gbifID", "BIGINT"),
+
+    // Resist the temptation to override the types of columns that might be
+    // used as the core_id, e.g. gbifID, which *is* always an integer. The
+    // core_id varies per archive, and sometimes it's stringlike, so we
+    // always need to treat it as a varchar
 
     // Boolean fields
     ("captive", "BOOLEAN"),
@@ -81,6 +85,12 @@ impl Database {
         let column_names: Vec<String> = stmt.query_map([], |row| {
             row.get(0)
         })?.collect::<std::result::Result<Vec<_>, _>>()?;
+        // Check if core_id_column is in TYPE_OVERRIDES - this is a developer error
+        // because the core ID must always be VARCHAR to handle all ID formats
+        if TYPE_OVERRIDES.iter().any(|(col, _)| col == &core_id_column) {
+            return Err(ChuckError::CoreIdTypeOverride(core_id_column.to_string()));
+        }
+
         let type_map: HashMap<&str, &str> = TYPE_OVERRIDES
             .iter()
             .filter(|(col, _)| column_names.contains(&col.to_string()))
@@ -252,6 +262,11 @@ impl Database {
             let column_names: Vec<String> = stmt
                 .query_map([], |row| row.get(0))?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
+
+            // Check if extension's core_id_column is in TYPE_OVERRIDES
+            if TYPE_OVERRIDES.iter().any(|(col, _)| col == &ext.core_id_column.as_str()) {
+                return Err(ChuckError::CoreIdTypeOverride(ext.core_id_column.clone()));
+            }
 
             // Apply type overrides for known numeric/date columns
             let type_map: HashMap<&str, &str> = TYPE_OVERRIDES
@@ -1713,24 +1728,6 @@ mod tests {
         assert!(
             err_msg.contains("DOUBLE"),
             "Error should mention the column type. Got: {}",
-            err_msg
-        );
-
-        // Test that BIGINT column is also rejected
-        let csv_data_gbif = br#"gbifID,scientificName
-12345,Species B
-"#;
-        let fixture_gbif = TestFixture::new("autocomplete_gbif_check", vec![csv_data_gbif]);
-        let db_gbif = Database::create_from_core_files(&fixture_gbif.csv_paths, &vec![], &fixture_gbif.db_path, "gbifID").unwrap();
-
-        let result = db_gbif.get_autocomplete_suggestions("gbifID", "123", 10);
-        assert!(result.is_err(), "gbifID (BIGINT) should be rejected");
-
-        let err = result.unwrap_err();
-        let err_msg = err.to_string();
-        assert!(
-            err_msg.contains("gbifID") && err_msg.contains("BIGINT"),
-            "Error should mention gbifID and BIGINT. Got: {}",
             err_msg
         );
     }
