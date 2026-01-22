@@ -7,7 +7,7 @@ pub mod tile_server;
 mod search_params;
 
 use chuck_core::auth::AuthCache;
-use tauri::menu::{MenuItemBuilder, SubmenuBuilder};
+use tauri::menu::{Menu, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -48,61 +48,82 @@ pub fn run() {
                 .accelerator("CmdOrCtrl+I")
                 .build(app)?;
 
-            // Get the existing menu and add to the File submenu
-            if let Some(menu) = app.menu() {
-                for item in menu.items()? {
-                    if let Some(submenu) = item.as_submenu()
-                        && let Ok(text) = submenu.text()
-                        && text == "File"
-                    {
-                        submenu.prepend(&open_item)?;
-                        break
+            // Get the existing menu or create one for the main window (needed for Windows/Linux)
+            let menu = match app.menu() {
+                Some(m) => m,
+                None => {
+                    let m = Menu::default(app.handle())?;
+                    // On Windows/Linux there's no app-level menu, so set it on the main window only
+                    if let Some(window) = app.get_webview_window("main") {
+                        window.set_menu(m.clone())?;
                     }
+                    m
                 }
+            };
 
-                // Create Tools submenu if it doesn't exist, or add to existing
-                let mut tools_submenu_exists = false;
-                for item in menu.items()? {
-                    if let Some(submenu) = item.as_submenu() {
-                        if let Ok(text) = submenu.text() {
-                            if text == "Tools" {
-                                submenu.append(&download_item)?;
-                                tools_submenu_exists = true;
-                                break;
-                            }
+            // Get or create File submenu and add Open item
+            let mut file_submenu_exists = false;
+            for item in menu.items()? {
+                if let Some(submenu) = item.as_submenu()
+                    && let Ok(text) = submenu.text()
+                    && text == "File"
+                {
+                    submenu.prepend(&open_item)?;
+                    file_submenu_exists = true;
+                    break;
+                }
+            }
+
+            // If File submenu doesn't exist, create it
+            if !file_submenu_exists {
+                let file_submenu = SubmenuBuilder::new(app, "File")
+                    .item(&open_item)
+                    .build()?;
+                menu.insert(&file_submenu, 0)?;
+            }
+
+            // Create Tools submenu if it doesn't exist, or add to existing
+            let mut tools_submenu_exists = false;
+            for item in menu.items()? {
+                if let Some(submenu) = item.as_submenu() {
+                    if let Ok(text) = submenu.text() {
+                        if text == "Tools" {
+                            submenu.append(&download_item)?;
+                            tools_submenu_exists = true;
+                            break;
                         }
                     }
                 }
+            }
 
-                // If Tools submenu doesn't exist, create it
-                if !tools_submenu_exists {
-                    let tools_submenu = SubmenuBuilder::new(app, "Tools")
-                        .item(&download_item)
-                        .build()?;
-                    menu.append(&tools_submenu)?;
-                }
+            // If Tools submenu doesn't exist, create it
+            if !tools_submenu_exists {
+                let tools_submenu = SubmenuBuilder::new(app, "Tools")
+                    .item(&download_item)
+                    .build()?;
+                menu.append(&tools_submenu)?;
+            }
 
-                // Get or create View submenu
-                let mut view_submenu_exists = false;
-                for item in menu.items()? {
-                    if let Some(submenu) = item.as_submenu() {
-                        if let Ok(text) = submenu.text() {
-                            if text == "View" {
-                                submenu.append(&metadata_item)?;
-                                view_submenu_exists = true;
-                                break;
-                            }
+            // Get or create View submenu
+            let mut view_submenu_exists = false;
+            for item in menu.items()? {
+                if let Some(submenu) = item.as_submenu() {
+                    if let Ok(text) = submenu.text() {
+                        if text == "View" {
+                            submenu.append(&metadata_item)?;
+                            view_submenu_exists = true;
+                            break;
                         }
                     }
                 }
+            }
 
-                // If View submenu doesn't exist, create it
-                if !view_submenu_exists {
-                    let view_submenu = SubmenuBuilder::new(app, "View")
-                        .item(&metadata_item)
-                        .build()?;
-                    menu.append(&view_submenu)?;
-                }
+            // If View submenu doesn't exist, create it
+            if !view_submenu_exists {
+                let view_submenu = SubmenuBuilder::new(app, "View")
+                    .item(&metadata_item)
+                    .build()?;
+                menu.append(&view_submenu)?;
             }
 
             app.on_menu_event(move |app, event| {
