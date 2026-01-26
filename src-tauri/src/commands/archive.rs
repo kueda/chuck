@@ -88,18 +88,21 @@ fn get_metadata_from_storage(storage_dir: &Path) -> Result<ArchiveMetadata> {
     Ok(ArchiveMetadata { xml_files })
 }
 
-fn get_local_data_dir(app: tauri::AppHandle) -> Result<PathBuf> {
-    app
+fn get_archives_dir(app: tauri::AppHandle) -> Result<PathBuf> {
+    let base_dir = app
         .path()
         .app_local_data_dir()
-        .map_err(|e| ChuckError::Tauri(e.to_string()))
+        .map_err(|e| ChuckError::Tauri(e.to_string()))?;
+    // Use a dedicated subdirectory for archives to avoid conflicts with
+    // other app data (e.g., WebView2's EBWebView directory on Windows)
+    Ok(base_dir.join("archives"))
 }
 
 #[tauri::command]
 pub async fn open_archive(app: tauri::AppHandle, path: String) -> Result<ArchiveInfo> {
     use std::sync::mpsc;
 
-    let base_dir = get_local_data_dir(app.clone())?;
+    let base_dir = get_archives_dir(app.clone())?;
     let path_clone = path.clone();
 
     // Emit initial importing status
@@ -182,7 +185,7 @@ pub async fn open_archive(app: tauri::AppHandle, path: String) -> Result<Archive
 
 #[tauri::command]
 pub fn current_archive(app: tauri::AppHandle) -> Result<ArchiveInfo> {
-    Archive::current(&get_local_data_dir(app)?).map_err(|e| {
+    Archive::current(&get_archives_dir(app)?).map_err(|e| {
         log::error!(
             "Failed to get current archive: {}, backtrace: {}",
             e,
@@ -200,7 +203,7 @@ pub fn search(
     search_params: SearchParams,
     fields: Option<Vec<String>>,
 ) -> Result<SearchResult> {
-    let archive = Archive::current(&get_local_data_dir(app)?).map_err(|e| {
+    let archive = Archive::current(&get_archives_dir(app)?).map_err(|e| {
         log::error!(
             "caught error opening current: {}, backtrace: {}",
             e,
@@ -221,7 +224,7 @@ pub fn get_autocomplete_suggestions(
     search_term: String,
     limit: Option<usize>,
 ) -> Result<Vec<String>> {
-    let archive = Archive::current(&get_local_data_dir(app)?).map_err(|e| {
+    let archive = Archive::current(&get_archives_dir(app)?).map_err(|e| {
         log::error!(
             "caught error opening current: {}, backtrace: {}",
             e,
@@ -240,7 +243,7 @@ pub fn get_occurrence(
     app: tauri::AppHandle,
     occurrence_id: String,
 ) -> Result<serde_json::Map<String, serde_json::Value>> {
-    let archive = Archive::current(&get_local_data_dir(app)?)?;
+    let archive = Archive::current(&get_archives_dir(app)?)?;
     archive.get_occurrence(&occurrence_id)
 }
 
@@ -249,7 +252,7 @@ pub fn get_photo(
     app: tauri::AppHandle,
     photo_path: String,
 ) -> Result<String> {
-    let archive = Archive::current(&get_local_data_dir(app)?)?;
+    let archive = Archive::current(&get_archives_dir(app)?)?;
     archive.get_photo(&photo_path)
 }
 
@@ -260,13 +263,13 @@ pub fn aggregate_by_field(
     search_params: SearchParams,
     limit: usize,
 ) -> Result<Vec<crate::db::AggregationResult>> {
-    let archive = Archive::current(&get_local_data_dir(app)?)?;
+    let archive = Archive::current(&get_archives_dir(app)?)?;
     archive.aggregate_by_field(&field_name, &search_params, limit)
 }
 
 #[tauri::command]
 pub fn get_archive_metadata(app: tauri::AppHandle) -> Result<ArchiveMetadata> {
-    let base_dir = get_local_data_dir(app)?;
+    let base_dir = get_archives_dir(app)?;
     let archive = Archive::current(&base_dir)?;
     get_metadata_from_storage(&archive.storage_dir)
 }
