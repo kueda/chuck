@@ -1199,6 +1199,9 @@ mod tests {
         let storage_dir1 = archive1.storage_dir.clone();
         assert!(storage_dir1.exists());
 
+        // Drop first archive before opening second - on Windows, files are locked while open
+        drop(archive1);
+
         // Open second archive using the same base directory
         let archive2 = Archive::open(fixture2.archive_path(), fixture1.base_dir()).unwrap();
         let storage_dir2 = archive2.storage_dir.clone();
