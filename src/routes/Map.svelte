@@ -8,6 +8,7 @@
 
   import type { SearchParams } from '$lib/utils/filterCategories';
   import type { Occurrence } from '$lib/types/archive';
+  import { getTileUrlBase } from '$lib/tauri-api';
 
   interface Props {
     drawerState: DrawerState;
@@ -61,7 +62,7 @@
     map.removeLayer('occurrence-points');
     map.removeSource('occurrences');
     const urlSearchParams = new URLSearchParams(Object.entries(params));
-    const tileUrl = `tiles://localhost/{z}/{x}/{y}?${urlSearchParams.toString()}`;
+    const tileUrl = `${getTileUrlBase()}/{z}/{x}/{y}?${urlSearchParams.toString()}`;
     map!.addSource('occurrences', {
       type: 'vector',
       tiles: [tileUrl],
@@ -119,7 +120,7 @@
       const urlSearchParams = new URLSearchParams(Object.entries(params));
       map!.addSource('occurrences', {
         type: 'vector',
-        tiles: [`tiles://localhost/{z}/{x}/{y}?${urlSearchParams.toString()}`],
+        tiles: [`${getTileUrlBase()}/{z}/{x}/{y}?${urlSearchParams.toString()}`],
         minzoom: 0,
         maxzoom: 14
       });

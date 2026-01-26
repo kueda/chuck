@@ -9,7 +9,7 @@
   // that are necessary, so... this is a way to test CSP config in dev with
   // the huge caveat that prodCsp here must be manually kept in sync with the
   // `csp` config from tauri.conf.json
-  const connectSrc = "'self' tiles: ipc: http://ipc.localhost https://tile.openstreetmap.org:*";
+  const connectSrc = "'self' tiles: http://tiles.localhost ipc: http://ipc.localhost https://tile.openstreetmap.org:*";
   const devCsp = {
     "script-src": "'self' 'unsafe-inline' http://localhost:*",
     "style-src": "'self' 'unsafe-inline' http://localhost:*",

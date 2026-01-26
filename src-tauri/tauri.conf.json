@@ -21,7 +21,7 @@
       "csp": {
         "default-src": "'self' tiles: http://tiles.localhost",
         "img-src": "'self' data: blob: tiles: asset: *",
-        "connect-src": "'self' tiles: ipc: http://ipc.localhost https://tile.openstreetmap.org:*",
+        "connect-src": "'self' tiles: http://tiles.localhost ipc: http://ipc.localhost https://tile.openstreetmap.org:*",
         "object-src": "'none'",
         "frame-src": "'self'",
         "worker-src": "blob:"

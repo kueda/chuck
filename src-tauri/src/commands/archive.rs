@@ -88,7 +88,7 @@ fn get_metadata_from_storage(storage_dir: &Path) -> Result<ArchiveMetadata> {
     Ok(ArchiveMetadata { xml_files })
 }
 
-fn get_archives_dir(app: tauri::AppHandle) -> Result<PathBuf> {
+pub(crate) fn get_archives_dir<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<PathBuf> {
     let base_dir = app
         .path()
         .app_local_data_dir()
