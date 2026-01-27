@@ -590,7 +590,7 @@ test.describe('Frontend', () => {
     await page.waitForTimeout(500);
 
     // Get a reference occurrence that should be visible (capture text from first visible row)
-    const firstVisibleRow = page.locator('.list-item').first();
+    const firstVisibleRow = page.locator('.occurrence-list-item').first();
     const referenceOccurrenceId = await firstVisibleRow.evaluate(el => el.id);
 
     // Log the scroll position before switching
@@ -607,7 +607,7 @@ test.describe('Frontend', () => {
 
     // Verify that the reference occurrence is still visible in cards view
     // The first visible card should contain the same occurrence ID (or be very close)
-    const cardItems = page.locator('.list-item');
+    const cardItems = page.locator('.occurrence-list-item');
     await expect(cardItems.first()).toBeVisible();
 
     // Get the first few visible cards and check if our reference occurrence is among them
@@ -630,7 +630,7 @@ test.describe('Frontend', () => {
     await page.waitForTimeout(1000);
 
     // Verify the reference occurrence is still visible in table view
-    const firstRowAfterSwitch = page.locator('.list-item').first();
+    const firstRowAfterSwitch = page.locator('.occurrence-list-item').first();
     const firstRowId = await firstRowAfterSwitch.evaluate(el => el.id);
 
     // Should show the same or very close occurrence

@@ -49,3 +49,14 @@ export async function listen<T>(
   }
   return tauriListen(event, handler);
 }
+
+/**
+ * Get the base URL for the tiles custom protocol.
+ * On Windows, WebView2 requires http://tiles.localhost/ format.
+ * On macOS/Linux, use tiles://localhost/ format.
+ */
+export function getTileUrlBase(): string {
+  const isWindows = typeof navigator !== 'undefined' &&
+    navigator.userAgent.toLowerCase().includes('windows');
+  return isWindows ? 'http://tiles.localhost' : 'tiles://localhost';
+}

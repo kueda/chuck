@@ -319,13 +319,17 @@ impl Database {
         Ok(created_tables)
     }
 
-    /// Opens an existing database with extension metadata
+    /// Opens an existing database with extension metadata (read-only mode)
     pub fn open(
         db_path: &Path,
         core_id_column: String,
         extensions: &[ExtensionInfo]
     ) -> Result<Self> {
-        let conn = duckdb::Connection::open(db_path)?;
+        // Open in read-only mode to allow multiple concurrent readers
+        // This is important on Windows where file locks are more restrictive
+        let config = duckdb::Config::default()
+            .access_mode(duckdb::AccessMode::ReadOnly)?;
+        let conn = duckdb::Connection::open_with_flags(db_path, config)?;
 
         // Build extension_tables from provided extension info
         let extension_tables: Vec<(chuck_core::DwcaExtension, String)> = extensions
@@ -967,6 +971,9 @@ mod tests {
         let db1 = result1.unwrap();
         assert_eq!(db1.count_records().unwrap(), 2);
 
+        // Drop first connection before opening second - on Windows, files are locked while open
+        drop(db1);
+
         // Second call should recognize existing table and not alter it
         let result2 = Database::create_from_core_files(
             &fixture.csv_paths,
@@ -979,7 +986,8 @@ mod tests {
         let db2 = result2.unwrap();
         assert_eq!(db2.count_records().unwrap(), 2);
 
-        // Cleanup happens automatically via Drop
+        // Drop database before fixture cleanup - on Windows, files are locked while open
+        drop(db2);
     }
 
     #[test]
@@ -1300,12 +1308,15 @@ mod tests {
         }];
 
         // Create database
-        let _db = Database::create_from_core_files(
+        let db = Database::create_from_core_files(
             &vec![occurrence_path],
             &extensions,
             &db_path,
             "occurrenceID"
         ).unwrap();
+
+        // Drop first connection before reopening - on Windows, files are locked while open
+        drop(db);
 
         // Reopen the database with extension info
         let reopened_db = Database::open(&db_path, "occurrenceID".to_string(), &extensions).unwrap();
@@ -1314,6 +1325,9 @@ mod tests {
         assert_eq!(reopened_db.extension_tables.len(), 1);
         assert_eq!(reopened_db.extension_tables[0].0, chuck_core::DwcaExtension::SimpleMultimedia);
         assert_eq!(reopened_db.extension_tables[0].1, "occurrenceID");
+
+        // Drop database before cleanup - on Windows, files are locked while open
+        drop(reopened_db);
 
         // Cleanup
         std::fs::remove_dir_all(&temp_dir).ok();
