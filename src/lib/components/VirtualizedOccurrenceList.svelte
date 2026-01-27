@@ -47,7 +47,7 @@
       ?`item-${occurrence[coreIdColumn as keyof Occurrence]}`
       : ''
     }
-    class="list-item"
+    class="occurrence-list-item"
   >
     {@render children({ virtualRow, occurrence })}
   </div>
