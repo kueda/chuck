@@ -17,7 +17,8 @@
     "test:frontend": "npm run test:frontend:unit && npm run test:frontend:integration && npm run test:frontend:performance",
     "test:frontend:unit": "vitest run",
     "test:frontend:integration": "playwright test --project=webkit",
-    "test:frontend:performance": "playwright test --project=webkit-performance"
+    "test:frontend:performance": "playwright test --project=webkit-performance",
+    "version": "node scripts/bump-version.js"
   },
   "license": "MIT",
   "dependencies": {
