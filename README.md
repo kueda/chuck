@@ -23,12 +23,15 @@ Chuck is a [Tauri](https://tauri.app) application where most of the logic is in 
 
 ### Setup
 
-If you want to work on Chuck or just build it, you mostly just need working Rust and TypeScript environments. Building looks roughly like this:
+If you want to work on Chuck or just build it, you mostly just need working [Rust](https://rust-lang.org/tools/install/) and [NPM](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) environments. Building looks roughly like this:
 
 ```sh
 # Install Rust: https://rust-lang.org/tools/install/
 # Install Node / NPM: https://docs.npmjs.com/downloading-and-installing-node-js-and-npm
 # Clone this repo
+
+# (Optional) Use the right version of node (fnm works well on windows)
+nvm use
 
 # Install JS deps
 npm i
