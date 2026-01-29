@@ -19,7 +19,7 @@
     "tauri-debug-win": "cmd /c \"set RUST_BACKTRACE=1 && set RUST_LOG=debug && tauri dev\"",
     "test": "npm run test:backend && npm run test:frontend",
     "test:backend": "cargo test",
-    "test:frontend": "npm run test:frontend:unit && npm run test:frontend:integration && npm run test:frontend:performance",
+    "test:frontend": "npm run test:frontend:unit && npm run test:frontend:integration",
     "test:frontend:unit": "vitest run",
     "test:frontend:integration": "playwright test --project=webkit",
     "test:frontend:performance": "playwright test --project=webkit-performance",
