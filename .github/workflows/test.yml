@@ -19,8 +19,10 @@ jobs:
           node-version: lts/*
           cache: 'npm'
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "" # reads from rust-toolchain.toml
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -71,8 +73,10 @@ jobs:
           node-version: lts/*
           cache: 'npm'
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "" # reads from rust-toolchain.toml
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2

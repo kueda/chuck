@@ -39,9 +39,10 @@ jobs:
         with:
           node-version: lts/*
 
-      - name: install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "" # reads from rust-toolchain.toml
           # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
           targets: ${{ matrix.os == 'mac' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
