@@ -40,11 +40,14 @@ jobs:
           node-version: lts/*
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
+        uses: actions-rust-lang/setup-rust-toolchain@v1.15.2
         with:
-          toolchain: "" # reads from rust-toolchain.toml
+          cache-workspaces: |
+            src-tauri
+            chuck-core
+            chuck-cli
           # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
-          targets: ${{ matrix.os == 'mac' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          target: ${{ matrix.os == 'mac' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: install dependencies (Linux only)
         if: matrix.os == 'linux'

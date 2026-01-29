@@ -20,14 +20,10 @@ jobs:
           cache: 'npm'
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
+        uses: actions-rust-lang/setup-rust-toolchain@v1.15.2
         with:
-          toolchain: "" # reads from rust-toolchain.toml
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
+          components: clippy, rustfmt
+          cache-workspaces: |
             src-tauri
             chuck-core
             chuck-cli
@@ -74,14 +70,10 @@ jobs:
           cache: 'npm'
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
+        uses: actions-rust-lang/setup-rust-toolchain@v1.15.2
         with:
-          toolchain: "" # reads from rust-toolchain.toml
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
+          components: clippy, rustfmt
+          cache-workspaces: |
             src-tauri
             chuck-core
             chuck-cli
