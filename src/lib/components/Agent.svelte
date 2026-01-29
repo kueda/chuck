@@ -1,26 +1,24 @@
 <script lang="ts">
-  import {
-    User
-  } from 'lucide-svelte';
+import { User } from 'lucide-svelte';
 
-  interface Props {
-    id?: string | null;
-    name?: string | null;
+interface Props {
+  id?: string | null;
+  name?: string | null;
+}
+const { id, name }: Props = $props();
+const displayName = $derived.by(() => {
+  if (!name) return 'unknown';
+  const pieces = name.split('|');
+  const final = pieces.shift();
+  if (pieces.length > 0) {
+    return `${final} (${pieces.join(', ')})`;
   }
-  const { id, name }: Props = $props();
-  let displayName = $derived.by(() => {
-    if (!name) return 'unknown';
-    const pieces = name.split('|');
-    let final = pieces.shift();
-    if (pieces.length > 0) {
-      return `${final} (${pieces.join(', ')})`
-    }
-    return final;
-  });
-  let url = $derived.by(() => {
-    if (!id) return null;
-    return id.split('|').find(s => s.startsWith('http'));
-  });
+  return final;
+});
+const url = $derived.by(() => {
+  if (!id) return null;
+  return id.split('|').find((s) => s.startsWith('http'));
+});
 </script>
 
 <span class="flex flex-row items-center gap-1 overflow-hidden" title={id}>

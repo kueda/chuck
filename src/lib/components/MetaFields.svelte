@@ -1,10 +1,11 @@
 <script lang="ts">
-  import type { MetaField } from '$lib/utils/xmlParser';
-  interface Props {
-    fields: MetaField[];
-  }
+import type { MetaField } from '$lib/utils/xmlParser';
 
-  let { fields }: Props = $props();
+interface Props {
+  fields: MetaField[];
+}
+
+const { fields }: Props = $props();
 </script>
 
 <table class="table">

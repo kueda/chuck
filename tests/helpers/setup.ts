@@ -2,16 +2,15 @@
  * Test helper utilities for setting up Playwright tests with Tauri mocks.
  */
 
-import { type Page } from '@playwright/test';
-import { getInjectionScript } from '../mocks/tauri';
+import type { Page } from '@playwright/test';
+import type { ArchiveInfo, SearchResult } from '../../src/lib/types/archive';
 import {
   mockArchive,
-  mockSearchResult,
   mockArchive2,
+  mockSearchResult,
   mockSearchResult2,
 } from '../fixtures/archive-data';
-
-import type { ArchiveInfo, SearchResult } from '../../src/lib/types/archive';
+import { getInjectionScript } from '../mocks/tauri';
 
 export interface SetupMockTauriOptions {
   archive?: ArchiveInfo;
@@ -25,7 +24,7 @@ export interface SetupMockTauriOptions {
  */
 export async function setupMockTauri(
   page: Page,
-  options?: SetupMockTauriOptions
+  options?: SetupMockTauriOptions,
 ) {
   const archive = options?.archive ?? mockArchive;
   const searchResult = options?.searchResult ?? mockSearchResult;
@@ -33,7 +32,13 @@ export async function setupMockTauri(
 
   // Add initialization script that runs before any page code
   await page.addInitScript(
-    getInjectionScript(archive, searchResult, mockArchive2, mockSearchResult2, eml)
+    getInjectionScript(
+      archive,
+      searchResult,
+      mockArchive2,
+      mockSearchResult2,
+      eml,
+    ),
   );
 }
 
@@ -62,9 +67,14 @@ export async function openArchive(page: Page) {
 /**
  * Performs a search with the given scientific name.
  */
-export async function searchByScientificName(page: Page, scientificName: string) {
+export async function searchByScientificName(
+  page: Page,
+  scientificName: string,
+) {
   // Check if Taxonomy accordion is already open by checking if scientificName label is visible
-  const scientificNameLabel = page.locator('.label .label-text:has-text("scientificName")');
+  const scientificNameLabel = page.locator(
+    '.label .label-text:has-text("scientificName")',
+  );
   const isVisible = await scientificNameLabel.isVisible().catch(() => false);
 
   // Only click the accordion if it's not already open
@@ -78,7 +88,10 @@ export async function searchByScientificName(page: Page, scientificName: string)
 
   // If empty string, clear the filter using the clear button
   if (!scientificName || scientificName.trim() === '') {
-    const clearButton = scientificNameLabel.locator('..').locator('..').locator('button[aria-label="Clear filter"]');
+    const clearButton = scientificNameLabel
+      .locator('..')
+      .locator('..')
+      .locator('button[aria-label="Clear filter"]');
     const clearButtonCount = await clearButton.count();
     if (clearButtonCount > 0) {
       await clearButton.click();
@@ -88,7 +101,10 @@ export async function searchByScientificName(page: Page, scientificName: string)
   }
 
   // Find the combobox input within the same filter component
-  const searchInput = scientificNameLabel.locator('..').locator('..').locator('input[role="combobox"]');
+  const searchInput = scientificNameLabel
+    .locator('..')
+    .locator('..')
+    .locator('input[role="combobox"]');
   await searchInput.fill(scientificName);
 
   // Wait for search to complete
@@ -99,7 +115,10 @@ export async function searchByScientificName(page: Page, scientificName: string)
  * Gets the visible occurrence rows in the virtualizer (excludes header).
  */
 export async function getVisibleOccurrences(page: Page) {
-  return page.locator('main .occurrence-item').filter({ hasNotText: "Loading..." }).all();
+  return page
+    .locator('main .occurrence-item')
+    .filter({ hasNotText: 'Loading...' })
+    .all();
 }
 
 /**
@@ -108,7 +127,7 @@ export async function getVisibleOccurrences(page: Page) {
 export async function triggerMenuOpen(page: Page) {
   await page.evaluate(() => {
     const mockTauri = (window as any).__MOCK_TAURI__;
-    if (mockTauri && mockTauri.triggerMenuOpen) {
+    if (mockTauri?.triggerMenuOpen) {
       mockTauri.triggerMenuOpen();
     }
   });

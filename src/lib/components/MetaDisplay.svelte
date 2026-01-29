@@ -1,12 +1,12 @@
 <script lang="ts">
-  import type { MetaData } from '$lib/utils/xmlParser';
-  import MetaFields from './MetaFields.svelte';
+import type { MetaData } from '$lib/utils/xmlParser';
+import MetaFields from './MetaFields.svelte';
 
-  interface Props {
-    data: MetaData;
-  }
+interface Props {
+  data: MetaData;
+}
 
-  let { data }: Props = $props();
+const { data }: Props = $props();
 </script>
 
 <div class="space-y-6">

@@ -1,10 +1,5 @@
-import { test, expect } from '@playwright/test';
-import {
-  getVisibleOccurrences,
-  setupMockTauri,
-  waitForAppReady,
-  openArchive,
-} from './helpers/setup';
+import { expect, test } from '@playwright/test';
+import { openArchive, setupMockTauri, waitForAppReady } from './helpers/setup';
 
 test.describe('Bounding Box Filtering', () => {
   test.beforeEach(async ({ page }) => {
@@ -13,7 +8,9 @@ test.describe('Bounding Box Filtering', () => {
     await waitForAppReady(page);
   });
 
-  test('should filter table results after drawing bounding box on map', async ({ page }) => {
+  test('should filter table results after drawing bounding box on map', async ({
+    page,
+  }) => {
     // Open archive
     await openArchive(page);
     await page.waitForTimeout(1000);
@@ -21,8 +18,9 @@ test.describe('Bounding Box Filtering', () => {
     const occTab = page.getByLabel('Occurrences');
 
     // Count initial rows in Table view
-    const numInitialRows = await page.locator('main .occurrence-item')
-      .filter({ hasNotText: "Loading..." })
+    const numInitialRows = await page
+      .locator('main .occurrence-item')
+      .filter({ hasNotText: 'Loading...' })
       .count();
     expect(numInitialRows).toBeGreaterThan(0);
 
@@ -72,13 +70,29 @@ test.describe('Bounding Box Filtering', () => {
     await geographyTrigger.click();
     await page.waitForTimeout(300);
 
-    const nelatInput = page.locator('.label-text:has-text("nelat")').locator('..').locator('..').locator('input[role="combobox"]');
+    const nelatInput = page
+      .locator('.label-text:has-text("nelat")')
+      .locator('..')
+      .locator('..')
+      .locator('input[role="combobox"]');
     const nelatValue = await nelatInput.inputValue();
-    const nelngInput = page.locator('.label-text:has-text("nelng")').locator('..').locator('..').locator('input[role="combobox"]');
+    const nelngInput = page
+      .locator('.label-text:has-text("nelng")')
+      .locator('..')
+      .locator('..')
+      .locator('input[role="combobox"]');
     const nelngValue = await nelngInput.inputValue();
-    const swlatInput = page.locator('.label-text:has-text("swlat")').locator('..').locator('..').locator('input[role="combobox"]');
+    const swlatInput = page
+      .locator('.label-text:has-text("swlat")')
+      .locator('..')
+      .locator('..')
+      .locator('input[role="combobox"]');
     const swlatValue = await swlatInput.inputValue();
-    const swlngInput = page.locator('.label-text:has-text("swlng")').locator('..').locator('..').locator('input[role="combobox"]');
+    const swlngInput = page
+      .locator('.label-text:has-text("swlng")')
+      .locator('..')
+      .locator('..')
+      .locator('input[role="combobox"]');
     const swlngValue = await swlngInput.inputValue();
 
     // Verify all bbox fields were populated
@@ -94,8 +108,9 @@ test.describe('Bounding Box Filtering', () => {
 
     // Count table rows after bbox filter
     // const numFilteredRows = await occTab.locator('.occurrence-item').count();
-    const numFilteredRows = await page.locator('main .occurrence-item')
-      .filter({ hasNotText: "Loading..." })
+    const numFilteredRows = await page
+      .locator('main .occurrence-item')
+      .filter({ hasNotText: 'Loading...' })
       .count();
 
     // Verify that filtering occurred
@@ -117,7 +132,11 @@ test.describe('Bounding Box Filtering', () => {
     await page.waitForTimeout(300);
 
     // Verify we can type into bbox fields
-    const nelatInput = page.locator('.label-text:has-text("nelat")').locator('..').locator('..').locator('input[role="combobox"]');
+    const nelatInput = page
+      .locator('.label-text:has-text("nelat")')
+      .locator('..')
+      .locator('..')
+      .locator('input[role="combobox"]');
     await nelatInput.click();
     await nelatInput.pressSequentially('39');
 
@@ -126,7 +145,11 @@ test.describe('Bounding Box Filtering', () => {
     expect(nelatValue).toBe('39');
 
     // Test one more field to confirm they all work
-    const swlngInput = page.locator('.label-text:has-text("swlng")').locator('..').locator('..').locator('input[role="combobox"]');
+    const swlngInput = page
+      .locator('.label-text:has-text("swlng")')
+      .locator('..')
+      .locator('..')
+      .locator('input[role="combobox"]');
     await swlngInput.click();
     await swlngInput.pressSequentially('-123');
 
@@ -134,7 +157,9 @@ test.describe('Bounding Box Filtering', () => {
     expect(swlngValue).toBe('-123');
   });
 
-  test('should clear bbox fields when clear button is clicked', async ({ page }) => {
+  test('should clear bbox fields when clear button is clicked', async ({
+    page,
+  }) => {
     // Open archive
     await openArchive(page);
 
@@ -144,7 +169,11 @@ test.describe('Bounding Box Filtering', () => {
     await page.waitForTimeout(300);
 
     // Enter a value in nelat field
-    const nelatInput = page.locator('.label-text:has-text("nelat")').locator('..').locator('..').locator('input[role="combobox"]');
+    const nelatInput = page
+      .locator('.label-text:has-text("nelat")')
+      .locator('..')
+      .locator('..')
+      .locator('input[role="combobox"]');
     await nelatInput.click();
     await nelatInput.pressSequentially('45');
     await page.waitForTimeout(300);
@@ -154,7 +183,11 @@ test.describe('Bounding Box Filtering', () => {
     expect(nelatValue).toBe('45');
 
     // Click the clear button for this field
-    const nelatClearButton = page.locator('.label-text:has-text("nelat")').locator('..').locator('..').locator('button[aria-label="Clear filter"]');
+    const nelatClearButton = page
+      .locator('.label-text:has-text("nelat")')
+      .locator('..')
+      .locator('..')
+      .locator('button[aria-label="Clear filter"]');
     await nelatClearButton.click();
     await page.waitForTimeout(300);
 

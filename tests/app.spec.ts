@@ -1,12 +1,12 @@
-import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import {
-  setupMockTauri,
-  waitForAppReady,
+  getVisibleOccurrences,
   openArchive,
   searchByScientificName,
-  getVisibleOccurrences,
+  setupMockTauri,
   triggerMenuOpen,
+  waitForAppReady,
 } from './helpers/setup';
 
 test.describe('Frontend', () => {
@@ -28,14 +28,18 @@ test.describe('Frontend', () => {
     return cardsInput.click({ force: true });
   }
 
-  test('should display welcome message when no archive is open', async ({ page }) => {
+  test('should display welcome message when no archive is open', async ({
+    page,
+  }) => {
     // Check for the welcome text
-    await expect(page.getByText(/Chuck is an application for viewing archives/))
-      .toBeVisible();
+    await expect(
+      page.getByText(/Chuck is an application for viewing archives/),
+    ).toBeVisible();
 
     // Check for the Open Archive button
-    await expect(page.getByRole('button', { name: 'Open Archive' }))
-      .toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Open Archive' }),
+    ).toBeVisible();
   });
 
   test('should open an archive and display results', async ({ page }) => {
@@ -66,7 +70,7 @@ test.describe('Frontend', () => {
     await openArchive(page);
 
     const filters = page.locator('id=Filters');
-    const sortSection = filters.locator('button').filter({ hasText: 'Sort'});
+    const sortSection = filters.locator('button').filter({ hasText: 'Sort' });
     await expect(sortSection).toBeVisible();
     await sortSection.click();
 
@@ -82,7 +86,9 @@ test.describe('Frontend', () => {
     await sortBySelect.selectOption({ index: 1 }); // Select first non-None option
 
     // Check for sort direction dropdown (should appear after selecting a column)
-    const sortDirectionSelect = page.locator('select').filter({ hasText: 'DESC' });
+    const sortDirectionSelect = page
+      .locator('select')
+      .filter({ hasText: 'DESC' });
     await expect(sortDirectionSelect).toBeVisible();
   });
 
@@ -97,11 +103,16 @@ test.describe('Frontend', () => {
     const firstRow = page.locator('.occurrence-item').first();
     await expect(firstRow).toBeVisible();
 
-    const firstNameBefore = await firstRow.locator('.table-cell').nth(2).textContent();
+    const firstNameBefore = await firstRow
+      .locator('.table-cell')
+      .nth(2)
+      .textContent();
     expect(firstNameBefore).toBe('Quercus lobata');
 
     // Click on scientificName sort button to sort ASC
-    const header = page.locator('.table-header-cell').filter({ hasText: 'scientificName' });
+    const header = page
+      .locator('.table-header-cell')
+      .filter({ hasText: 'scientificName' });
     const sortButton = header.locator('.sort-button');
     await sortButton.click();
     await page.waitForTimeout(1000);
@@ -111,7 +122,10 @@ test.describe('Frontend', () => {
 
     // Get the first scientificName after sorting
     const firstRowAfterSort = page.locator('.occurrence-item').first();
-    const firstNameAfter = await firstRowAfterSort.locator('.table-cell').nth(2).textContent();
+    const firstNameAfter = await firstRowAfterSort
+      .locator('.table-cell')
+      .nth(2)
+      .textContent();
 
     // The order should have changed - when sorted alphabetically ASC,
     // the first name should be something like "Arbutus" or "Arctostaphylos" (alphabetically before "Quercus")
@@ -126,7 +140,10 @@ test.describe('Frontend', () => {
 
     // Verify order reversed - should be something alphabetically last
     const firstRowDesc = page.locator('.occurrence-item').first();
-    const firstNameDesc = await firstRowDesc.locator('.table-cell').nth(2).textContent();
+    const firstNameDesc = await firstRowDesc
+      .locator('.table-cell')
+      .nth(2)
+      .textContent();
     expect(firstNameDesc).not.toBe(firstNameAfter); // Should be different from ASC
 
     // Click third time to toggle back to ASC
@@ -137,7 +154,9 @@ test.describe('Frontend', () => {
     await expect(sortButton.locator('svg')).toBeVisible();
   });
 
-  test('should default to Core ID sort when opening archive', async ({ page }) => {
+  test('should default to Core ID sort when opening archive', async ({
+    page,
+  }) => {
     await openArchive(page);
 
     // Check that the Core ID column header shows sort icon
@@ -150,7 +169,9 @@ test.describe('Frontend', () => {
     expect(selectedValue).toBeTruthy(); // Should have a value (the core ID column)
   });
 
-  test('should maintain results when changing sort after scrolling', async ({ page }) => {
+  test('should maintain results when changing sort after scrolling', async ({
+    page,
+  }) => {
     // Load an archive with 100+ records
     await openArchive(page);
 
@@ -169,7 +190,7 @@ test.describe('Frontend', () => {
 
     // Change the Sort By dropdown
     const filters = page.locator('id=Filters');
-    const sortSection = filters.locator('button').filter({ hasText: 'Sort'});
+    const sortSection = filters.locator('button').filter({ hasText: 'Sort' });
     await expect(sortSection).toBeVisible();
     await sortSection.click();
     const sortBySelect = page.locator('select#sortBy');
@@ -212,7 +233,9 @@ test.describe('Frontend', () => {
     await expect(dataRow).toContainText('Sequoia sempervirens');
   });
 
-  test('should preserve typed text in scientificName field when blurring without selection', async ({ page }) => {
+  test('should preserve typed text in scientificName field when blurring without selection', async ({
+    page,
+  }) => {
     await openArchive(page);
     await page.waitForTimeout(1000);
 
@@ -221,7 +244,9 @@ test.describe('Frontend', () => {
     await taxonomyTrigger.click();
 
     // Wait for the scientificName field to be visible
-    const scientificNameLabel = page.locator('.label .label-text:has-text("scientificName")');
+    const scientificNameLabel = page.locator(
+      '.label .label-text:has-text("scientificName")',
+    );
     await scientificNameLabel.waitFor({ state: 'visible', timeout: 5000 });
 
     // Type in the scientificName field without selecting from autocomplete
@@ -246,7 +271,9 @@ test.describe('Frontend', () => {
     await expect(input).toHaveValue('Qu');
   });
 
-  test('should select autocomplete suggestion with ENTER key', async ({ page }) => {
+  test('should select autocomplete suggestion with ENTER key', async ({
+    page,
+  }) => {
     await openArchive(page);
     await page.waitForTimeout(1000);
 
@@ -255,7 +282,9 @@ test.describe('Frontend', () => {
     await taxonomyTrigger.click();
 
     // Wait for the scientificName field to be visible
-    const scientificNameLabel = page.locator('.label .label-text:has-text("scientificName")');
+    const scientificNameLabel = page.locator(
+      '.label .label-text:has-text("scientificName")',
+    );
     await scientificNameLabel.waitFor({ state: 'visible', timeout: 5000 });
 
     // Type in the scientificName field to show autocomplete
@@ -275,7 +304,9 @@ test.describe('Frontend', () => {
     await page.waitForTimeout(200);
 
     // Get the highlighted suggestion text
-    const highlightedItem = dropdown.locator('[role="option"][data-highlighted]');
+    const highlightedItem = dropdown.locator(
+      '[role="option"][data-highlighted]',
+    );
     const suggestionText = (await highlightedItem.textContent())?.trim() || '';
 
     // Press ENTER to select the highlighted suggestion
@@ -289,7 +320,9 @@ test.describe('Frontend', () => {
     await expect(dropdown).not.toBeVisible();
   });
 
-  test('should clear input text when clicking clear button', async ({ page }) => {
+  test('should clear input text when clicking clear button', async ({
+    page,
+  }) => {
     await openArchive(page);
     await page.waitForTimeout(1000);
 
@@ -298,7 +331,9 @@ test.describe('Frontend', () => {
     await taxonomyTrigger.click();
 
     // Wait for the scientificName field to be visible
-    const scientificNameLabel = page.locator('.label .label-text:has-text("scientificName")');
+    const scientificNameLabel = page.locator(
+      '.label .label-text:has-text("scientificName")',
+    );
     await scientificNameLabel.waitFor({ state: 'visible', timeout: 5000 });
 
     // Type in the scientificName field
@@ -310,7 +345,9 @@ test.describe('Frontend', () => {
     await expect(input).toHaveValue('Quercus');
 
     // Click the clear button (X icon)
-    const clearButton = page.locator('button[aria-label="Clear filter"]').first();
+    const clearButton = page
+      .locator('button[aria-label="Clear filter"]')
+      .first();
     await clearButton.click();
     await page.waitForTimeout(300);
 
@@ -334,10 +371,6 @@ test.describe('Frontend', () => {
 
     // Wait for initial load
     await page.waitForTimeout(1000);
-
-    // Get initial visible rows
-    const initialRows = await getVisibleOccurrences(page);
-    const initialCount = initialRows.length;
 
     // Scroll down in the main content area
     await page.locator('main').evaluate((el) => {
@@ -383,11 +416,15 @@ test.describe('Frontend', () => {
     ];
 
     for (const header of headers) {
-      await expect(page.locator('.table-header-cell').getByText(header)).toBeVisible();
+      await expect(
+        page.locator('.table-header-cell').getByText(header),
+      ).toBeVisible();
     }
   });
 
-  test('should update results when opening a second archive', async ({ page }) => {
+  test('should update results when opening a second archive', async ({
+    page,
+  }) => {
     // Open the first archive
     await openArchive(page);
 
@@ -427,18 +464,26 @@ test.describe('Frontend', () => {
 
     // Check localStorage shows default table view
     const savedView = await page.evaluate(() => {
-      const prefs = JSON.parse(localStorage.getItem('chuck:viewPreferences') || '{}');
+      const prefs = JSON.parse(
+        localStorage.getItem('chuck:viewPreferences') || '{}',
+      );
       return prefs.globalView;
     });
     // Should be 'table' by default
     expect(savedView).toBe('table');
 
     // Verify we're in table view (column headers should be visible)
-    await expect(page.locator('.table-header-cell', { hasText: 'occurrenceID' })).toBeVisible();
-    await expect(page.locator('.table-header-cell', { hasText: 'scientificName' })).toBeVisible();
+    await expect(
+      page.locator('.table-header-cell', { hasText: 'occurrenceID' }),
+    ).toBeVisible();
+    await expect(
+      page.locator('.table-header-cell', { hasText: 'scientificName' }),
+    ).toBeVisible();
   });
 
-  test('should switch to cards view and display scientificName on cards', async ({ page }) => {
+  test('should switch to cards view and display scientificName on cards', async ({
+    page,
+  }) => {
     // Open the archive
     await openArchive(page);
 
@@ -486,7 +531,10 @@ test.describe('Frontend', () => {
     await page.waitForTimeout(1000);
 
     // Get the first card's container div (which has the height style)
-    const cardContainer = page.locator('.occurrence-card').first().locator('..');
+    const cardContainer = page
+      .locator('.occurrence-card')
+      .first()
+      .locator('..');
     const cardHeight = await cardContainer.evaluate((el) => {
       return window.getComputedStyle(el).height;
     });
@@ -494,7 +542,10 @@ test.describe('Frontend', () => {
     expect(cardHeight).toBe('302px');
 
     // Also verify the actual card dimensions
-    const cardBoundingBox = await page.locator('.occurrence-card').first().boundingBox();
+    const cardBoundingBox = await page
+      .locator('.occurrence-card')
+      .first()
+      .boundingBox();
     expect(cardBoundingBox).not.toBeNull();
     if (cardBoundingBox) {
       // Card should be approximately 280px tall (allowing small variance)
@@ -503,25 +554,29 @@ test.describe('Frontend', () => {
     }
   });
 
-  test('preserves scroll position when switching from table to cards to table without scroll', async ({ page}) => {
+  test('preserves scroll position when switching from table to cards to table without scroll', async ({
+    page,
+  }) => {
     await openArchive(page);
     await page.waitForTimeout(1_000);
     const main = page.locator('main');
-    const scrollTopInit = await main.evaluate(el => el.scrollTop);
+    const scrollTopInit = await main.evaluate((el) => el.scrollTop);
     expect(scrollTopInit).toEqual(0);
 
     await switchToView(page, 'cards');
     await page.waitForSelector('.occurrence-card');
-    const scrollTopAfterSwitch = await main.evaluate(el => el.scrollTop);
+    const scrollTopAfterSwitch = await main.evaluate((el) => el.scrollTop);
     expect(scrollTopAfterSwitch).toEqual(0);
 
     await switchToView(page, 'table');
     await page.waitForSelector('.occurrence-row');
-    const scrollTopAfterSwitchBatch = await main.evaluate(el => el.scrollTop);
+    const scrollTopAfterSwitchBatch = await main.evaluate((el) => el.scrollTop);
     expect(scrollTopAfterSwitchBatch).toEqual(0);
   });
 
-  test('should maintain scroll position when loading chunks in cards view', async ({ page }) => {
+  test('should maintain scroll position when loading chunks in cards view', async ({
+    page,
+  }) => {
     // Open the archive
     await openArchive(page);
 
@@ -537,7 +592,7 @@ test.describe('Frontend', () => {
     const mainElement = page.getByTestId('occurrences-scroll-container');
 
     // Get initial scroll position
-    const initialScroll = await mainElement.evaluate(el => el.scrollTop);
+    const initialScroll = await mainElement.evaluate((el) => el.scrollTop);
     expect(initialScroll).toBe(0);
 
     // Scroll down to around record 450 (which triggers chunk loading)
@@ -553,7 +608,7 @@ test.describe('Frontend', () => {
     await page.waitForTimeout(1000);
 
     // Verify we scrolled significantly
-    const scrollAfterFirst = await mainElement.evaluate(el => el.scrollTop);
+    const scrollAfterFirst = await mainElement.evaluate((el) => el.scrollTop);
     expect(scrollAfterFirst).toBeGreaterThan(5000);
 
     // Scroll further down to trigger more chunk loading
@@ -569,11 +624,13 @@ test.describe('Frontend', () => {
     await page.waitForTimeout(1500);
 
     // Verify scroll position increased and didn't reset to 0
-    const scrollAfterSecond = await mainElement.evaluate(el => el.scrollTop);
+    const scrollAfterSecond = await mainElement.evaluate((el) => el.scrollTop);
     expect(scrollAfterSecond).toBeGreaterThan(scrollAfterFirst);
   });
 
-  test('should preserve scroll position when switching between table and cards views', async ({ page }) => {
+  test('should preserve scroll position when switching between table and cards views', async ({
+    page,
+  }) => {
     // Open the archive
     await openArchive(page);
 
@@ -591,10 +648,7 @@ test.describe('Frontend', () => {
 
     // Get a reference occurrence that should be visible (capture text from first visible row)
     const firstVisibleRow = page.locator('.occurrence-list-item').first();
-    const referenceOccurrenceId = await firstVisibleRow.evaluate(el => el.id);
-
-    // Log the scroll position before switching
-    const scrollBeforeSwitch = await mainElement.evaluate(el => el.scrollTop);
+    const referenceOccurrenceId = await firstVisibleRow.evaluate((el) => el.id);
 
     // Switch to cards view
     await switchToView(page, 'cards');
@@ -602,18 +656,15 @@ test.describe('Frontend', () => {
     // Wait for view to switch and cards to render
     await page.waitForTimeout(1000);
 
-    // Check scroll position after switch
-    const scrollAfterSwitch = await mainElement.evaluate(el => el.scrollTop);
-
     // Verify that the reference occurrence is still visible in cards view
     // The first visible card should contain the same occurrence ID (or be very close)
     const cardItems = page.locator('.occurrence-list-item');
     await expect(cardItems.first()).toBeVisible();
 
     // Get the first few visible cards and check if our reference occurrence is among them
-    const firstCardId = await cardItems.first().evaluate(el => el.id);
-    const secondCardId = await cardItems.nth(1).evaluate(el => el.id);
-    const thirdCardId = await cardItems.nth(2).evaluate(el => el.id);
+    const firstCardId = await cardItems.first().evaluate((el) => el.id);
+    const secondCardId = await cardItems.nth(1).evaluate((el) => el.id);
+    const thirdCardId = await cardItems.nth(2).evaluate((el) => el.id);
 
     // The reference occurrence should be in one of the first few visible cards
     const referenceIsVisible =
@@ -631,13 +682,15 @@ test.describe('Frontend', () => {
 
     // Verify the reference occurrence is still visible in table view
     const firstRowAfterSwitch = page.locator('.occurrence-list-item').first();
-    const firstRowId = await firstRowAfterSwitch.evaluate(el => el.id);
+    const firstRowId = await firstRowAfterSwitch.evaluate((el) => el.id);
 
     // Should show the same or very close occurrence
     expect(firstRowId).toBe(referenceOccurrenceId);
   });
 
-  test('should preserve scroll position when window width changes in cards view', async ({ page }) => {
+  test('should preserve scroll position when window width changes in cards view', async ({
+    page,
+  }) => {
     // Set initial viewport size to ensure we start with known column count
     await page.setViewportSize({ width: 800, height: 800 });
 
@@ -667,7 +720,9 @@ test.describe('Frontend', () => {
     await page.waitForTimeout(500);
 
     // Capture scroll position after scrolling
-    const scrollPositionBeforeResize = await mainElement.evaluate(el => el.scrollTop);
+    const scrollPositionBeforeResize = await mainElement.evaluate(
+      (el) => el.scrollTop,
+    );
     expect(scrollPositionBeforeResize).toBeGreaterThan(1500);
 
     // Resize window to change the number of columns (3 cols -> 4 cols at 1024px breakpoint)
@@ -686,13 +741,17 @@ test.describe('Frontend', () => {
     await page.waitForTimeout(300);
 
     // Check that we're still near where we were
-    const scrollPositionAfterScroll = await mainElement.evaluate(el => el.scrollTop);
+    const scrollPositionAfterScroll = await mainElement.evaluate(
+      (el) => el.scrollTop,
+    );
 
     // Should still be near the bottom, not jumped to top
     expect(scrollPositionAfterScroll).toBeGreaterThan(1000);
   });
 
-  test('should not show loading cards for search results in cards view', async ({ page }) => {
+  test('should not show loading cards for search results in cards view', async ({
+    page,
+  }) => {
     // Open the archive
     await openArchive(page);
 
@@ -736,7 +795,9 @@ test.describe('Frontend', () => {
     expect(loadingCountAfterReset).toBe(0);
   });
 
-  test('should show correct row count after clearing search filter in table view', async ({ page }) => {
+  test('should show correct row count after clearing search filter in table view', async ({
+    page,
+  }) => {
     // Open the archive
     await openArchive(page);
 
@@ -758,7 +819,9 @@ test.describe('Frontend', () => {
     expect(searchCount).toEqual(1);
 
     // Check that there are no "Loading..." rows after search
-    const loadingRowsAfterSearch = page.locator('main .occurrence-item:has-text("Loading...")');
+    const loadingRowsAfterSearch = page.locator(
+      'main .occurrence-item:has-text("Loading...")',
+    );
     const loadingCountAfterSearch = await loadingRowsAfterSearch.count();
     expect(loadingCountAfterSearch).toBe(0);
 
@@ -772,7 +835,9 @@ test.describe('Frontend', () => {
     expect(afterClearCount).toEqual(initialCount);
   });
 
-  test('should keep header row sticky when scrolling in table view', async ({ page }) => {
+  test('should keep header row sticky when scrolling in table view', async ({
+    page,
+  }) => {
     await openArchive(page);
     await page.waitForTimeout(1000);
 

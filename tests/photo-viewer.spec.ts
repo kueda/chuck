@@ -1,9 +1,5 @@
-import { test, expect } from '@playwright/test';
-import {
-  setupMockTauri,
-  waitForAppReady,
-  openArchive,
-} from './helpers/setup';
+import { expect, test } from '@playwright/test';
+import { openArchive, setupMockTauri, waitForAppReady } from './helpers/setup';
 
 test.describe('PhotoViewer Multi-Photo Navigation', () => {
   test.beforeEach(async ({ page }) => {
@@ -11,20 +7,28 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
     await page.goto('/');
     await waitForAppReady(page);
     await openArchive(page);
-    await page.waitForSelector('.table-cell:has-text("TEST-001")', { timeout: 5000 });
+    await page.waitForSelector('.table-cell:has-text("TEST-001")', {
+      timeout: 5000,
+    });
   });
 
-  test('should display photo counter when multiple photos exist', async ({ page }) => {
+  test('should display photo counter when multiple photos exist', async ({
+    page,
+  }) => {
     // Click first occurrence
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
     // Wait for drawer
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
     // Click first photo to open PhotoViewer
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -42,7 +46,9 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
     const photos = page.locator('section:has(h2:has-text("Media")) button');
     const photoCount = await photos.count();
@@ -53,7 +59,9 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
       await page.waitForTimeout(300);
 
       // Get initial photo counter text
-      const initialCounter = await page.locator('text=/\\d+ \\/ \\d+/').textContent();
+      const initialCounter = await page
+        .locator('text=/\\d+ \\/ \\d+/')
+        .textContent();
       expect(initialCounter).toContain('1 /');
 
       // Press right arrow
@@ -61,16 +69,22 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
       await page.waitForTimeout(300);
 
       // Verify counter updated
-      const newCounter = await page.locator('text=/\\d+ \\/ \\d+/').textContent();
+      const newCounter = await page
+        .locator('text=/\\d+ \\/ \\d+/')
+        .textContent();
       expect(newCounter).toContain('2 /');
     }
   });
 
-  test('should navigate to previous photo with left arrow', async ({ page }) => {
+  test('should navigate to previous photo with left arrow', async ({
+    page,
+  }) => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
     const photos = page.locator('section:has(h2:has-text("Media")) button');
     const photoCount = await photos.count();
@@ -81,7 +95,9 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
       await page.waitForTimeout(300);
 
       // Should show "2 / N"
-      const initialCounter = await page.locator('text=/\\d+ \\/ \\d+/').textContent();
+      const initialCounter = await page
+        .locator('text=/\\d+ \\/ \\d+/')
+        .textContent();
       expect(initialCounter).toContain('2 /');
 
       // Press left arrow
@@ -89,16 +105,22 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
       await page.waitForTimeout(300);
 
       // Should show "1 / N"
-      const newCounter = await page.locator('text=/\\d+ \\/ \\d+/').textContent();
+      const newCounter = await page
+        .locator('text=/\\d+ \\/ \\d+/')
+        .textContent();
       expect(newCounter).toContain('1 /');
     }
   });
 
-  test('should wrap around when navigating past last photo', async ({ page }) => {
+  test('should wrap around when navigating past last photo', async ({
+    page,
+  }) => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
     const photos = page.locator('section:has(h2:has-text("Media")) button');
     const photoCount = await photos.count();
@@ -118,16 +140,22 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
       await page.keyboard.press('ArrowRight');
       await page.waitForTimeout(300);
 
-      const newCounter = await page.locator('text=/\\d+ \\/ \\d+/').textContent();
+      const newCounter = await page
+        .locator('text=/\\d+ \\/ \\d+/')
+        .textContent();
       expect(newCounter).toContain('1 /');
     }
   });
 
-  test('should wrap around when navigating before first photo', async ({ page }) => {
+  test('should wrap around when navigating before first photo', async ({
+    page,
+  }) => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
     const photos = page.locator('section:has(h2:has-text("Media")) button');
     const photoCount = await photos.count();
@@ -144,7 +172,9 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
       await page.keyboard.press('ArrowLeft');
       await page.waitForTimeout(300);
 
-      const newCounter = await page.locator('text=/\\d+ \\/ \\d+/').textContent();
+      const newCounter = await page
+        .locator('text=/\\d+ \\/ \\d+/')
+        .textContent();
       const match = newCounter?.match(/(\d+) \/ (\d+)/);
       if (match) {
         expect(match[1]).toBe(match[2]); // Should be "N / N"
@@ -156,10 +186,14 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -180,9 +214,15 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
         const initialTransform = await img.getAttribute('style');
 
         // Drag the image
-        await page.mouse.move(imgBox.x + imgBox.width / 2, imgBox.y + imgBox.height / 2);
+        await page.mouse.move(
+          imgBox.x + imgBox.width / 2,
+          imgBox.y + imgBox.height / 2,
+        );
         await page.mouse.down();
-        await page.mouse.move(imgBox.x + imgBox.width / 2 - 100, imgBox.y + imgBox.height / 2 - 50);
+        await page.mouse.move(
+          imgBox.x + imgBox.width / 2 - 100,
+          imgBox.y + imgBox.height / 2 - 50,
+        );
         await page.mouse.up();
         await page.waitForTimeout(100);
 
@@ -198,10 +238,14 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -218,9 +262,15 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
         }
 
         // Try to drag way beyond the edge
-        await page.mouse.move(imgBox.x + imgBox.width / 2, imgBox.y + imgBox.height / 2);
+        await page.mouse.move(
+          imgBox.x + imgBox.width / 2,
+          imgBox.y + imgBox.height / 2,
+        );
         await page.mouse.down();
-        await page.mouse.move(imgBox.x + imgBox.width + 500, imgBox.y + imgBox.height + 500);
+        await page.mouse.move(
+          imgBox.x + imgBox.width + 500,
+          imgBox.y + imgBox.height + 500,
+        );
         await page.mouse.up();
         await page.waitForTimeout(100);
 
@@ -229,7 +279,9 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
 
         // The transform translate values should be bounded
         const style = await img.getAttribute('style');
-        const translateMatch = style?.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
+        const translateMatch = style?.match(
+          /translate\(([^,]+)px,\s*([^)]+)px\)/,
+        );
         if (translateMatch) {
           const tx = parseFloat(translateMatch[1]);
           const ty = parseFloat(translateMatch[2]);
@@ -241,14 +293,20 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
     }
   });
 
-  test('should zoom to max on click when image is fully visible', async ({ page }) => {
+  test('should zoom to max on click when image is fully visible', async ({
+    page,
+  }) => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -262,7 +320,10 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
       // Click the image (don't drag)
       const imgBox = await img.boundingBox();
       if (imgBox) {
-        await page.mouse.click(imgBox.x + imgBox.width / 2, imgBox.y + imgBox.height / 2);
+        await page.mouse.click(
+          imgBox.x + imgBox.width / 2,
+          imgBox.y + imgBox.height / 2,
+        );
         await page.waitForTimeout(100);
 
         // Should zoom to max (500%)
@@ -271,14 +332,20 @@ test.describe('PhotoViewer Multi-Photo Navigation', () => {
     }
   });
 
-  test('should keep cursor position fixed when scrolling to zoom', async ({ page }) => {
+  test('should keep cursor position fixed when scrolling to zoom', async ({
+    page,
+  }) => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -323,17 +390,23 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
     await page.goto('/');
     await waitForAppReady(page);
     await openArchive(page);
-    await page.waitForSelector('.table-cell:has-text("TEST-001")', { timeout: 5000 });
+    await page.waitForSelector('.table-cell:has-text("TEST-001")', {
+      timeout: 5000,
+    });
   });
 
   test('zoom controls are visible', async ({ page }) => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -342,7 +415,9 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
       // Verify zoom control buttons are visible
       await expect(page.locator('button[aria-label="Zoom in"]')).toBeVisible();
       await expect(page.locator('button[aria-label="Zoom out"]')).toBeVisible();
-      await expect(page.locator('button[aria-label="Reset zoom"]')).toBeVisible();
+      await expect(
+        page.locator('button[aria-label="Reset zoom"]'),
+      ).toBeVisible();
     }
   });
 
@@ -350,10 +425,14 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -375,10 +454,14 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -402,10 +485,14 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -440,10 +527,14 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -474,10 +565,14 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -497,7 +592,9 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
       await expect(page.locator('button[aria-label="Pan up"]')).toBeVisible();
       await expect(page.locator('button[aria-label="Pan down"]')).toBeVisible();
       await expect(page.locator('button[aria-label="Pan left"]')).toBeVisible();
-      await expect(page.locator('button[aria-label="Pan right"]')).toBeVisible();
+      await expect(
+        page.locator('button[aria-label="Pan right"]'),
+      ).toBeVisible();
     }
   });
 
@@ -505,10 +602,14 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -528,7 +629,9 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
       await page.waitForTimeout(100);
 
       // Pan controls should be hidden
-      await expect(page.locator('button[aria-label="Pan up"]')).not.toBeVisible();
+      await expect(
+        page.locator('button[aria-label="Pan up"]'),
+      ).not.toBeVisible();
     }
   });
 
@@ -536,10 +639,14 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -555,9 +662,15 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
 
       // Get initial transform
       const initialStyle = await img.getAttribute('style');
-      const initialTranslateMatch = initialStyle?.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
-      const initialX = initialTranslateMatch ? parseFloat(initialTranslateMatch[1]) : 0;
-      const initialY = initialTranslateMatch ? parseFloat(initialTranslateMatch[2]) : 0;
+      const initialTranslateMatch = initialStyle?.match(
+        /translate\(([^,]+)px,\s*([^)]+)px\)/,
+      );
+      const initialX = initialTranslateMatch
+        ? parseFloat(initialTranslateMatch[1])
+        : 0;
+      const initialY = initialTranslateMatch
+        ? parseFloat(initialTranslateMatch[2])
+        : 0;
 
       // Click pan right button
       await page.locator('button[aria-label="Pan right"]').click();
@@ -565,7 +678,9 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
 
       // Transform should have changed
       const newStyle = await img.getAttribute('style');
-      const newTranslateMatch = newStyle?.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
+      const newTranslateMatch = newStyle?.match(
+        /translate\(([^,]+)px,\s*([^)]+)px\)/,
+      );
       const newX = newTranslateMatch ? parseFloat(newTranslateMatch[1]) : 0;
 
       // X should have decreased (panning right means image moves left)
@@ -576,8 +691,12 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
       await page.waitForTimeout(100);
 
       const finalStyle = await img.getAttribute('style');
-      const finalTranslateMatch = finalStyle?.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
-      const finalY = finalTranslateMatch ? parseFloat(finalTranslateMatch[2]) : 0;
+      const finalTranslateMatch = finalStyle?.match(
+        /translate\(([^,]+)px,\s*([^)]+)px\)/,
+      );
+      const finalY = finalTranslateMatch
+        ? parseFloat(finalTranslateMatch[2])
+        : 0;
 
       // Y should have decreased (panning down means image moves up)
       expect(finalY).toBeLessThan(initialY);
@@ -588,10 +707,14 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -616,7 +739,9 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
 
       // The transform translate values should be reasonable
       const style = await img.getAttribute('style');
-      const translateMatch = style?.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
+      const translateMatch = style?.match(
+        /translate\(([^,]+)px,\s*([^)]+)px\)/,
+      );
       if (translateMatch) {
         const tx = parseFloat(translateMatch[1]);
         const ty = parseFloat(translateMatch[2]);
@@ -631,10 +756,14 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -659,10 +788,14 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -688,7 +821,9 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
       await expect(page.locator('button[aria-label="Pan up"]')).toBeVisible();
       await expect(page.locator('button[aria-label="Pan down"]')).toBeVisible();
       await expect(page.locator('button[aria-label="Pan left"]')).toBeVisible();
-      await expect(page.locator('button[aria-label="Pan right"]')).toBeVisible();
+      await expect(
+        page.locator('button[aria-label="Pan right"]'),
+      ).toBeVisible();
     }
   });
 
@@ -696,7 +831,9 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
     const photos = page.locator('section:has(h2:has-text("Media")) button');
     const photoCount = await photos.count();
@@ -729,10 +866,14 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -743,7 +884,10 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
       // Click image to zoom to max
       const imgBox = await img.boundingBox();
       if (imgBox) {
-        await page.mouse.click(imgBox.x + imgBox.width / 2, imgBox.y + imgBox.height / 2);
+        await page.mouse.click(
+          imgBox.x + imgBox.width / 2,
+          imgBox.y + imgBox.height / 2,
+        );
         await page.waitForTimeout(100);
         await expect(page.locator('text=/Zoom: 500%/')).toBeVisible();
 
@@ -762,10 +906,14 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -793,11 +941,15 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
     }
   });
 
-  test('default zoom should fit image in viewport (not pannable)', async ({ page }) => {
+  test('default zoom should fit image in viewport (not pannable)', async ({
+    page,
+  }) => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
     const photos = page.locator('section:has(h2:has-text("Media")) button');
     const photoCount = await photos.count();
@@ -813,7 +965,9 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
       await expect(panUpBtn).not.toBeVisible();
 
       // Arrow keys should navigate between photos, not pan
-      const initialCounter = await page.locator('text=/\\d+ \\/ \\d+/').textContent();
+      const initialCounter = await page
+        .locator('text=/\\d+ \\/ \\d+/')
+        .textContent();
       expect(initialCounter).toContain('1 /');
 
       // Press right arrow - should navigate to next photo
@@ -821,7 +975,9 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
       await page.waitForTimeout(300);
 
       // Should show photo 2
-      const newCounter = await page.locator('text=/\\d+ \\/ \\d+/').textContent();
+      const newCounter = await page
+        .locator('text=/\\d+ \\/ \\d+/')
+        .textContent();
       expect(newCounter).toContain('2 /');
 
       // Press left arrow - should navigate back
@@ -829,7 +985,9 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
       await page.waitForTimeout(300);
 
       // Should show photo 1 again
-      const finalCounter = await page.locator('text=/\\d+ \\/ \\d+/').textContent();
+      const finalCounter = await page
+        .locator('text=/\\d+ \\/ \\d+/')
+        .textContent();
       expect(finalCounter).toContain('1 /');
     }
   });
@@ -838,10 +996,14 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -857,7 +1019,9 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
 
       // Get current pan after zooming in
       const zoomedInStyle = await img.getAttribute('style');
-      const zoomedInMatch = zoomedInStyle?.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
+      const zoomedInMatch = zoomedInStyle?.match(
+        /translate\(([^,]+)px,\s*([^)]+)px\)/,
+      );
       const zoomedInPanX = zoomedInMatch ? parseFloat(zoomedInMatch[1]) : 0;
       const zoomedInPanY = zoomedInMatch ? parseFloat(zoomedInMatch[2]) : 0;
 
@@ -867,7 +1031,9 @@ test.describe('PhotoViewer Zoom and Pan Controls', () => {
 
       // Get new pan after zooming out
       const zoomedOutStyle = await img.getAttribute('style');
-      const zoomedOutMatch = zoomedOutStyle?.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
+      const zoomedOutMatch = zoomedOutStyle?.match(
+        /translate\(([^,]+)px,\s*([^)]+)px\)/,
+      );
       const zoomedOutPanX = zoomedOutMatch ? parseFloat(zoomedOutMatch[1]) : 0;
       const zoomedOutPanY = zoomedOutMatch ? parseFloat(zoomedOutMatch[2]) : 0;
 

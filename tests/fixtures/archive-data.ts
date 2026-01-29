@@ -5,15 +5,22 @@
 
 import type {
   ArchiveInfo,
-  SearchResult,
   Occurrence,
+  SearchResult,
 } from '../../src/lib/types/archive';
 
 export const mockArchive: ArchiveInfo = {
   name: 'Test Darwin Core Archive',
   coreCount: 1000,
   coreIdColumn: 'occurrenceID',
-  availableColumns: ['occurrenceID', 'scientificName', 'decimalLatitude', 'decimalLongitude', 'eventDate', 'eventTime'],
+  availableColumns: [
+    'occurrenceID',
+    'scientificName',
+    'decimalLatitude',
+    'decimalLongitude',
+    'eventDate',
+    'eventTime',
+  ],
 };
 
 export const mockOccurrences: Occurrence[] = [
@@ -95,7 +102,7 @@ function generateMockOccurrences(count: number): Occurrence[] {
 
   const occurrences: Occurrence[] = [...mockOccurrences];
 
-  for (let i = mockOccurrences.length; i < count-1; i++) {
+  for (let i = mockOccurrences.length; i < count - 1; i++) {
     occurrences.push({
       occurrenceID: `TEST-${String(i + 1).padStart(3, '0')}`,
       scientificName: species[i % species.length],
@@ -103,7 +110,7 @@ function generateMockOccurrences(count: number): Occurrence[] {
       decimalLongitude: -124 + Math.random() * 6,
       eventDate: `2024-01-${String((i % 28) + 1).padStart(2, '0')}`,
       eventTime: `${String(Math.floor(Math.random() * 24)).padStart(2, '0')}:${String(
-        Math.floor(Math.random() * 60)
+        Math.floor(Math.random() * 60),
       ).padStart(2, '0')}:00`,
       recordedBy: observers[i % observers.length],
       basisOfRecord: 'HumanObservation',
@@ -113,14 +120,14 @@ function generateMockOccurrences(count: number): Occurrence[] {
   // Add an occurrence of a unique species to test certain filter conditions
   occurrences.push({
     occurrenceID: `TEST-${count.toString().padStart(3, '0')}`,
-    scientificName: "Allium unifolium",
+    scientificName: 'Allium unifolium',
     decimalLatitude: 34 + Math.random() * 8,
     decimalLongitude: -124 + Math.random() * 6,
     eventDate: `2024-01-${String((count % 28) + 1).padStart(2, '0')}`,
     eventTime: `${String(Math.floor(Math.random() * 24)).padStart(2, '0')}:${String(
-      Math.floor(Math.random() * 60)
+      Math.floor(Math.random() * 60),
     ).padStart(2, '0')}:00`,
-    recordedBy: "Eunice Singleton",
+    recordedBy: 'Eunice Singleton',
     basisOfRecord: 'HumanObservation',
   });
 
@@ -143,7 +150,14 @@ export const mockArchive2: ArchiveInfo = {
   name: 'Second Test Archive',
   coreCount: 500,
   coreIdColumn: 'occurrenceID',
-  availableColumns: ['occurrenceID', 'scientificName', 'decimalLatitude', 'decimalLongitude', 'eventDate', 'eventTime'],
+  availableColumns: [
+    'occurrenceID',
+    'scientificName',
+    'decimalLatitude',
+    'decimalLongitude',
+    'eventDate',
+    'eventTime',
+  ],
 };
 
 export const mockOccurrences2: Occurrence[] = [
@@ -160,8 +174,8 @@ export const mockOccurrences2: Occurrence[] = [
   {
     occurrenceID: 'ARCHIVE2-002',
     scientificName: 'Ursus arctos',
-    decimalLatitude: 37.5000,
-    decimalLongitude: -119.5000,
+    decimalLatitude: 37.5,
+    decimalLongitude: -119.5,
     eventDate: '2024-02-02',
     eventTime: '09:30:00',
     recordedBy: 'Wildlife Tracker',
@@ -170,8 +184,8 @@ export const mockOccurrences2: Occurrence[] = [
   {
     occurrenceID: 'ARCHIVE2-003',
     scientificName: 'Canis lupus',
-    decimalLatitude: 38.0000,
-    decimalLongitude: -120.0000,
+    decimalLatitude: 38.0,
+    decimalLongitude: -120.0,
     eventDate: '2024-02-03',
     eventTime: '10:15:00',
     recordedBy: 'Wildlife Tracker',
@@ -189,7 +203,14 @@ export const mockArchiveLarge: ArchiveInfo = {
   name: 'Large Test Archive - 1M records',
   coreCount: 1000000,
   coreIdColumn: 'occurrenceID',
-  availableColumns: ['occurrenceID', 'scientificName', 'decimalLatitude', 'decimalLongitude', 'eventDate', 'eventTime'],
+  availableColumns: [
+    'occurrenceID',
+    'scientificName',
+    'decimalLatitude',
+    'decimalLongitude',
+    'eventDate',
+    'eventTime',
+  ],
 };
 
 export const mockSearchResultLarge: SearchResult = {
@@ -201,7 +222,14 @@ export const mockArchiveSmall: ArchiveInfo = {
   name: 'Small Test Archive - 1K records',
   coreCount: 1000,
   coreIdColumn: 'occurrenceID',
-  availableColumns: ['occurrenceID', 'scientificName', 'decimalLatitude', 'decimalLongitude', 'eventDate', 'eventTime'],
+  availableColumns: [
+    'occurrenceID',
+    'scientificName',
+    'decimalLatitude',
+    'decimalLongitude',
+    'eventDate',
+    'eventTime',
+  ],
 };
 
 export const mockSearchResultSmallScale: SearchResult = {
@@ -214,7 +242,14 @@ export const mockArchiveWithGbifID: ArchiveInfo = {
   name: 'GBIF Test Archive',
   coreCount: 100,
   coreIdColumn: 'gbifID',
-  availableColumns: ['gbifID', 'scientificName', 'decimalLatitude', 'decimalLongitude', 'eventDate', 'eventTime'],
+  availableColumns: [
+    'gbifID',
+    'scientificName',
+    'decimalLatitude',
+    'decimalLongitude',
+    'eventDate',
+    'eventTime',
+  ],
 };
 
 export const mockOccurrencesWithGbifID: Occurrence[] = [

@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
 import { parseEML, parseMeta } from './xmlParser';
 
 describe('parseEML', () => {
@@ -57,8 +57,8 @@ describe('parseEML', () => {
 
     const result = parseEML(xml);
     expect(result.abstract).toHaveLength(2);
-    expect(result.abstract![0]).toBe('This is the first paragraph.');
-    expect(result.abstract![1]).toBe('This is the second paragraph.');
+    expect(result.abstract?.[0]).toBe('This is the first paragraph.');
+    expect(result.abstract?.[1]).toBe('This is the second paragraph.');
   });
 
   it('handles missing optional fields', () => {
@@ -83,45 +83,45 @@ describe('parseEML', () => {
   describe('with fixture data', () => {
     const fixtureXml = readFileSync(
       join(__dirname, '../../../tests/fixtures/eml.xml'),
-      'utf-8'
+      'utf-8',
     );
 
     it('extracts creator information', () => {
       const result = parseEML(fixtureXml);
       expect(result).not.toBeNull();
-      expect(result!.creators).toHaveLength(1);
-      expect(result!.creators[0].name).toBe('Jane Smith');
-      expect(result!.creators[0].email).toBe('jsmith@example.edu');
+      expect(result?.creators).toHaveLength(1);
+      expect(result?.creators[0].name).toBe('Jane Smith');
+      expect(result?.creators[0].email).toBe('jsmith@example.edu');
     });
 
     it('extracts metadataProvider information', () => {
       const result = parseEML(fixtureXml);
       expect(result).not.toBeNull();
-      expect(result!.metadataProviders).toBeDefined();
-      expect(result!.metadataProviders).toHaveLength(1);
-      expect(result!.metadataProviders![0].name).toBe('Jay Blue');
-      expect(result!.metadataProviders![0].email).toBe('jblue@example.edu');
+      expect(result?.metadataProviders).toBeDefined();
+      expect(result?.metadataProviders).toHaveLength(1);
+      expect(result?.metadataProviders?.[0].name).toBe('Jay Blue');
+      expect(result?.metadataProviders?.[0].email).toBe('jblue@example.edu');
     });
 
     it('extracts language', () => {
       const result = parseEML(fixtureXml);
       expect(result).not.toBeNull();
-      expect(result!.language).toBe('eng');
+      expect(result?.language).toBe('eng');
     });
 
     it('extracts pubDate', () => {
       const result = parseEML(fixtureXml);
       expect(result).not.toBeNull();
-      expect(result!.pubDate).toBe('2020-01-15');
+      expect(result?.pubDate).toBe('2020-01-15');
     });
 
     it('extracts contact information', () => {
       const result = parseEML(fixtureXml);
       expect(result).not.toBeNull();
-      expect(result!.contact).toBeDefined();
-      expect(result!.contact).toHaveLength(1);
-      expect(result!.contact![0].name).toBe('Jane Smith');
-      expect(result!.contact![0].email).toBe('jsmith@example.edu');
+      expect(result?.contact).toBeDefined();
+      expect(result?.contact).toHaveLength(1);
+      expect(result?.contact?.[0].name).toBe('Jane Smith');
+      expect(result?.contact?.[0].email).toBe('jsmith@example.edu');
     });
   });
 });
@@ -146,7 +146,9 @@ describe('parseMeta', () => {
     expect(result?.core.idIndex).toBe(0);
     expect(result?.core.fields).toHaveLength(2);
     expect(result?.core.fields[0].index).toBe(0);
-    expect(result?.core.fields[0].term).toBe('http://rs.gbif.org/terms/1.0/gbifID');
+    expect(result?.core.fields[0].term).toBe(
+      'http://rs.gbif.org/terms/1.0/gbifID',
+    );
   });
 
   it('extracts extension information', () => {

@@ -1,142 +1,140 @@
 <script lang="ts">
-  import EMLDisplay from '$lib/components/EMLDisplay.svelte';
-  import MetaDisplay from '$lib/components/MetaDisplay.svelte';
-  import type { ArchiveInfo } from '$lib/types/archive';
-  import type { EMLData, MetaData } from '$lib/utils/xmlParser';
-  import { getCurrentWindow, invoke } from '$lib/tauri-api';
-  import { onMount } from 'svelte';
-  import { parseEML, parseMeta, prettify } from '$lib/utils/xmlParser';
-  import { Tabs } from '@skeletonlabs/skeleton-svelte';
-  import { Switch } from '@skeletonlabs/skeleton-svelte';
+import { Switch, Tabs } from '@skeletonlabs/skeleton-svelte';
+import { onMount } from 'svelte';
+import EMLDisplay from '$lib/components/EMLDisplay.svelte';
+import MetaDisplay from '$lib/components/MetaDisplay.svelte';
+import { getCurrentWindow, invoke } from '$lib/tauri-api';
+import type { ArchiveInfo } from '$lib/types/archive';
+import type { EMLData, MetaData } from '$lib/utils/xmlParser';
+import { parseEML, parseMeta, prettify } from '$lib/utils/xmlParser';
 
-  interface XmlFile {
-    filename: string;
-    content: string;
-  }
+interface XmlFile {
+  filename: string;
+  content: string;
+}
 
-  interface ArchiveMetadata {
-    xml_files: XmlFile[];
-  }
+interface ArchiveMetadata {
+  xml_files: XmlFile[];
+}
 
-  type XmlFileType = 'eml' | 'meta' | 'raw';
+type XmlFileType = 'eml' | 'meta' | 'raw';
 
-  interface ProcessedXmlFile {
-    filename: string;
-    content: string;
-    type: XmlFileType;
-    emlData?: EMLData | null;
-    metaData?: MetaData | null;
-  }
+interface ProcessedXmlFile {
+  filename: string;
+  content: string;
+  type: XmlFileType;
+  emlData?: EMLData | null;
+  metaData?: MetaData | null;
+}
 
-  let archive = $state<ArchiveInfo>();
-  let metadata = $state<ArchiveMetadata | null>(null);
-  let loading = $state<boolean>(true);
-  let error = $state<string | null>(null);
-  let activeTab = $state<string>('');
-  let viewingSource = $state<boolean>(false);
+let archive = $state<ArchiveInfo>();
+let metadata = $state<ArchiveMetadata | null>(null);
+let loading = $state<boolean>(true);
+let error = $state<string | null>(null);
+let activeTab = $state<string>('');
+let viewingSource = $state<boolean>(false);
 
-  /**
-   * Detect the type of XML based on its root element
-   */
-  function detectXmlType(content: string): XmlFileType {
-    try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(content, 'text/xml');
+/**
+ * Detect the type of XML based on its root element
+ */
+function detectXmlType(content: string): XmlFileType {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(content, 'text/xml');
 
-      if (doc.querySelector('parsererror')) {
-        return 'raw';
-      }
-
-      const root = doc.documentElement;
-      if (!root) {
-        return 'raw';
-      }
-
-      // Check for EML root element (can be <eml:eml> or just <eml>)
-      if (root.localName === 'eml' || root.tagName.includes(':eml')) {
-        return 'eml';
-      }
-
-      // Check for meta.xml archive element
-      if (root.localName === 'archive') {
-        return 'meta';
-      }
-
-      return 'raw';
-    } catch (e) {
+    if (doc.querySelector('parsererror')) {
       return 'raw';
     }
-  }
 
-  let processedFiles = $derived<ProcessedXmlFile[]>(
-    metadata
-      ?.xml_files.map((file) => {
-        const type = detectXmlType(file.content);
-        const processed: ProcessedXmlFile = {
-          filename: file.filename,
-          content: file.content,
-          type,
-        };
-
-        if (type === 'eml') {
-          processed.emlData = parseEML(file.content);
-        } else if (type === 'meta') {
-          processed.metaData = parseMeta(file.content);
-        }
-
-        return processed;
-      })
-      .toSorted((a,b) => {
-        if (a.type < b.type) return -1;
-        if (b.type < a.type) return 1;
-        return 0;
-      })
-      ?? []
-  );
-
-  $effect(() => {
-    if (processedFiles && processedFiles.length > 0) {
-      const emlFilename = processedFiles.find(f => f.type === 'eml')?.filename
-      if (emlFilename) activeTab = emlFilename;
+    const root = doc.documentElement;
+    if (!root) {
+      return 'raw';
     }
-  });
 
-  async function loadMetadata() {
-    try {
-      loading = true;
-      error = null;
-      metadata = await invoke<ArchiveMetadata>('get_archive_metadata');
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
-      console.error('Failed to load metadata:', e);
-    } finally {
-      loading = false;
+    // Check for EML root element (can be <eml:eml> or just <eml>)
+    if (root.localName === 'eml' || root.tagName.includes(':eml')) {
+      return 'eml';
     }
-  }
 
-  // Set window title and initialize filtered total when archive loads
-  $effect(() => {
-    if (archive) {
-      getCurrentWindow().setTitle(`${archive.name} – metadata`);
+    // Check for meta.xml archive element
+    if (root.localName === 'archive') {
+      return 'meta';
     }
-  });
 
-  onMount(() => {
-    loadMetadata();
-    invoke('current_archive')
-      .then(result => {
-        archive = result as ArchiveInfo;
-      })
-      .catch(e => {
-        // it's ok if there's no open archive
-      });
-  });
-
-  function displayType(fileType: string) {
-    if (fileType === 'eml') return 'EML';
-    if (fileType === 'meta') return 'Metafile';
-    return 'Unknown';
+    return 'raw';
+  } catch (_e) {
+    return 'raw';
   }
+}
+
+const processedFiles = $derived<ProcessedXmlFile[]>(
+  metadata?.xml_files
+    .map((file) => {
+      const type = detectXmlType(file.content);
+      const processed: ProcessedXmlFile = {
+        filename: file.filename,
+        content: file.content,
+        type,
+      };
+
+      if (type === 'eml') {
+        processed.emlData = parseEML(file.content);
+      } else if (type === 'meta') {
+        processed.metaData = parseMeta(file.content);
+      }
+
+      return processed;
+    })
+    .toSorted((a, b) => {
+      if (a.type < b.type) return -1;
+      if (b.type < a.type) return 1;
+      return 0;
+    }) ?? [],
+);
+
+$effect(() => {
+  if (processedFiles && processedFiles.length > 0) {
+    const emlFilename = processedFiles.find((f) => f.type === 'eml')?.filename;
+    if (emlFilename) activeTab = emlFilename;
+  }
+});
+
+async function loadMetadata() {
+  try {
+    loading = true;
+    error = null;
+    metadata = await invoke<ArchiveMetadata>('get_archive_metadata');
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+    console.error('Failed to load metadata:', e);
+  } finally {
+    loading = false;
+  }
+}
+
+// Set window title and initialize filtered total when archive loads
+$effect(() => {
+  if (archive) {
+    getCurrentWindow().setTitle(`${archive.name} – metadata`);
+  }
+});
+
+onMount(() => {
+  loadMetadata();
+  invoke('current_archive')
+    .then((result) => {
+      archive = result as ArchiveInfo;
+    })
+    .catch((_e) => {
+      // it's ok if there's no open archive
+    });
+});
+
+function displayType(fileType: string) {
+  if (fileType === 'eml') return 'EML';
+  if (fileType === 'meta') return 'Metafile';
+  return 'Unknown';
+}
 </script>
 
 <div class="w-full h-screen flex flex-col p-6">

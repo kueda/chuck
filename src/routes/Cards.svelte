@@ -1,85 +1,99 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import VirtualizedList from '$lib/components/VirtualizedList.svelte';
-  import VirtualizedOccurrenceList from '$lib/components/VirtualizedOccurrenceList.svelte';
-  import OccurrenceDrawer from '$lib/components/OccurrenceDrawer.svelte';
-  import { createDrawerHandlers, type DrawerState } from '$lib/utils/drawerState';
-  import type {
-    VirtualListData,
-    Props as VirtualizedListProps
-  } from '$lib/components/VirtualizedList.svelte';
-  import type { Occurrence } from '$lib/types/archive';
-  import OccurrenceCard, { EST_HEIGHT } from '$lib/components/OccurrenceCard.svelte';
+import { onMount } from 'svelte';
+import OccurrenceCard, {
+  EST_HEIGHT,
+} from '$lib/components/OccurrenceCard.svelte';
+import OccurrenceDrawer from '$lib/components/OccurrenceDrawer.svelte';
+import type {
+  Props as VirtualizedListProps,
+  VirtualListData,
+} from '$lib/components/VirtualizedList.svelte';
+import VirtualizedList from '$lib/components/VirtualizedList.svelte';
+import VirtualizedOccurrenceList from '$lib/components/VirtualizedOccurrenceList.svelte';
+import type { Occurrence } from '$lib/types/archive';
+import { createDrawerHandlers, type DrawerState } from '$lib/utils/drawerState';
 
-  interface Props extends Pick<VirtualizedListProps, 'count' | 'scrollElement' | 'onVisibleRangeChange'> {
-    drawerState: DrawerState;
-    occurrenceCache: Map<number, Occurrence>;
-    occurrenceCacheVersion: number;
-    coreIdColumn: string;
-    scrollState: { targetIndex: number; shouldScroll: boolean };
-  }
+interface Props
+  extends Pick<
+    VirtualizedListProps,
+    'count' | 'scrollElement' | 'onVisibleRangeChange'
+  > {
+  drawerState: DrawerState;
+  occurrenceCache: Map<number, Occurrence>;
+  occurrenceCacheVersion: number;
+  coreIdColumn: string;
+  scrollState: { targetIndex: number; shouldScroll: boolean };
+}
 
-  let {
-    drawerState,
-    occurrenceCache,
-    occurrenceCacheVersion,
-    count,
-    scrollElement,
-    onVisibleRangeChange,
-    coreIdColumn,
-    scrollState
-  }: Props = $props();
+const {
+  drawerState,
+  occurrenceCache,
+  occurrenceCacheVersion,
+  count,
+  scrollElement,
+  onVisibleRangeChange,
+  coreIdColumn,
+  scrollState,
+}: Props = $props();
 
-  // Local scrollToIndex reference (still needed for virtualizer integration)
-  let scrollToIndex = $state<((index: number, options?: { align?: 'start' | 'center' | 'end' | 'auto' }) => void) | undefined>();
+// Local scrollToIndex reference (still needed for virtualizer integration)
+let scrollToIndex = $state<
+  | ((
+      index: number,
+      options?: { align?: 'start' | 'center' | 'end' | 'auto' },
+    ) => void)
+  | undefined
+>();
 
-  // Create drawer handlers
-  const drawerHandlers = $derived(createDrawerHandlers({
+// Create drawer handlers
+const drawerHandlers = $derived(
+  createDrawerHandlers({
     state: drawerState,
     occurrenceCache,
     coreIdColumn,
     count,
-    scrollToIndex
-  }));
+    scrollToIndex,
+  }),
+);
 
-  // Tanstack Virtual needs to know whether the virtualized items are arranged
-  // in columns (which it calls lanes) and if so how many, so we're
-  // recreating tailwind's breakpoints here to ensure the virtualizer knows
-  // how many columns there are and that it gets recreated when the number of
-  // columns change
-  //
-  // Note: changing the default here to window.innerWidth seems reasonable,
-  // but seriously impacts performance for large result sets
-  let windowWidth = $state(0);
-  const lanes = $derived.by(() => {
-    if (windowWidth >= 1536) return 6;
-    if (windowWidth >= 1280) return 5;
-    if (windowWidth >= 1024) return 4;
-    return 3;
-  });
+// Tanstack Virtual needs to know whether the virtualized items are arranged
+// in columns (which it calls lanes) and if so how many, so we're
+// recreating tailwind's breakpoints here to ensure the virtualizer knows
+// how many columns there are and that it gets recreated when the number of
+// columns change
+//
+// Note: changing the default here to window.innerWidth seems reasonable,
+// but seriously impacts performance for large result sets
+let windowWidth = $state(0);
+const lanes = $derived.by(() => {
+  if (windowWidth >= 1536) return 6;
+  if (windowWidth >= 1280) return 5;
+  if (windowWidth >= 1024) return 4;
+  return 3;
+});
 
-  // Track window width so we can responsively tell the virtualizer how many
-  // columns there are, which allows it to calculate heights correctly
-  onMount(() => {
-    const updateWidth = () => {
-      // Ideally this guard prevents unnecessary updates to windowWidth, the
-      // derived lanes value, and therefore unnecessary recreations of the
-      // virtualizer
-      if (windowWidth !== window.innerWidth) {
-        windowWidth = window.innerWidth;
-      }
-    };
+// Track window width so we can responsively tell the virtualizer how many
+// columns there are, which allows it to calculate heights correctly
+onMount(() => {
+  const updateWidth = () => {
+    // Ideally this guard prevents unnecessary updates to windowWidth, the
+    // derived lanes value, and therefore unnecessary recreations of the
+    // virtualizer
+    if (windowWidth !== window.innerWidth) {
+      windowWidth = window.innerWidth;
+    }
+  };
 
-    // Set initial width
-    updateWidth();
+  // Set initial width
+  updateWidth();
 
-    // Listen for window resize events
-    window.addEventListener('resize', updateWidth);
+  // Listen for window resize events
+  window.addEventListener('resize', updateWidth);
 
-    return () => {
-      window.removeEventListener('resize', updateWidth);
-    };
-  });
+  return () => {
+    window.removeEventListener('resize', updateWidth);
+  };
+});
 </script>
 
 <!--

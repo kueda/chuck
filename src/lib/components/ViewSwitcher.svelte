@@ -1,16 +1,16 @@
 <script lang="ts">
-  import { SegmentedControl } from '@skeletonlabs/skeleton-svelte';
-  import { BookImage, MapIcon, Rows3, Sheet } from 'lucide-svelte';
+import { SegmentedControl } from '@skeletonlabs/skeleton-svelte';
+import { BookImage, MapIcon, Rows3, Sheet } from 'lucide-svelte';
 
-  let {
-    view = $bindable('table'),
-    views = ['table', 'cards', 'map'],
-    onViewChange
-  }: {
-    view: string,
-    views?: ('table' | 'cards' | 'map' | 'rows')[],
-    onViewChange?: () => void
-  } = $props();
+let {
+  view = $bindable('table'),
+  views = ['table', 'cards', 'map'],
+  onViewChange,
+}: {
+  view: string;
+  views?: ('table' | 'cards' | 'map' | 'rows')[];
+  onViewChange?: () => void;
+} = $props();
 </script>
 
 <SegmentedControl

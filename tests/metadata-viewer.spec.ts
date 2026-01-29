@@ -1,10 +1,10 @@
-import { test, expect } from '@playwright/test';
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { setupMockTauri, waitForAppReady, openArchive } from './helpers/setup';
-import { parseEML } from '../src/lib/utils/xmlParser';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { expect, test } from '@playwright/test';
 import { JSDOM } from 'jsdom';
+import { parseEML } from '../src/lib/utils/xmlParser';
+import { openArchive, setupMockTauri, waitForAppReady } from './helpers/setup';
 
 global.DOMParser = new JSDOM().window.DOMParser;
 
@@ -24,7 +24,9 @@ test.describe('Metadata Viewer', () => {
     await page.goto('/metadata');
 
     // Should load metadata
-    await expect(page.getByRole('heading', { name: 'Archive Metadata' })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Archive Metadata' }),
+    ).toBeVisible();
 
     // Should show tabs
     await expect(page.getByRole('tab', { name: 'meta.xml' })).toBeVisible();
@@ -45,7 +47,9 @@ test.describe('Metadata Viewer', () => {
 
     // Navigate to metadata route
     await page.goto('/metadata');
-    await expect(page.getByRole('heading', { name: 'Archive Metadata' })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Archive Metadata' }),
+    ).toBeVisible();
 
     // EML tab should be first and active by default
     await expect(page.getByText('Dataset Title')).toBeVisible();
@@ -90,7 +94,9 @@ test.describe('Metadata Viewer', () => {
 
       // Navigate to metadata route
       await page.goto('/metadata');
-      await expect(page.getByRole('heading', { name: 'Archive Metadata' })).toBeVisible();
+      await expect(
+        page.getByRole('heading', { name: 'Archive Metadata' }),
+      ).toBeVisible();
 
       // Click eml.xml tab
       const emlTab = page.getByRole('tab', { name: /eml\.xml/i });
@@ -100,14 +106,26 @@ test.describe('Metadata Viewer', () => {
     test('displays metadataProvider', async ({ page }) => {
       const eml = parseEML(emlContent);
       const section = page.locator('section').filter({
-        has: page.getByRole('heading', { name: 'Metadata Provider' })
+        has: page.getByRole('heading', { name: 'Metadata Provider' }),
       });
-      await expect(section.getByText(eml!.metadataProviders![0].name)).toBeVisible();
-      await expect(section.getByText(eml!.metadataProviders![0]!.email!)).toBeVisible();
-      await expect(section.getByText(eml!.metadataProviders![0]!.onlineUrl![0])).toBeVisible();
-      await expect(section.getByText(eml!.metadataProviders![0]!.phone![0])).toBeVisible();
-      await expect(section.getByText(eml!.metadataProviders![0]!.organizationName!)).toBeVisible();
-      await expect(section.getByText(eml!.metadataProviders![0]!.positionName!)).toBeVisible();
+      await expect(
+        section.getByText(eml!.metadataProviders![0].name),
+      ).toBeVisible();
+      await expect(
+        section.getByText(eml!.metadataProviders![0]!.email!),
+      ).toBeVisible();
+      await expect(
+        section.getByText(eml!.metadataProviders![0]!.onlineUrl![0]),
+      ).toBeVisible();
+      await expect(
+        section.getByText(eml!.metadataProviders![0]!.phone![0]),
+      ).toBeVisible();
+      await expect(
+        section.getByText(eml!.metadataProviders![0]!.organizationName!),
+      ).toBeVisible();
+      await expect(
+        section.getByText(eml!.metadataProviders![0]!.positionName!),
+      ).toBeVisible();
     });
 
     test('displays language', async ({ page }) => {
@@ -118,20 +136,23 @@ test.describe('Metadata Viewer', () => {
     test('displays contact', async ({ page }) => {
       const eml = parseEML(emlContent);
       const section = page.locator('section').filter({
-        has: page.getByRole('heading', { name: 'Contact' })
+        has: page.getByRole('heading', { name: 'Contact' }),
       });
       await expect(section.getByText(eml!.contact![0].name)).toBeVisible();
       await expect(section.getByText(eml!.contact![0]!.email!)).toBeVisible();
     });
 
     test('displays additionalMetadata', async ({ page }) => {
-      const eml = parseEML(emlContent);
       const section = page.locator('section').filter({
-        has: page.getByRole('heading', { name: 'Additional Metadata' })
+        has: page.getByRole('heading', { name: 'Additional Metadata' }),
       });
 
       // Should display citation
-      await expect(section.getByText('Example University Museum of Natural History, Natural History Collection')).toBeVisible();
+      await expect(
+        section.getByText(
+          'Example University Museum of Natural History, Natural History Collection',
+        ),
+      ).toBeVisible();
 
       // Should display living time period
       await expect(section.getByText('1900 to present')).toBeVisible();

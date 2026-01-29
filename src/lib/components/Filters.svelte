@@ -1,145 +1,145 @@
 <script lang="ts">
-  import { Accordion } from '@skeletonlabs/skeleton-svelte';
-  import ComboboxFilter from './ComboboxFilter.svelte';
-  import { categorizeColumns } from '$lib/utils/filterCategories';
-  import type { SearchParams } from '$lib/utils/filterCategories';
-  import { ArrowUpDown, MinusIcon, PlusIcon } from 'lucide-svelte';
+import { Accordion } from '@skeletonlabs/skeleton-svelte';
+import { ArrowUpDown, MinusIcon, PlusIcon } from 'lucide-svelte';
+import type { SearchParams } from '$lib/utils/filterCategories';
+import { categorizeColumns } from '$lib/utils/filterCategories';
+import ComboboxFilter from './ComboboxFilter.svelte';
 
-  const NUMERIC_COLUMNS = [
-    'decimalLatitude',
-    'decimalLongitude',
-    'gbifID',
-    'nelat',
-    'nelng',
-    'swlat',
-    'swlng',
-  ];
+const NUMERIC_COLUMNS = [
+  'decimalLatitude',
+  'decimalLongitude',
+  'gbifID',
+  'nelat',
+  'nelng',
+  'swlat',
+  'swlng',
+];
 
-  interface Props {
-    onSearchChange: (params: SearchParams) => void;
-    availableColumns?: (keyof SearchParams)[];
-    initialSortBy?: string;
-    initialSortDirection?: 'ASC' | 'DESC';
-    searchParams?: SearchParams;
+interface Props {
+  onSearchChange: (params: SearchParams) => void;
+  availableColumns?: (keyof SearchParams)[];
+  initialSortBy?: string;
+  initialSortDirection?: 'ASC' | 'DESC';
+  searchParams?: SearchParams;
+}
+
+const { onSearchChange, availableColumns = [], searchParams }: Props = $props();
+
+// Track local state separately to manage things like debounce
+let localParams = $state<SearchParams>({});
+let sortBy = $state<string>('');
+let sortDirection = $state<'ASC' | 'DESC' | ''>('');
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let syncingFromProp = $state(false);
+
+// Track the last prop values to detect when they change
+let lastInitialSortBy = $state<string | undefined>(undefined);
+let lastInitialSortDirection = $state<'ASC' | 'DESC' | undefined>(undefined);
+
+// Sync state with initial props when they change
+$effect(() => {
+  // Only update if the PROPS changed (not internal state)
+  syncingFromProp = true;
+  if (searchParams?.sort_by !== lastInitialSortBy) {
+    sortBy = searchParams?.sort_by || '';
+    lastInitialSortBy = searchParams?.sort_by;
   }
+  if (searchParams?.sort_direction !== lastInitialSortDirection) {
+    sortDirection = searchParams?.sort_direction || '';
+    lastInitialSortDirection = searchParams?.sort_direction;
+  }
+  syncingFromProp = false;
+});
 
-  let { onSearchChange, availableColumns = [], searchParams }: Props = $props();
+// Sync localParams from searchParam prop when it changes
+$effect(() => {
+  if (!searchParams) return;
 
-  // Track local state separately to manage things like debounce
-  let localParams = $state<SearchParams>({});
-  let sortBy = $state<string>('');
-  let sortDirection = $state<'ASC' | 'DESC' | ''>('');
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let syncingFromProp = $state(false);
+  syncingFromProp = true;
+  const newParams: SearchParams = {};
+  for (const [key, value] of Object.entries(searchParams)) {
+    if (value) newParams[key as keyof SearchParams] = value;
+  }
+  localParams = searchParams;
 
-  // Track the last prop values to detect when they change
-  let lastInitialSortBy = $state<string | undefined>(undefined);
-  let lastInitialSortDirection = $state<'ASC' | 'DESC' | undefined>(undefined);
-
-  // Sync state with initial props when they change
-  $effect(() => {
-    // Only update if the PROPS changed (not internal state)
-    syncingFromProp = true;
-    if (searchParams?.sort_by !== lastInitialSortBy) {
-      sortBy = searchParams?.sort_by || '';
-      lastInitialSortBy = searchParams?.sort_by;
-    }
-    if (searchParams?.sort_direction !== lastInitialSortDirection) {
-      sortDirection = searchParams?.sort_direction || '';
-      lastInitialSortDirection = searchParams?.sort_direction;
-    }
+  // Keep syncingFromProp true for a moment to prevent any immediate reactions
+  setTimeout(() => {
     syncingFromProp = false;
-  });
+  }, 0);
+});
 
-  // Sync localParams from searchParam prop when it changes
-  $effect(() => {
-    if (!searchParams) return;
+// Categorize columns for accordion sections
+const filterCategories = $derived(categorizeColumns(availableColumns));
 
-    syncingFromProp = true;
-    const newParams: SearchParams = {};
-    for (const [key, value] of Object.entries(searchParams)) {
-      if (value) newParams[key as keyof SearchParams] = value;
-    }
-    localParams = searchParams;
+// Track active params counts per category (reactive to localParams changes)
+const categoryCounts = $derived.by(() =>
+  filterCategories.map((category) => ({
+    category,
+    activeCount: category.columns.filter((c) => localParams[c]).length,
+    hasActive: category.columns.some((c) => localParams[c]),
+  })),
+);
 
-    // Keep syncingFromProp true for a moment to prevent any immediate reactions
-    setTimeout(() => {
-      syncingFromProp = false;
-    }, 0);
-  });
-
-  // Categorize columns for accordion sections
-  const filterCategories = $derived(categorizeColumns(availableColumns));
-
-  // Track active params counts per category (reactive to localParams changes)
-  const categoryCounts = $derived.by(() =>
-    filterCategories.map(category => ({
-      category,
-      activeCount: category.columns.filter(c => localParams[c]).length,
-      hasActive: category.columns.some(c => localParams[c])
-    }))
-  );
-
-  function triggerSearch() {
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-    }
-
-    debounceTimer = setTimeout(() => {
-      const params: SearchParams = {};
-
-      // Add filters directly at the top level (flattened structure)
-      for (const [key, value] of Object.entries(localParams)) {
-        if (value && value.trim()) {
-          // Type assertion needed because TypeScript can't verify dynamic keys match the interface
-          (params as Record<string, string>)[key] = value;
-        }
-      }
-
-      // Add sorting
-      if (sortBy) {
-        params.sort_by = sortBy;
-        if (sortDirection) {
-          params.sort_direction = sortDirection;
-        }
-      }
-
-      onSearchChange(params);
-    }, 300);
+function triggerSearch() {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
   }
 
-  function handleFilterChange(columnName: keyof SearchParams, value: any) {
-    // Don't trigger search if we're syncing from prop
-    if (syncingFromProp) return;
+  debounceTimer = setTimeout(() => {
+    const params: SearchParams = {};
 
-    if (value) {
-      localParams[columnName] = value;
-    } else {
-      delete localParams[columnName];
+    // Add filters directly at the top level (flattened structure)
+    for (const [key, value] of Object.entries(localParams)) {
+      if (value?.trim()) {
+        // Type assertion needed because TypeScript can't verify dynamic keys match the interface
+        (params as Record<string, string>)[key] = value;
+      }
     }
-    localParams = { ...localParams }; // Trigger reactivity
-    triggerSearch();
-  }
 
-  function handleFilterClear(columnName: keyof SearchParams) {
-    // Don't trigger search if we're syncing from prop
-    if (syncingFromProp) return;
+    // Add sorting
+    if (sortBy) {
+      params.sort_by = sortBy;
+      if (sortDirection) {
+        params.sort_direction = sortDirection;
+      }
+    }
 
+    onSearchChange(params);
+  }, 300);
+}
+
+function handleFilterChange(columnName: keyof SearchParams, value: string) {
+  // Don't trigger search if we're syncing from prop
+  if (syncingFromProp) return;
+
+  if (value) {
+    (localParams as Record<string, string>)[columnName] = value;
+  } else {
     delete localParams[columnName];
-    localParams = { ...localParams }; // Trigger reactivity
-    triggerSearch();
   }
+  localParams = { ...localParams }; // Trigger reactivity
+  triggerSearch();
+}
 
-  function handleSortByChange() {
-    // Don't trigger search if we're syncing from prop
-    if (syncingFromProp) return;
+function handleFilterClear(columnName: keyof SearchParams) {
+  // Don't trigger search if we're syncing from prop
+  if (syncingFromProp) return;
 
-    // When column changes, default to ASC if a column is selected
-    if (sortBy && !sortDirection) {
-      sortDirection = 'ASC';
-    }
-    triggerSearch();
+  delete localParams[columnName];
+  localParams = { ...localParams }; // Trigger reactivity
+  triggerSearch();
+}
+
+function handleSortByChange() {
+  // Don't trigger search if we're syncing from prop
+  if (syncingFromProp) return;
+
+  // When column changes, default to ASC if a column is selected
+  if (sortBy && !sortDirection) {
+    sortDirection = 'ASC';
   }
+  triggerSearch();
+}
 </script>
 
 <div id="Filters" class="mb-4">
@@ -192,7 +192,9 @@
       >
         <Accordion.ItemTrigger class="flex justify-between items-center p-2 hover:bg-transparent gap-2">
           {#if category.icon}
-            <svelte:component this={category.icon} size={18} />
+            <!-- <svelte:component this={category.icon} size={18} /> -->
+            {@const CategoryIconComponent = category.icon}
+            <CategoryIconComponent size={18}></CategoryIconComponent>
           {/if}
           <span class="flex justify-start grow-2">
             {#if hasActive}

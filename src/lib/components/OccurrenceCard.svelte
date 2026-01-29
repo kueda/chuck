@@ -1,13 +1,10 @@
 <script lang="ts">
-  import {
-    Calendar,
-    MapPin,
-  } from 'lucide-svelte';
-  import type { Occurrence } from '$lib/types/archive';
-  import MediaItem from './MediaItem.svelte';
+import { Calendar, MapPin } from 'lucide-svelte';
+import type { Occurrence } from '$lib/types/archive';
+import MediaItem from './MediaItem.svelte';
 
-  const { occurrence }: { occurrence: Occurrence } = $props();
-  const mediaItem = occurrence?.multimedia?.find(m => m.identifier);
+const { occurrence }: { occurrence: Occurrence } = $props();
+const mediaItem = occurrence?.multimedia?.find((m) => m.identifier);
 </script>
 
 <script lang="ts" module>

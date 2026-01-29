@@ -7,8 +7,11 @@
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check": "npm run check:biome -- ./src/ ./tests/ && npm run check:svelte -- ./src/ ./tests/",
+    "check:svelte": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:biome": "npx biome check --no-errors-on-unmatched --files-ignore-unknown=true",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "format": "npx biome format --write --no-errors-on-unmatched --files-ignore-unknown=true",
     "tauri": "tauri",
     "tauri-debug": "RUST_BACKTRACE=1 RUST_LOG=debug tauri dev",
     "tauri-debug-win": "cmd /c \"set RUST_BACKTRACE=1 && set RUST_LOG=debug && tauri dev\"",
@@ -35,6 +38,7 @@
     "svelte-dnd-action": "^0.9.67"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.3.13",
     "@playwright/test": "^1.56.1",
     "@skeletonlabs/skeleton": "^4.1.0",
     "@skeletonlabs/skeleton-svelte": "^4.1.0",
@@ -48,6 +52,7 @@
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^25.0.3",
     "jsdom": "^27.0.1",
+    "lefthook": "^2.0.16",
     "svelte": "^5.0.0",
     "svelte-check": "^4.0.0",
     "tailwindcss": "^4.1.13",

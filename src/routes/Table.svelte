@@ -1,152 +1,185 @@
 <script lang="ts">
-  import { ArrowUpIcon, ArrowDownIcon, Columns3Cog, ArrowUpDown } from 'lucide-svelte';
-  import { Popover, Portal, useListCollection } from '@skeletonlabs/skeleton-svelte';
-  import { dndzone } from 'svelte-dnd-action';
-  import VirtualizedList from '$lib/components/VirtualizedList.svelte';
-  import VirtualizedOccurrenceList from '$lib/components/VirtualizedOccurrenceList.svelte';
-  import OccurrenceDrawer from '$lib/components/OccurrenceDrawer.svelte';
-  import { createDrawerHandlers, type DrawerState } from '$lib/utils/drawerState';
-  import type {
-    VirtualListData,
-    Props as VirtualizedListProps
-  } from '$lib/components/VirtualizedList.svelte';
-  import type { Occurrence } from '$lib/types/archive';
-  import { getColumnWidthClass } from '$lib/utils/columnWidth';
+import {
+  Popover,
+  Portal,
+  useListCollection,
+} from '@skeletonlabs/skeleton-svelte';
+import {
+  ArrowDownIcon,
+  ArrowUpDown,
+  ArrowUpIcon,
+  Columns3Cog,
+} from 'lucide-svelte';
+import { dndzone } from 'svelte-dnd-action';
+import OccurrenceDrawer from '$lib/components/OccurrenceDrawer.svelte';
+import type {
+  Props as VirtualizedListProps,
+  VirtualListData,
+} from '$lib/components/VirtualizedList.svelte';
+import VirtualizedList from '$lib/components/VirtualizedList.svelte';
+import VirtualizedOccurrenceList from '$lib/components/VirtualizedOccurrenceList.svelte';
+import type { Occurrence } from '$lib/types/archive';
+import { getColumnWidthClass } from '$lib/utils/columnWidth';
+import { createDrawerHandlers, type DrawerState } from '$lib/utils/drawerState';
 
-  interface Props extends Pick<VirtualizedListProps, 'count' | 'scrollElement' | 'onVisibleRangeChange'> {
-    drawerState: DrawerState;
-    occurrenceCache: Map<number, Occurrence>;
-    occurrenceCacheVersion: number;
-    coreIdColumn: string;
-    archiveName: string;
-    availableColumns: string[];
-    visibleColumns: string[];
-    scrollState: { targetIndex: number; shouldScroll: boolean };
-    currentSortColumn?: string;
-    currentSortDirection?: string;
-    onColumnHeaderClick: (column: string) => void;
-    onVisibleColumnsChange: (columns: string[]) => void;
-  }
+interface Props
+  extends Pick<
+    VirtualizedListProps,
+    'count' | 'scrollElement' | 'onVisibleRangeChange'
+  > {
+  drawerState: DrawerState;
+  occurrenceCache: Map<number, Occurrence>;
+  occurrenceCacheVersion: number;
+  coreIdColumn: string;
+  archiveName: string;
+  availableColumns: string[];
+  visibleColumns: string[];
+  scrollState: { targetIndex: number; shouldScroll: boolean };
+  currentSortColumn?: string;
+  currentSortDirection?: string;
+  onColumnHeaderClick: (column: string) => void;
+  onVisibleColumnsChange: (columns: string[]) => void;
+}
 
-  const {
-    drawerState,
-    occurrenceCache,
-    occurrenceCacheVersion,
-    count,
-    scrollElement,
-    onVisibleRangeChange,
-    coreIdColumn,
-    archiveName,
-    availableColumns,
-    visibleColumns,
-    scrollState,
-    currentSortColumn = '',
-    currentSortDirection = '',
-    onColumnHeaderClick,
-    onVisibleColumnsChange,
-  }: Props = $props();
+const {
+  drawerState,
+  occurrenceCache,
+  occurrenceCacheVersion,
+  count,
+  scrollElement,
+  onVisibleRangeChange,
+  coreIdColumn,
+  archiveName,
+  availableColumns,
+  visibleColumns,
+  scrollState,
+  currentSortColumn = '',
+  currentSortDirection = '',
+  onColumnHeaderClick,
+  onVisibleColumnsChange,
+}: Props = $props();
 
-  // Local scrollToIndex reference (still needed for virtualizer integration)
-  let scrollToIndex = $state<((index: number, options?: { align?: 'start' | 'center' | 'end' | 'auto' }) => void) | undefined>();
+// Local scrollToIndex reference (still needed for virtualizer integration)
+let scrollToIndex = $state<
+  | ((
+      index: number,
+      options?: { align?: 'start' | 'center' | 'end' | 'auto' },
+    ) => void)
+  | undefined
+>();
 
-  // Create drawer handlers
-  const drawerHandlers = $derived(createDrawerHandlers({
+// Create drawer handlers
+const drawerHandlers = $derived(
+  createDrawerHandlers({
     state: drawerState,
     occurrenceCache,
     coreIdColumn,
     count,
-    scrollToIndex
-  }));
+    scrollToIndex,
+  }),
+);
 
-  // Map field names to display labels
-  function getColumnLabel(field: string): string {
-    if (field === 'decimalLatitude') return 'lat';
-    if (field === 'decimalLongitude') return 'lng';
-    return field;
+// Map field names to display labels
+function getColumnLabel(field: string): string {
+  if (field === 'decimalLatitude') return 'lat';
+  if (field === 'decimalLongitude') return 'lng';
+  return field;
+}
+
+// Define visible columns with display names and unique IDs for DnD
+const columns = $derived(
+  visibleColumns.map((field) => ({
+    id: field,
+    field,
+    label: getColumnLabel(field),
+  })),
+);
+
+// Local state for drag and drop
+let dndColumns = $state<typeof columns>([]);
+let isDragging = $state(false);
+let draggedColumnIndex = $state<number | null>(null);
+
+// Update dndColumns when columns change
+$effect(() => {
+  dndColumns = [...columns];
+});
+
+let searchText = $state('');
+
+// Filtered columns for the listbox
+const filteredColumns = $derived(
+  availableColumns.filter((col) =>
+    col.toLowerCase().includes(searchText.toLowerCase()),
+  ),
+);
+
+// Create listbox collection
+const collection = $derived(
+  useListCollection({
+    items: filteredColumns.map((col) => ({ value: col, label: col })),
+    itemToString: (item) => item.label,
+    itemToValue: (item) => item.value,
+  }),
+);
+
+function toggleColumn(column: string) {
+  const newColumns = visibleColumns.includes(column)
+    ? visibleColumns.filter((c) => c !== column)
+    : [...visibleColumns, column];
+
+  // Ensure at least one column is selected
+  if (newColumns.length === 0) {
+    return;
   }
 
-  // Define visible columns with display names and unique IDs for DnD
-  const columns = $derived(
-    visibleColumns.map(field => ({ id: field, field, label: getColumnLabel(field) }))
-  );
+  onVisibleColumnsChange(newColumns);
+}
 
-  // Local state for drag and drop
-  let dndColumns = $state<typeof columns>([]);
-  let isDragging = $state(false);
-  let draggedColumnIndex = $state<number | null>(null);
+function isColumnVisible(column: string): boolean {
+  return visibleColumns.includes(column);
+}
 
-  // Update dndColumns when columns change
-  $effect(() => {
-    dndColumns = [...columns];
-  });
-
-  let searchText = $state('');
-
-  // Filtered columns for the listbox
-  const filteredColumns = $derived(
-    availableColumns.filter(col =>
-      col.toLowerCase().includes(searchText.toLowerCase())
-    )
-  );
-
-  // Create listbox collection
-  const collection = $derived(
-    useListCollection({
-      items: filteredColumns.map(col => ({ value: col, label: col })),
-      itemToString: (item) => item.label,
-      itemToValue: (item) => item.value
-    })
-  );
-
-  function toggleColumn(column: string) {
-    const newColumns = visibleColumns.includes(column)
-      ? visibleColumns.filter(c => c !== column)
-      : [...visibleColumns, column];
-
-    // Ensure at least one column is selected
-    if (newColumns.length === 0) {
-      return;
-    }
-
-    onVisibleColumnsChange(newColumns);
+// Handle drag and drop events
+function handleDndConsider(
+  e: CustomEvent<{
+    items: typeof dndColumns;
+    info?: { trigger: string; id: string };
+  }>,
+) {
+  dndColumns = e.detail.items;
+  isDragging = true;
+  // Track which column is being dragged
+  if (
+    e.detail.info?.trigger === 'draggedEntered' ||
+    e.detail.info?.trigger === 'dragStarted'
+  ) {
+    const draggedId = e.detail.info.id;
+    draggedColumnIndex = dndColumns.findIndex((col) => col.id === draggedId);
   }
+}
 
-  function isColumnVisible(column: string): boolean {
-    return visibleColumns.includes(column);
-  }
+function handleDndFinalize(e: CustomEvent<{ items: typeof dndColumns }>) {
+  dndColumns = e.detail.items;
+  isDragging = false;
+  draggedColumnIndex = null;
+  // Emit reordered column names
+  const reorderedColumnNames = dndColumns.map((col) => col.field);
+  onVisibleColumnsChange(reorderedColumnNames);
+}
 
-  // Handle drag and drop events
-  function handleDndConsider(e: CustomEvent<{ items: typeof dndColumns; info?: { trigger: string; id: string } }>) {
-    dndColumns = e.detail.items;
-    isDragging = true;
-    // Track which column is being dragged
-    if (e.detail.info?.trigger === 'draggedEntered' || e.detail.info?.trigger === 'dragStarted') {
-      const draggedId = e.detail.info.id;
-      draggedColumnIndex = dndColumns.findIndex(col => col.id === draggedId);
-    }
-  }
+function handleSortClick(columnField: string, event: MouseEvent) {
+  event.stopPropagation();
+  onColumnHeaderClick(columnField);
+}
 
-  function handleDndFinalize(e: CustomEvent<{ items: typeof dndColumns }>) {
-    dndColumns = e.detail.items;
-    isDragging = false;
-    draggedColumnIndex = null;
-    // Emit reordered column names
-    const reorderedColumnNames = dndColumns.map(col => col.field);
-    onVisibleColumnsChange(reorderedColumnNames);
+function shorten(text: string) {
+  if (text?.toString().match(/http/)) {
+    const pieces = text.split('/');
+    return `...${pieces[pieces.length - 1]}`;
   }
-
-  function handleSortClick(columnField: string, event: MouseEvent) {
-    event.stopPropagation();
-    onColumnHeaderClick(columnField);
-  }
-
-  function shorten(text: string) {
-    if (text?.toString().match(/http/)) {
-      const pieces = text.split('/');
-      return `...${pieces[pieces.length - 1]}`;
-    }
-    return text;
-  }
+  return text;
+}
 </script>
 
 <!--
@@ -311,7 +344,7 @@
                         {draggedColumnIndex === index ? 'opacity-40' : ''}
                       "
                     >
-                      {shorten(occurrence[column.field as keyof Occurrence])}
+                      {shorten(String(occurrence[column.field as keyof Occurrence]))}
                     </div>
                   {/each}
                 {:else}

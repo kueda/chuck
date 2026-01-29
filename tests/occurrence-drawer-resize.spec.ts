@@ -1,9 +1,9 @@
-import { test, expect } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import {
-  setupMockTauri,
-  waitForAppReady,
   openArchive,
+  setupMockTauri,
   switchToView,
+  waitForAppReady,
 } from './helpers/setup';
 
 test.describe('OccurrenceDrawer window resize', () => {
@@ -12,10 +12,14 @@ test.describe('OccurrenceDrawer window resize', () => {
     await page.goto('/');
     await waitForAppReady(page);
     await openArchive(page);
-    await page.waitForSelector('.table-cell:has-text("TEST-001")', { timeout: 5000 });
+    await page.waitForSelector('.table-cell:has-text("TEST-001")', {
+      timeout: 5000,
+    });
   });
 
-  test('should keep drawer open when window resizes in cards view', async ({ page }) => {
+  test('should keep drawer open when window resizes in cards view', async ({
+    page,
+  }) => {
     // Switch to cards view
     await switchToView(page, 'cards');
     await page.waitForTimeout(300);
@@ -25,10 +29,14 @@ test.describe('OccurrenceDrawer window resize', () => {
     await firstCard.click();
 
     // Wait for drawer to open
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
     // Verify drawer is visible
-    await expect(page.locator('[data-testid="occurrence-drawer"]')).toBeVisible();
+    await expect(
+      page.locator('[data-testid="occurrence-drawer"]'),
+    ).toBeVisible();
 
     // Resize window to change number of columns (e.g., from 5 to 6 columns)
     // Default breakpoints in Cards.svelte:
@@ -38,13 +46,19 @@ test.describe('OccurrenceDrawer window resize', () => {
     await page.waitForTimeout(500); // Wait for resize to settle
 
     // Verify drawer is still visible after resize
-    await expect(page.locator('[data-testid="occurrence-drawer"]')).toBeVisible();
+    await expect(
+      page.locator('[data-testid="occurrence-drawer"]'),
+    ).toBeVisible();
 
     // Verify drawer content is still present
-    await expect(page.locator('header div:has-text("occurrenceID:")').first()).toBeVisible();
+    await expect(
+      page.locator('header div:has-text("occurrenceID:")').first(),
+    ).toBeVisible();
   });
 
-  test('should keep drawer open when resizing changes column count multiple times', async ({ page }) => {
+  test('should keep drawer open when resizing changes column count multiple times', async ({
+    page,
+  }) => {
     // Switch to cards view
     await switchToView(page, 'cards');
     await page.waitForTimeout(300);
@@ -54,10 +68,14 @@ test.describe('OccurrenceDrawer window resize', () => {
     await firstCard.click();
 
     // Wait for drawer to open
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
     // Verify drawer is visible
-    await expect(page.locator('[data-testid="occurrence-drawer"]')).toBeVisible();
+    await expect(
+      page.locator('[data-testid="occurrence-drawer"]'),
+    ).toBeVisible();
 
     // Resize through multiple breakpoints
     const widths = [1200, 1500, 1000, 1600];
@@ -66,7 +84,9 @@ test.describe('OccurrenceDrawer window resize', () => {
       await page.waitForTimeout(300);
 
       // Drawer should still be visible after each resize
-      await expect(page.locator('[data-testid="occurrence-drawer"]')).toBeVisible();
+      await expect(
+        page.locator('[data-testid="occurrence-drawer"]'),
+      ).toBeVisible();
     }
   });
 });

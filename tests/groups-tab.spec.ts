@@ -1,9 +1,9 @@
-import { test, expect } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import {
+  openArchive,
+  searchByScientificName,
   setupMockTauri,
   waitForAppReady,
-  openArchive,
-  searchByScientificName
 } from './helpers/setup';
 
 test.describe('Groups Tab', () => {
@@ -40,7 +40,9 @@ test.describe('Groups Tab', () => {
     await expect(page.locator('th:has-text("Occurrences")')).toBeVisible();
   });
 
-  test('should preserve selected field when switching tabs', async ({ page }) => {
+  test('should preserve selected field when switching tabs', async ({
+    page,
+  }) => {
     await openArchive(page);
 
     await page.click('button:has-text("Groups")');
@@ -49,7 +51,9 @@ test.describe('Groups Tab', () => {
     await page.click('button:has-text("Occurrences")');
     await page.click('button:has-text("Groups")');
 
-    const selectedValue = await page.locator('select#group-by-field').inputValue();
+    const selectedValue = await page
+      .locator('select#group-by-field')
+      .inputValue();
     expect(selectedValue).toBe('scientificName');
   });
 

@@ -7,11 +7,7 @@
  * inside getInjectionScript() only.
  */
 
-import type {
-  ArchiveInfo,
-  SearchResult,
-  Occurrence,
-} from '../../src/lib/types/archive';
+import type { ArchiveInfo, SearchResult } from '../../src/lib/types/archive';
 
 /**
  * Script to inject into the page that intercepts Tauri module imports.
@@ -22,14 +18,15 @@ export function getInjectionScript(
   mockSearchResults: SearchResult,
   mockArchive2?: ArchiveInfo,
   mockSearchResults2?: SearchResult,
-  customEml?: string
+  customEml?: string,
 ): string {
   // Serialize the mock data
   const mockArchiveJSON = JSON.stringify(mockArchive);
   const mockSearchResultsJSON = JSON.stringify(mockSearchResults);
   const mockArchive2JSON = mockArchive2 ? JSON.stringify(mockArchive2) : 'null';
-  const mockSearchResults2JSON = mockSearchResults2 ?
-    JSON.stringify(mockSearchResults2) : 'null';
+  const mockSearchResults2JSON = mockSearchResults2
+    ? JSON.stringify(mockSearchResults2)
+    : 'null';
   const customEmlJSON = customEml ? JSON.stringify(customEml) : 'null';
 
   return `

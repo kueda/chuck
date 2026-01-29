@@ -1,21 +1,15 @@
 <script lang="ts">
-  import { ExternalLink } from 'lucide-svelte';
+import { ExternalLink } from 'lucide-svelte';
 
-  interface Props {
-    value: boolean;
-    name: string;
-    title: string;
-    desc: string;
-    url: string;
-  }
+interface Props {
+  value: boolean;
+  name: string;
+  title: string;
+  desc: string;
+  url: string;
+}
 
-  let {
-    value = $bindable(false),
-    name,
-    title,
-    desc,
-    url,
-  }: Props = $props();
+let { value = $bindable(false), name, title, desc, url }: Props = $props();
 </script>
 
 <label class="flex items-start w-fit space-x-2">

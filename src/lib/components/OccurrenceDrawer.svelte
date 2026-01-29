@@ -1,167 +1,172 @@
 <script lang="ts">
-  import { Dialog, Portal } from '@skeletonlabs/skeleton-svelte';
-  import Agent from '$lib/components/Agent.svelte';
-  import Taxon from '$lib/components/Taxon.svelte';
-  import Markup from '$lib/components/Markup.svelte';
-  import { invoke } from '$lib/tauri-api';
-  import type { Occurrence, Multimedia, Audiovisual } from '$lib/types/archive';
-  import PhotoViewer from './PhotoViewer.svelte';
-  import OccurrenceMap from './OccurrenceMap.svelte';
-  import MediaItem from './MediaItem.svelte';
-  import {
-    ArrowLeft,
-    ArrowLeftCircle,
-    ArrowRight,
-    ArrowRightCircle,
-    Calendar,
-    Globe,
-    Heading,
-    Info,
-    MapPin,
-    User,
-    X
-  } from 'lucide-svelte';
-  import Identification from './Identification.svelte';
+import { Dialog, Portal } from '@skeletonlabs/skeleton-svelte';
+import {
+  ArrowLeft,
+  ArrowLeftCircle,
+  ArrowRight,
+  ArrowRightCircle,
+  Calendar,
+  Globe,
+  Heading,
+  Info,
+  MapPin,
+  User,
+  X,
+} from 'lucide-svelte';
+import Agent from '$lib/components/Agent.svelte';
+import Markup from '$lib/components/Markup.svelte';
+import Taxon from '$lib/components/Taxon.svelte';
+import { invoke } from '$lib/tauri-api';
+import type { Audiovisual, Multimedia, Occurrence } from '$lib/types/archive';
+import Identification from './Identification.svelte';
+import MediaItem from './MediaItem.svelte';
+import OccurrenceMap from './OccurrenceMap.svelte';
+import PhotoViewer from './PhotoViewer.svelte';
 
-  interface Props {
-    open: boolean;
-    occurrenceId: string | number | null;
-    coreIdColumn: string;
-    onClose: () => void;
-    onPrevious?: () => void;
-    onNext?: () => void;
-  }
+interface Props {
+  open: boolean;
+  occurrenceId: string | number | null;
+  coreIdColumn: string;
+  onClose: () => void;
+  onPrevious?: () => void;
+  onNext?: () => void;
+}
 
-  let {
-    open = $bindable(false),
-    occurrenceId,
-    coreIdColumn,
-    onClose,
-    onPrevious,
-    onNext
-  }: Props = $props();
+let {
+  open = $bindable(false),
+  occurrenceId,
+  coreIdColumn,
+  onClose,
+  onPrevious,
+  onNext,
+}: Props = $props();
 
-  let occurrence = $state<Occurrence | null>(null);
-  let loading = $state(false);
-  let error = $state<string | null>(null);
-  let photoViewerOpen = $state(false);
-  let photoUrls = $state<string[]>([]);
-  let selectedPhotoIndex = $state(0);
-  let identifications = $derived.by(() => occurrence?.identifications?.toSorted((i1, i2) => {
+let occurrence = $state<Occurrence | null>(null);
+let loading = $state(false);
+let error = $state<string | null>(null);
+let photoViewerOpen = $state(false);
+let photoUrls = $state<string[]>([]);
+let selectedPhotoIndex = $state(0);
+const identifications = $derived.by(() =>
+  occurrence?.identifications?.toSorted((i1, i2) => {
     const n1 = i1.dateIdentified ? Date.parse(i1.dateIdentified) : 0;
     const n2 = i2.dateIdentified ? Date.parse(i2.dateIdentified) : 0;
     return n1 - n2;
-  }));
-  let displayLocality = $derived.by(() => {
-    if (!occurrence) return;
-    if (occurrence.verbatimLocality && occurrence.verbatimLocality.length > 0 ) {
-      return occurrence.verbatimLocality
-    };
-    if (occurrence.locality && occurrence.locality.length > 0 ) {
-      return occurrence.locality
-    };
-    if (occurrence.higherGeography && occurrence.higherGeography.length > 0 ) {
-      return occurrence.higherGeography
-    };
-    if (occurrence.locationRemarks && occurrence.locationRemarks.length > 0 ) {
-      return occurrence.locationRemarks
-    };
-  });
+  }),
+);
+const displayLocality = $derived.by(() => {
+  if (!occurrence) return;
+  if (occurrence.verbatimLocality && occurrence.verbatimLocality.length > 0) {
+    return occurrence.verbatimLocality;
+  }
+  if (occurrence.locality && occurrence.locality.length > 0) {
+    return occurrence.locality;
+  }
+  if (occurrence.higherGeography && occurrence.higherGeography.length > 0) {
+    return occurrence.higherGeography;
+  }
+  if (occurrence.locationRemarks && occurrence.locationRemarks.length > 0) {
+    return occurrence.locationRemarks;
+  }
+});
 
-  // Load occurrence when occurrenceId changes
-  $effect(() => {
-    if (occurrenceId && open) {
-      loadOccurrence();
-    }
-  });
+// Load occurrence when occurrenceId changes
+$effect(() => {
+  if (occurrenceId && open) {
+    loadOccurrence();
+  }
+});
 
-  async function loadOccurrence() {
-    if (!occurrenceId) return;
+async function loadOccurrence() {
+  if (!occurrenceId) return;
 
-    loading = true;
-    error = null;
+  loading = true;
+  error = null;
 
-    try {
-      const result = await invoke<Occurrence>('get_occurrence', {
-        occurrenceId: String(occurrenceId)
-      });
-      occurrence = result;
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
-      console.error('Error loading occurrence:', e);
-    } finally {
-      loading = false;
+  try {
+    const result = await invoke<Occurrence>('get_occurrence', {
+      occurrenceId: String(occurrenceId),
+    });
+    occurrence = result;
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+    console.error('Error loading occurrence:', e);
+  } finally {
+    loading = false;
+  }
+}
+
+function openPhotoViewer(photoUrl: string) {
+  // Build array of all photo URLs from multimedia and audiovisual
+  const allPhotos: string[] = [];
+
+  // Add multimedia photos
+  if (occurrence?.multimedia) {
+    for (const media of occurrence.multimedia) {
+      const url = getPhotoUrl(media);
+      if (url) allPhotos.push(url);
     }
   }
 
-  function openPhotoViewer(photoUrl: string) {
-    // Build array of all photo URLs from multimedia and audiovisual
-    const allPhotos: string[] = [];
-
-    // Add multimedia photos
-    if (occurrence?.multimedia) {
-      for (const media of occurrence.multimedia) {
-        const url = getPhotoUrl(media);
-        if (url) allPhotos.push(url);
-      }
+  // Add audiovisual photos
+  if (occurrence?.audiovisual) {
+    for (const av of occurrence.audiovisual) {
+      const url = getPhotoUrl(av);
+      if (url) allPhotos.push(url);
     }
-
-    // Add audiovisual photos
-    if (occurrence?.audiovisual) {
-      for (const av of occurrence.audiovisual) {
-        const url = getPhotoUrl(av);
-        if (url) allPhotos.push(url);
-      }
-    }
-
-    // Find index of clicked photo
-    selectedPhotoIndex = allPhotos.indexOf(photoUrl);
-    if (selectedPhotoIndex === -1) selectedPhotoIndex = 0;
-
-    photoUrls = allPhotos;
-    photoViewerOpen = true;
   }
 
-  // Helper to get photo URL from multimedia or audiovisual
-  function getPhotoUrl(item: any): string | null {
-    return item.identifier || item.accessURI || null;
-  }
+  // Find index of clicked photo
+  selectedPhotoIndex = allPhotos.indexOf(photoUrl);
+  if (selectedPhotoIndex === -1) selectedPhotoIndex = 0;
 
-  // Core fields to display in main view
-  const coreFields = {
-    what: [
-      'scientificName',
-      'vernacularName',
-      'taxonRank',
-      'taxonomicStatus',
-      'kingdom',
-      'phylum',
-      'class',
-      'order',
-      'superfamily',
-      'family',
-      'subfamily',
-      'tribe',
-      'subtribe',
-      'genus',
-      'subgenus',
-      'infragenericEpithet',
-      'specificEpithet',
-      'infraspecificEpithet',
-      'cultivarEpithet',
-    ],
-    where: [
-      'decimalLatitude',
-      'decimalLongitude',
-      'coordinateUncertaintyInMeters',
-      'locality',
-      'verbatimLocality',
-      'stateProvince',
-      'country'
-    ],
-    when: ['eventDate', 'eventTime', 'year', 'month', 'day'],
-    who: ['recordedBy', 'recordedById', 'identifiedBy', 'dateIdentified']
-  };
+  photoUrls = allPhotos;
+  photoViewerOpen = true;
+}
+
+// Helper to get photo URL from multimedia or audiovisual
+function getPhotoUrl(item: {
+  identifier?: string | null;
+  accessURI?: string | null;
+}): string | null {
+  return item.identifier || item.accessURI || null;
+}
+
+// Core fields to display in main view
+const coreFields = {
+  what: [
+    'scientificName',
+    'vernacularName',
+    'taxonRank',
+    'taxonomicStatus',
+    'kingdom',
+    'phylum',
+    'class',
+    'order',
+    'superfamily',
+    'family',
+    'subfamily',
+    'tribe',
+    'subtribe',
+    'genus',
+    'subgenus',
+    'infragenericEpithet',
+    'specificEpithet',
+    'infraspecificEpithet',
+    'cultivarEpithet',
+  ],
+  where: [
+    'decimalLatitude',
+    'decimalLongitude',
+    'coordinateUncertaintyInMeters',
+    'locality',
+    'verbatimLocality',
+    'stateProvince',
+    'country',
+  ],
+  when: ['eventDate', 'eventTime', 'year', 'month', 'day'],
+  who: ['recordedBy', 'recordedById', 'identifiedBy', 'dateIdentified'],
+};
 </script>
 
 <Dialog

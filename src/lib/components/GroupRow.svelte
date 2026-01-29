@@ -1,85 +1,87 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
-  import type { SearchParams } from '$lib/utils/filterCategories';
-  import type { Occurrence, SearchResult } from '$lib/types/archive';
-  import OccurrenceCard, { EST_HEIGHT as CARD_HEIGHT } from '$lib/components/OccurrenceCard.svelte';
+import { invoke } from '@tauri-apps/api/core';
+import { onMount } from 'svelte';
+import OccurrenceCard, {
+  EST_HEIGHT as CARD_HEIGHT,
+} from '$lib/components/OccurrenceCard.svelte';
+import type { Occurrence, SearchResult } from '$lib/types/archive';
+import type { SearchParams } from '$lib/utils/filterCategories';
 
-  interface Props {
-    groupValue: string | null;
-    groupCount: number;
-    searchParams: SearchParams;
-    fieldName?: string;
-    onClick: ( occurrence: Occurrence ) => void;
-    onCountClick: () => void;
-  }
+interface Props {
+  groupValue: string | null;
+  groupCount: number;
+  searchParams: SearchParams;
+  fieldName?: string;
+  onClick: (occurrence: Occurrence) => void;
+  onCountClick: () => void;
+}
 
-  let {
-    groupValue,
-    groupCount,
-    searchParams,
-    fieldName,
-    onClick,
-    onCountClick
-  }: Props = $props();
+const {
+  groupValue,
+  groupCount,
+  searchParams,
+  fieldName,
+  onClick,
+  onCountClick,
+}: Props = $props();
 
-  let occurrences = $state<Occurrence[]>([]);
-  let loading = $state(false);
-  let error = $state<string | null>(null);
-  let containerElement: HTMLDivElement;
+let occurrences = $state<Occurrence[]>([]);
+let loading = $state(false);
+let error = $state<string | null>(null);
+let containerElement: HTMLDivElement;
 
-  async function loadOccurrences() {
-    if (!fieldName || loading || occurrences.length > 0) return;
+async function loadOccurrences() {
+  if (!fieldName || loading || occurrences.length > 0) return;
 
-    loading = true;
-    error = null;
+  loading = true;
+  error = null;
 
-    try {
-      // Build search params with filter for this group's value
-      const filterValue = groupValue ?? '';
-      const params: SearchParams = {
-        ...searchParams,
-        [fieldName]: filterValue
-      };
-
-      const result = await invoke<SearchResult>('search', {
-        limit: 5,
-        offset: 0,
-        searchParams: params,
-        fields: undefined
-      });
-
-      occurrences = result.results;
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-      occurrences = [];
-    } finally {
-      loading = false;
-    }
-  }
-
-  onMount(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            observer.disconnect();
-            loadOccurrences();
-            break;
-          }
-        }
-      },
-      {
-        rootMargin: '100%' // Start loading before element enters viewport
-      }
-    );
-
-    observer.observe(containerElement);
-
-    return () => {
-      observer.disconnect();
+  try {
+    // Build search params with filter for this group's value
+    const filterValue = groupValue ?? '';
+    const params: SearchParams = {
+      ...searchParams,
+      [fieldName]: filterValue,
     };
-  });
+
+    const result = await invoke<SearchResult>('search', {
+      limit: 5,
+      offset: 0,
+      searchParams: params,
+      fields: undefined,
+    });
+
+    occurrences = result.results;
+  } catch (err) {
+    error = err instanceof Error ? err.message : String(err);
+    occurrences = [];
+  } finally {
+    loading = false;
+  }
+}
+
+onMount(() => {
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          observer.disconnect();
+          loadOccurrences();
+          break;
+        }
+      }
+    },
+    {
+      rootMargin: '100%', // Start loading before element enters viewport
+    },
+  );
+
+  observer.observe(containerElement);
+
+  return () => {
+    observer.disconnect();
+  };
+});
 </script>
 
 <div bind:this={containerElement} class="space-y-2">

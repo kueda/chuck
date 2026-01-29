@@ -5,7 +5,7 @@ const DEFAULT_COLUMNS = [
   'decimalLatitude',
   'decimalLongitude',
   'eventDate',
-  'eventTime'
+  'eventTime',
 ];
 
 interface ViewPreferences {
@@ -62,13 +62,13 @@ export function saveViewType(view: 'table' | 'cards' | 'map'): void {
 export function getColumnPreferences(
   archiveName: string,
   coreIdColumn: string,
-  availableColumns: string[]
+  availableColumns: string[],
 ): string[] {
   const prefs = loadPreferences();
 
   if (prefs.archives?.[archiveName]?.selectedColumns) {
     const validColumns = prefs.archives[archiveName].selectedColumns.filter(
-      col => availableColumns.includes(col)
+      (col) => availableColumns.includes(col),
     );
 
     if (validColumns.length > 0) {
@@ -77,8 +77,8 @@ export function getColumnPreferences(
   }
 
   // Fallback to defaults
-  const defaults = [coreIdColumn, ...DEFAULT_COLUMNS].filter(
-    col => availableColumns.includes(col)
+  const defaults = [coreIdColumn, ...DEFAULT_COLUMNS].filter((col) =>
+    availableColumns.includes(col),
   );
 
   // Ensure at least one column
@@ -87,7 +87,7 @@ export function getColumnPreferences(
 
 export function saveColumnPreferences(
   archiveName: string,
-  selectedColumns: string[]
+  selectedColumns: string[],
 ): void {
   const prefs = loadPreferences();
 
@@ -97,7 +97,7 @@ export function saveColumnPreferences(
 
   prefs.archives[archiveName] = {
     selectedColumns,
-    version: 1
+    version: 1,
   };
 
   savePreferences(prefs);

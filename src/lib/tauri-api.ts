@@ -5,47 +5,79 @@
  */
 
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
+import {
+  type EventCallback,
+  listen as tauriListen,
+} from '@tauri-apps/api/event';
 import { getCurrentWindow as tauriGetCurrentWindow } from '@tauri-apps/api/window';
-import { listen as tauriListen, type EventCallback } from '@tauri-apps/api/event';
-import { open as tauriOpen, save as tauriSave } from '@tauri-apps/plugin-dialog';
+import {
+  type OpenDialogOptions,
+  type SaveDialogOptions,
+  open as tauriOpen,
+  save as tauriSave,
+} from '@tauri-apps/plugin-dialog';
+
+// Interface for mock Tauri object used in tests
+interface MockTauri {
+  invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
+  showOpenDialog(
+    options?: OpenDialogOptions,
+  ): Promise<string | string[] | null>;
+  showSaveDialog(
+    options?: SaveDialogOptions,
+  ): Promise<string | string[] | null>;
+  getCurrentWindow(): ReturnType<typeof tauriGetCurrentWindow>;
+  listen<T>(event: string, handler: EventCallback<T>): Promise<() => void>;
+}
 
 // Check if we're in test mode with mocks available
 const hasMocks = typeof window !== 'undefined' && '__MOCK_TAURI__' in window;
 
-export async function invoke<T>(command: string, args?: any): Promise<T> {
+function getMockTauri(): MockTauri {
+  return (window as unknown as { __MOCK_TAURI__: MockTauri }).__MOCK_TAURI__;
+}
+
+export async function invoke<T>(
+  command: string,
+  args?: Record<string, unknown>,
+): Promise<T> {
   if (hasMocks) {
-    return (window as any).__MOCK_TAURI__.invoke(command, args);
+    return getMockTauri().invoke(command, args);
   }
   return tauriInvoke<T>(command, args);
 }
 
-export async function showOpenDialog(options?: any): Promise<string | string[] | null> {
+export async function showOpenDialog(
+  options?: OpenDialogOptions,
+): Promise<string | string[] | null> {
   if (hasMocks) {
-    return (window as any).__MOCK_TAURI__.showOpenDialog(options);
+    return getMockTauri().showOpenDialog(options);
   }
   return tauriOpen(options);
 }
 
-export async function showSaveDialog(options?: any): Promise<string | string[] | null> {
+export async function showSaveDialog(
+  options?: SaveDialogOptions,
+): Promise<string | string[] | null> {
   if (hasMocks) {
-    return (window as any).__MOCK_TAURI__.showSaveDialog(options);
+    return getMockTauri().showSaveDialog(options);
   }
   return tauriSave(options);
 }
 
 export function getCurrentWindow() {
   if (hasMocks) {
-    return (window as any).__MOCK_TAURI__.getCurrentWindow();
+    return getMockTauri().getCurrentWindow();
   }
   return tauriGetCurrentWindow();
 }
 
 export async function listen<T>(
   event: string,
-  handler: EventCallback<T>
+  handler: EventCallback<T>,
 ): Promise<() => void> {
   if (hasMocks) {
-    return (window as any).__MOCK_TAURI__.listen(event, handler);
+    return getMockTauri().listen(event, handler);
   }
   return tauriListen(event, handler);
 }
@@ -56,7 +88,8 @@ export async function listen<T>(
  * On macOS/Linux, use tiles://localhost/ format.
  */
 export function getTileUrlBase(): string {
-  const isWindows = typeof navigator !== 'undefined' &&
+  const isWindows =
+    typeof navigator !== 'undefined' &&
     navigator.userAgent.toLowerCase().includes('windows');
   return isWindows ? 'http://tiles.localhost' : 'tiles://localhost';
 }

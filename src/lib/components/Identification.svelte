@@ -1,18 +1,18 @@
 <script lang="ts">
-  import Agent from '$lib/components/Agent.svelte';
-  import Taxon from '$lib/components/Taxon.svelte';
-  import Markup from '$lib/components/Markup.svelte';
-  import { Info } from 'lucide-svelte';
+import { Info } from 'lucide-svelte';
+import Agent from '$lib/components/Agent.svelte';
+import Markup from '$lib/components/Markup.svelte';
+import Taxon from '$lib/components/Taxon.svelte';
 
-  let { identification: ident } = $props();
+const { identification: ident } = $props();
 
-  let date = $derived.by(() => {
-    if (ident.dateIdentified.match(/\d+:\d+:\d+/)) {
-      const d = new Date(ident.dateIdentified);
-      if (d.getTime()) return d;
-    }
-    return null;
-  });
+const date = $derived.by(() => {
+  if (ident.dateIdentified.match(/\d+:\d+:\d+/)) {
+    const d = new Date(ident.dateIdentified);
+    if (d.getTime()) return d;
+  }
+  return null;
+});
 </script>
 
 {#snippet uriLabel(uri: string)}

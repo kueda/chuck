@@ -1,6 +1,6 @@
-import tailwindcss from "@tailwindcss/vite";
-import { defineConfig } from "vite";
-import { sveltekit } from "@sveltejs/kit/vite";
+import tailwindcss from '@tailwindcss/vite';
+import { defineConfig } from 'vite';
+import { sveltekit } from '@sveltejs/kit/vite';
 
 const host = process.env.TAURI_DEV_HOST;
 
@@ -17,12 +17,13 @@ export default defineConfig(async () => ({
     port: 1420,
     strictPort: true,
     host: host || false,
-    hmr: host ? { protocol: "ws", host, port: 1421 } : undefined,
+    hmr: host ? { protocol: 'ws', host, port: 1421 } : undefined,
     // Ignore everything other than frontend src, static files, config.
     // Otherwise if you, say, but a 33GB disk image in this dir, Vite tries
     // to watch it and maybe load it into memory and everything goes to hell
     watch: {
-      ignored: (path, stats) => {
+      /** @param {string} path */
+      ignored: (path) => {
         // Always watch these directories
         if (/\/(src|static|\.svelte-kit)\//.test(path)) return false;
 
@@ -31,8 +32,8 @@ export default defineConfig(async () => ({
 
         // Ignore everything else
         return true;
-      }
-    }
+      },
+    },
   },
 
   test: {
@@ -42,5 +43,5 @@ export default defineConfig(async () => ({
 
     // and we apparently need to specify an environment
     environment: 'jsdom',
-  }
+  },
 }));

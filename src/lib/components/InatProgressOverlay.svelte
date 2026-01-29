@@ -1,44 +1,46 @@
 <script lang="ts">
-  import { Progress } from '@skeletonlabs/skeleton-svelte';
+import { Progress } from '@skeletonlabs/skeleton-svelte';
 
-  interface Props {
-    stage: 'active' | 'building' | 'complete' | 'error';
-    observationsCurrent?: number;
-    observationsTotal?: number;
-    photosCurrent?: number;
-    photosTotal?: number;
-    message?: string;
-    estimatedTimeRemaining?: string;
-    onCancel: () => void;
+interface Props {
+  stage: 'active' | 'building' | 'complete' | 'error';
+  observationsCurrent?: number;
+  observationsTotal?: number;
+  photosCurrent?: number;
+  photosTotal?: number;
+  message?: string;
+  estimatedTimeRemaining?: string;
+  onCancel: () => void;
+}
+
+const {
+  stage,
+  observationsCurrent,
+  observationsTotal,
+  photosCurrent,
+  photosTotal,
+  message,
+  estimatedTimeRemaining,
+  onCancel,
+}: Props = $props();
+
+const observationsProgress = $derived.by(() => {
+  if (observationsTotal && observationsTotal > 0) {
+    return ((observationsCurrent || 0) / observationsTotal) * 100;
   }
+  return undefined;
+});
 
-  let {
-    stage,
-    observationsCurrent,
-    observationsTotal,
-    photosCurrent,
-    photosTotal,
-    message,
-    estimatedTimeRemaining,
-    onCancel
-  }: Props = $props();
+const photosProgress = $derived.by(() => {
+  if (photosTotal && photosTotal > 0) {
+    return ((photosCurrent || 0) / photosTotal) * 100;
+  }
+  return undefined;
+});
 
-  let observationsProgress = $derived.by(() => {
-    if (observationsTotal && observationsTotal > 0) {
-      return (observationsCurrent || 0) / observationsTotal * 100;
-    }
-    return undefined;
-  });
-
-  let photosProgress = $derived.by(() => {
-    if (photosTotal && photosTotal > 0) {
-      return (photosCurrent || 0) / photosTotal * 100;
-    }
-    return undefined;
-  });
-
-  let showObservations = $derived(stage === 'active' && observationsTotal !== undefined);
-  let showPhotos = $derived(stage === 'active' && photosTotal !== undefined);
+const showObservations = $derived(
+  stage === 'active' && observationsTotal !== undefined,
+);
+const showPhotos = $derived(stage === 'active' && photosTotal !== undefined);
 </script>
 
 <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

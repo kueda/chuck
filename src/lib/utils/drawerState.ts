@@ -18,13 +18,18 @@ export function createDrawerHandlers(options: {
   occurrenceCache: Map<number, Occurrence>;
   coreIdColumn: string;
   count: number;
-  scrollToIndex?: (index: number, options?: { align?: 'start' | 'center' | 'end' | 'auto' }) => void;
+  scrollToIndex?: (
+    index: number,
+    options?: { align?: 'start' | 'center' | 'end' | 'auto' },
+  ) => void;
 }): DrawerHandlers {
-  const { state, occurrenceCache, coreIdColumn, count, scrollToIndex } = options;
+  const { state, occurrenceCache, coreIdColumn, count, scrollToIndex } =
+    options;
 
   const handleOccurrenceClick = (occurrence: Occurrence, index: number) => {
     const value = occurrence[coreIdColumn as keyof Occurrence];
-    state.selectedOccurrenceId = (typeof value === 'string' || typeof value === 'number') ? value : null;
+    state.selectedOccurrenceId =
+      typeof value === 'string' || typeof value === 'number' ? value : null;
     state.selectedOccurrenceIndex = index;
     state.open = true;
   };
@@ -34,34 +39,42 @@ export function createDrawerHandlers(options: {
   };
 
   // Only provide navigation handlers if scrollToIndex is available
-  let handlePrevious: (() => void) | undefined = undefined;
-  let handleNext: (() => void) | undefined = undefined;
+  let handlePrevious: (() => void) | undefined;
+  let handleNext: (() => void) | undefined;
 
   if (scrollToIndex && state.selectedOccurrenceIndex !== null) {
     if (state.selectedOccurrenceIndex > 0) {
       handlePrevious = () => {
-        const newIndex = state.selectedOccurrenceIndex! - 1;
+        const newIndex = (state.selectedOccurrenceIndex ?? 0) - 1;
         const prevOccurrence = occurrenceCache.get(newIndex);
         if (prevOccurrence) {
           const value = prevOccurrence[coreIdColumn as keyof Occurrence];
-          state.selectedOccurrenceId = (typeof value === 'string' || typeof value === 'number') ? value : null;
+          state.selectedOccurrenceId =
+            typeof value === 'string' || typeof value === 'number'
+              ? value
+              : null;
           state.selectedOccurrenceIndex = newIndex;
         }
-        scrollToIndex(state.selectedOccurrenceIndex!, { align: 'auto' });
+        scrollToIndex(state.selectedOccurrenceIndex ?? 0, { align: 'auto' });
       };
     }
 
     if (state.selectedOccurrenceIndex < count - 1) {
       handleNext = () => {
-        const newIndex = state.selectedOccurrenceIndex! + 1;
+        const newIndex = (state.selectedOccurrenceIndex ?? 0) + 1;
         const nextOccurrence = occurrenceCache.get(newIndex);
         if (nextOccurrence) {
           const value = nextOccurrence[coreIdColumn as keyof Occurrence];
-          state.selectedOccurrenceId = (typeof value === 'string' || typeof value === 'number') ? value : null;
+          state.selectedOccurrenceId =
+            typeof value === 'string' || typeof value === 'number'
+              ? value
+              : null;
           state.selectedOccurrenceIndex = newIndex;
         }
         // Scroll past current item when it's at the bottom
-        scrollToIndex(state.selectedOccurrenceIndex! + 1, { align: 'auto' });
+        scrollToIndex((state.selectedOccurrenceIndex ?? 0) + 1, {
+          align: 'auto',
+        });
       };
     }
   }

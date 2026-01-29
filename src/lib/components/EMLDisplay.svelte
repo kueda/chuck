@@ -1,11 +1,11 @@
 <script lang="ts">
-  import type { EMLData, EMLParty } from '$lib/utils/xmlParser';
+import type { EMLData, EMLParty } from '$lib/utils/xmlParser';
 
-  interface Props {
-    data: EMLData;
-  }
+interface Props {
+  data: EMLData;
+}
 
-  let { data }: Props = $props();
+const { data }: Props = $props();
 </script>
 
 {#snippet party(party: EMLParty)}

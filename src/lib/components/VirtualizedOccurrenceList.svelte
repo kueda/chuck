@@ -4,33 +4,36 @@
 -->
 
 <script lang="ts">
-  import type { VirtualItem } from '@tanstack/svelte-virtual';
-  import type { Occurrence } from '$lib/types/archive';
-  import type { Snippet } from 'svelte';
+import type { VirtualItem } from '@tanstack/svelte-virtual';
+import type { Snippet } from 'svelte';
+import type { Occurrence } from '$lib/types/archive';
 
-  interface Props {
-    virtualItems: VirtualItem[];
-    occurrenceCache: Map<number, Occurrence>;
-    occurrenceCacheVersion: number;
-    coreIdColumn: string;
-    handleOccurrenceClick: (occurrence: Occurrence, index: number) => void;
-    selectedOccurrenceIndex: number | null;
-    children: Snippet<[{
-      virtualRow: VirtualItem;
-      occurrence: Occurrence | undefined;
-    }]>;
-  }
+interface Props {
+  virtualItems: VirtualItem[];
+  occurrenceCache: Map<number, Occurrence>;
+  occurrenceCacheVersion: number;
+  coreIdColumn: string;
+  handleOccurrenceClick: (occurrence: Occurrence, index: number) => void;
+  selectedOccurrenceIndex: number | null;
+  children: Snippet<
+    [
+      {
+        virtualRow: VirtualItem;
+        occurrence: Occurrence | undefined;
+      },
+    ]
+  >;
+}
 
-  let {
-    virtualItems,
-    occurrenceCache,
-    occurrenceCacheVersion,
-    coreIdColumn,
-    handleOccurrenceClick,
-    selectedOccurrenceIndex,
-    children
-  }: Props = $props();
-
+const {
+  virtualItems,
+  occurrenceCache,
+  occurrenceCacheVersion,
+  coreIdColumn,
+  handleOccurrenceClick,
+  selectedOccurrenceIndex,
+  children,
+}: Props = $props();
 </script>
 
 <!--

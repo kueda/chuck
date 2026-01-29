@@ -1,137 +1,148 @@
 <script lang="ts">
-  import { Combobox, Portal, useListCollection } from '@skeletonlabs/skeleton-svelte';
-  import { tick } from 'svelte';
-  import { XIcon } from 'lucide-svelte';
-  import { invoke } from '$lib/tauri-api';
-  import type { HTMLInputAttributes } from 'svelte/elements';
+import {
+  Combobox,
+  Portal,
+  useListCollection,
+} from '@skeletonlabs/skeleton-svelte';
+import { XIcon } from 'lucide-svelte';
+import { tick } from 'svelte';
+import type { HTMLInputAttributes } from 'svelte/elements';
+import { invoke } from '$lib/tauri-api';
 
-  interface Props {
-    columnName: string;
-    value: string;
-    onValueChange: (value: string) => void;
-    onClear: () => void;
-    type?: HTMLInputAttributes['type'];
+interface Props {
+  columnName: string;
+  value: string;
+  onValueChange: (value: string) => void;
+  onClear: () => void;
+  type?: HTMLInputAttributes['type'];
+}
+
+const {
+  columnName,
+  value,
+  onValueChange,
+  onClear,
+  type = 'text',
+}: Props = $props();
+
+let inputValue = $state(value);
+let selectedValue = $state<string[]>(value ? [value] : []); // Controlled value for Combobox
+let suggestions = $state<string[]>([]);
+let loading = $state(false);
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let containerRef = $state<HTMLDivElement>();
+let isOpen = $state(false);
+
+// Create collection for combobox
+const collection = $derived(
+  useListCollection({
+    items: suggestions.map((s) => ({ value: s, label: s })),
+    itemToString: (item) => item.label,
+    itemToValue: (item) => item.value,
+  }),
+);
+
+// Debounced autocomplete fetch
+async function fetchSuggestions(searchTerm: string) {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
   }
 
-  const { columnName, value, onValueChange, onClear, type = 'text' }: Props = $props();
-
-  let inputValue = $state(value);
-  let selectedValue = $state<string[]>(value ? [value] : []); // Controlled value for Combobox
-  let suggestions = $state<string[]>([]);
-  let loading = $state(false);
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let containerRef = $state<HTMLDivElement>();
-  let isOpen = $state(false);
-
-  // Create collection for combobox
-  const collection = $derived(
-    useListCollection({
-      items: suggestions.map(s => ({ value: s, label: s })),
-      itemToString: (item) => item.label,
-      itemToValue: (item) => item.value
-    })
-  );
-
-  // Debounced autocomplete fetch
-  async function fetchSuggestions(searchTerm: string) {
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-    }
-
-    debounceTimer = setTimeout(async () => {
-      if (searchTerm.length < 2) {
-        suggestions = [];
-        return;
-      }
-
-      loading = true;
-      try {
-        const results = await invoke<string[]>('get_autocomplete_suggestions', {
-          columnName,
-          searchTerm,
-          limit: 50
-        });
-        suggestions = results;
-      } catch (error) {
-        console.error('Failed to fetch autocomplete suggestions:', error);
-        suggestions = [];
-      } finally {
-        loading = false;
-      }
-    }, 300);
-  }
-
-  let lastUserInput = $state('');
-  let ignoreNextClear = $state(false);
-
-  function handleInputValueChange(event: { inputValue: string }) {
-    // If we're ignoring a clear and getting an empty string, restore the last user input
-    if (event.inputValue === '' && ignoreNextClear && lastUserInput) {
-      ignoreNextClear = false;
-      inputValue = lastUserInput;
-      onValueChange(lastUserInput);
+  debounceTimer = setTimeout(async () => {
+    if (searchTerm.length < 2) {
+      suggestions = [];
       return;
     }
 
-    // Save the last non-empty user input
-    if (event.inputValue) {
-      lastUserInput = event.inputValue;
+    loading = true;
+    try {
+      const results = await invoke<string[]>('get_autocomplete_suggestions', {
+        columnName,
+        searchTerm,
+        limit: 50,
+      });
+      suggestions = results;
+    } catch (error) {
+      console.error('Failed to fetch autocomplete suggestions:', error);
+      suggestions = [];
+    } finally {
+      loading = false;
     }
+  }, 300);
+}
 
-    inputValue = event.inputValue;
-    if (type !== 'number') fetchSuggestions(event.inputValue);
-    onValueChange(event.inputValue);
+let lastUserInput = $state('');
+let ignoreNextClear = $state(false);
+
+function handleInputValueChange(event: { inputValue: string }) {
+  // If we're ignoring a clear and getting an empty string, restore the last user input
+  if (event.inputValue === '' && ignoreNextClear && lastUserInput) {
+    ignoreNextClear = false;
+    inputValue = lastUserInput;
+    onValueChange(lastUserInput);
+    return;
   }
 
-  function handleValueChange(event: { value: string[] }) {
-    selectedValue = event.value; // Update controlled value
-    if (event.value.length > 0) {
-      const newValue = event.value[0];
-      inputValue = newValue;
-      onValueChange(newValue);
-      isOpen = false;
-      // User just chose a value, no need to show suggestions anymore
-      tick().then(() => suggestions = []);
-    }
+  // Save the last non-empty user input
+  if (event.inputValue) {
+    lastUserInput = event.inputValue;
   }
 
-  // Sync external value changes (but preserve local input if it has content)
-  $effect(() => {
-    // Always sync when value changes - this ensures clear button works
-    if (value !== inputValue) {
-      inputValue = value;
-      selectedValue = value ? [value] : [];
-      lastUserInput = value;
-    }
-  });
+  inputValue = event.inputValue;
+  if (type !== 'number') fetchSuggestions(event.inputValue);
+  onValueChange(event.inputValue);
+}
 
-  // Control popover visibility: close when input is empty or no suggestions
-  $effect(() => {
-    if (
-      // Don't bother showing suggestions for a single letter
-      inputValue.length < 2
-      // No reason to show empty suggestions
-      || (suggestions.length === 0 && !loading)
-      // Hide suggestions if there's only one and it matches the current value exactly
-      || (suggestions.length === 1 && suggestions[0] === inputValue)
-    ) {
-      isOpen = false;
-    }
-    else if (suggestions.length > 1) {
-      isOpen = true;
-    }
-  });
-
-  function handleOpenChange(event: { open: boolean }) {
-    isOpen = event.open;
+function handleValueChange(event: { value: string[] }) {
+  selectedValue = event.value; // Update controlled value
+  if (event.value.length > 0) {
+    const newValue = event.value[0];
+    inputValue = newValue;
+    onValueChange(newValue);
+    isOpen = false;
+    // User just chose a value, no need to show suggestions anymore
+    tick().then(() => {
+      suggestions = [];
+    });
   }
+}
 
-  function handleInteractOutside() {
-    // When user clicks outside, set flag to ignore the next clear
-    if (lastUserInput) {
-      ignoreNextClear = true;
-    }
+// Sync external value changes (but preserve local input if it has content)
+$effect(() => {
+  // Always sync when value changes - this ensures clear button works
+  if (value !== inputValue) {
+    inputValue = value;
+    selectedValue = value ? [value] : [];
+    lastUserInput = value;
   }
+});
+
+// Control popover visibility: close when input is empty or no suggestions
+$effect(() => {
+  if (
+    // Don't bother showing suggestions for a single letter
+    inputValue.length < 2 ||
+    // No reason to show empty suggestions
+    (suggestions.length === 0 && !loading) ||
+    // Hide suggestions if there's only one and it matches the current value exactly
+    (suggestions.length === 1 && suggestions[0] === inputValue)
+  ) {
+    isOpen = false;
+  } else if (suggestions.length > 1) {
+    isOpen = true;
+  }
+});
+
+function handleOpenChange(event: { open: boolean }) {
+  isOpen = event.open;
+}
+
+function handleInteractOutside() {
+  // When user clicks outside, set flag to ignore the next clear
+  if (lastUserInput) {
+    ignoreNextClear = true;
+  }
+}
 </script>
 
 <div

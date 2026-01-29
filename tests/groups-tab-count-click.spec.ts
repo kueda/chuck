@@ -1,5 +1,5 @@
-import { test, expect } from '@playwright/test';
-import { setupMockTauri, waitForAppReady, openArchive } from './helpers/setup';
+import { expect, test } from '@playwright/test';
+import { openArchive, setupMockTauri, waitForAppReady } from './helpers/setup';
 
 test.describe('Groups Tab - Count Click', () => {
   test.beforeEach(async ({ page }) => {
@@ -8,7 +8,9 @@ test.describe('Groups Tab - Count Click', () => {
     await waitForAppReady(page);
   });
 
-  test('clicking a group count should filter Occurrences tab and show filter in sidebar', async ({ page }) => {
+  test('clicking a group count should filter Occurrences tab and show filter in sidebar', async ({
+    page,
+  }) => {
     await openArchive(page);
 
     // Switch to Groups tab
@@ -46,7 +48,9 @@ test.describe('Groups Tab - Count Click', () => {
     await expect(occTab).toBeVisible();
 
     // Check if occurrences tab is active by seeing if Occurrences content is visible
-    const occTabContent = page.locator('[data-testid="occurrences-scroll-container"]');
+    const occTabContent = page.locator(
+      '[data-testid="occurrences-scroll-container"]',
+    );
     await expect(occTabContent).toBeVisible();
 
     // Wait a bit more for the filters to sync
@@ -57,18 +61,25 @@ test.describe('Groups Tab - Count Click', () => {
     await expect(firstOccurrenceRow).toBeVisible();
 
     // The scientific name is in the 3rd column (index 2)
-    const firstRowScientificName = await firstOccurrenceRow.locator('.table-cell').nth(2).textContent();
+    const firstRowScientificName = await firstOccurrenceRow
+      .locator('.table-cell')
+      .nth(2)
+      .textContent();
     expect(firstRowScientificName).toBe(scientificNameValue);
 
     // Open the Taxonomy section to check filters
-    const taxonomySection = page.locator('#Filters').getByRole('button').filter({ hasText: 'Taxonomy' });
+    const taxonomySection = page
+      .locator('#Filters')
+      .getByRole('button')
+      .filter({ hasText: 'Taxonomy' });
     await expect(taxonomySection).toBeVisible();
-    const taxonomySectionText = await taxonomySection.textContent();
     await taxonomySection.click();
     await page.waitForTimeout(500);
 
     // Verify the scientificName filter input has the expected value
-    const scientificNameInput = page.getByRole('combobox', { name: 'scientificName' })
+    const scientificNameInput = page.getByRole('combobox', {
+      name: 'scientificName',
+    });
     await expect(scientificNameInput).toBeVisible();
     const inputValue = await scientificNameInput.inputValue();
     expect(inputValue).toBe(scientificNameValue);

@@ -1,10 +1,10 @@
 import type { SearchParams } from '$lib/utils/filterCategories';
 
 export interface ArchiveInfo {
-  name: string,
-  coreCount: number,
-  coreIdColumn: string,
-  availableColumns: (keyof SearchParams)[],
+  name: string;
+  coreCount: number;
+  coreIdColumn: string;
+  availableColumns: (keyof SearchParams)[];
 }
 
 export interface Multimedia {
@@ -333,7 +333,7 @@ export interface Occurrence {
   multimedia?: Multimedia[];
   audiovisual?: Audiovisual[];
   identification?: Identification[];
-};
+}
 
 export interface SearchResult {
   total: number;

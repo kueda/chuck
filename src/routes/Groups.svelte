@@ -1,81 +1,82 @@
 <script lang="ts">
-  import GroupRow from '$lib/components/GroupRow.svelte';
-  import MediaItem from '$lib/components/MediaItem.svelte';
-  import OccurrenceDrawer from '$lib/components/OccurrenceDrawer.svelte';
-  import type { Occurrence } from '$lib/types/archive';
-  import type { SearchParams } from '$lib/utils/filterCategories';
-  import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
-  import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
+import GroupRow from '$lib/components/GroupRow.svelte';
+import MediaItem from '$lib/components/MediaItem.svelte';
+import OccurrenceDrawer from '$lib/components/OccurrenceDrawer.svelte';
+import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
+import type { Occurrence } from '$lib/types/archive';
+import type { SearchParams } from '$lib/utils/filterCategories';
 
-  interface Props {
-    coreIdColumn: string;
-    defaultSelectedField?: string;
-    searchParams: SearchParams;
-    varcharFields: string[];
-    onCountClick: (fieldName: string, fieldValue: string | null) => void;
+interface Props {
+  coreIdColumn: string;
+  defaultSelectedField?: string;
+  searchParams: SearchParams;
+  varcharFields: string[];
+  onCountClick: (fieldName: string, fieldValue: string | null) => void;
+}
+
+const {
+  coreIdColumn,
+  defaultSelectedField,
+  searchParams,
+  varcharFields,
+  onCountClick,
+}: Props = $props();
+
+interface AggregationResult {
+  count: number;
+  photoUrl?: string | null;
+  value: string | null;
+}
+
+const AGGREGATION_LIMIT = 1000;
+
+let selectedField = $state(defaultSelectedField);
+let results = $state<AggregationResult[]>([]);
+let loading = $state(false);
+let error = $state<string | null>(null);
+let currentView = $state<'table' | 'cards' | 'rows'>('table');
+
+let drawerOpen = $state(false);
+let selectedOccurrenceId = $state<string | number | null>(null);
+
+async function fetchAggregation() {
+  if (!selectedField) return;
+
+  loading = true;
+  error = null;
+
+  try {
+    const data = await invoke<AggregationResult[]>('aggregate_by_field', {
+      fieldName: selectedField,
+      searchParams,
+      limit: AGGREGATION_LIMIT,
+    });
+    results = data;
+  } catch (err) {
+    error = err instanceof Error ? err.message : String(err);
+    results = [];
+  } finally {
+    loading = false;
   }
+}
 
-  let {
-    coreIdColumn,
-    defaultSelectedField,
-    searchParams,
-    varcharFields,
-    onCountClick
-  }: Props = $props();
+function handleCountClick(value: string | null) {
+  if (!selectedField) return;
+  onCountClick(selectedField, value);
+}
 
-  interface AggregationResult {
-    count: number;
-    photoUrl?: string | null;
-    value: string | null;
+// Automatically fetch when selectedField, searchParams, or currentView change
+$effect(() => {
+  if (selectedField) {
+    fetchAggregation();
   }
+});
 
-  const AGGREGATION_LIMIT = 1000;
-
-  let selectedField = $state(defaultSelectedField)
-  let results = $state<AggregationResult[]>([]);
-  let loading = $state(false);
-  let error = $state<string | null>(null);
-  let currentView = $state<'table' | 'cards' | 'rows'>('table');
-
-  let drawerOpen = $state(false);
-  let selectedOccurrenceId = $state<string | number | null>(null);
-
-  async function fetchAggregation() {
-    if (!selectedField) return;
-
-    loading = true;
-    error = null;
-
-    try {
-      const data = await invoke<AggregationResult[]>('aggregate_by_field', {
-        fieldName: selectedField,
-        searchParams,
-        limit: AGGREGATION_LIMIT
-      });
-      results = data;
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-      results = [];
-    } finally {
-      loading = false;
-    }
-  }
-
-  function handleCountClick(value: string | null) {
-    if (!selectedField) return;
-    onCountClick(selectedField, value);
-  }
-
-  // Automatically fetch when selectedField, searchParams, or currentView change
-  $effect(() => {
-    if (selectedField) {
-      fetchAggregation();
-    }
-  });
-
-  $effect(() => {
-    if (defaultSelectedField && !selectedField) selectedField = defaultSelectedField;
-  });
+$effect(() => {
+  if (defaultSelectedField && !selectedField)
+    selectedField = defaultSelectedField;
+});
 </script>
 
 <div class="flex h-full flex-col gap-4 p-4">

@@ -1,47 +1,47 @@
 <script lang="ts">
-  import { ImageOff } from 'lucide-svelte';
-  import { onMount } from 'svelte';
-  import { fade } from 'svelte/transition';
-  import { invoke } from '@tauri-apps/api/core';
-  import { convertFileSrc } from '@tauri-apps/api/core';
-  import type { Multimedia, Audiovisual } from '$lib/types/archive';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { ImageOff } from 'lucide-svelte';
+import { onMount } from 'svelte';
+import { fade } from 'svelte/transition';
+import type { Audiovisual, Multimedia } from '$lib/types/archive';
 
-  let {
-    media,
-    alt
-  }: {
-    media?: Multimedia | Audiovisual;
-    alt?: string;
-  } = $props();
+const {
+  media,
+  alt,
+}: {
+  media?: Multimedia | Audiovisual;
+  alt?: string;
+} = $props();
 
-  let imageLoaded = $state(false);
-  let mediumSrc = $state('');
-  let containerElement: HTMLDivElement;
+let imageLoaded = $state(false);
+let mediumSrc = $state('');
+let containerElement: HTMLDivElement;
 
-  const altText = $derived(alt || media?.description || '');
-  const imageUrl = $derived(media?.identifier);
+const altText = $derived(alt || media?.description || '');
+const imageUrl = $derived(media?.identifier);
 
-  // Check if a path is a local file path (not a URL)
-  function isLocalPath(path: string): boolean {
-    return !path.startsWith('http://') && !path.startsWith('https://');
+// Check if a path is a local file path (not a URL)
+function isLocalPath(path: string): boolean {
+  return !path.startsWith('http://') && !path.startsWith('https://');
+}
+
+// For some image providers, we may be able to use a more appropriate image,
+// e.g. a smaller one
+function getImageUrl(url: string): string {
+  if (
+    url.includes('static.inaturalist.org') ||
+    url.includes('inaturalist-open-data.s3.amazonaws.com')
+  ) {
+    return url.replace(/\/(square|small|medium|large|original)/, '/medium');
   }
+  return url;
+}
 
-  // For some image providers, we may be able to use a more appropriate image,
-  // e.g. a smaller one
-  function getImageUrl(url: string): string {
-    if (
-      url.includes('static.inaturalist.org')
-      || url.includes('inaturalist-open-data.s3.amazonaws.com')
-    ) {
-      return url.replace(/\/(square|small|medium|large|original)/, '/medium');
-    }
-    return url;
-  }
-
-  onMount(() => {
-    if (imageUrl) {
-      // Lazy load the image, i.e. only when on screen
-      const observer = new IntersectionObserver((entries) => {
+onMount(() => {
+  if (imageUrl) {
+    // Lazy load the image, i.e. only when on screen
+    const observer = new IntersectionObserver(
+      (entries) => {
         for (const entry of entries) {
           if (entry.isIntersecting) {
             observer.disconnect();
@@ -51,7 +51,9 @@
               if (isLocalPath(imageUrl)) {
                 // Get the cached photo path from Tauri
                 try {
-                  const cachedPath = await invoke<string>('get_photo', { photoPath: imageUrl });
+                  const cachedPath = await invoke<string>('get_photo', {
+                    photoPath: imageUrl,
+                  });
                   mediumSrc = convertFileSrc(cachedPath);
                 } catch (error) {
                   console.error('Failed to load local photo:', imageUrl, error);
@@ -72,17 +74,19 @@
             break;
           }
         }
-      }, {
-        rootMargin: '100%'
-      });
+      },
+      {
+        rootMargin: '100%',
+      },
+    );
 
-      observer.observe(containerElement);
+    observer.observe(containerElement);
 
-      return () => {
-        observer.disconnect();
-      };
-    }
-  });
+    return () => {
+      observer.disconnect();
+    };
+  }
+});
 </script>
 
 <div bind:this={containerElement}>

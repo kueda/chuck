@@ -1,339 +1,358 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { getCurrentWindow, invoke, listen, showSaveDialog } from '$lib/tauri-api';
-  import InatProgressOverlay from '$lib/components/InatProgressOverlay.svelte';
-  import { ExternalLink } from 'lucide-svelte';
-  import { formatETR } from './format-etr';
-  import ExtensionCheckbox from './ExtensionCheckbox.svelte';
+import { ExternalLink } from 'lucide-svelte';
+import { onMount } from 'svelte';
+import InatProgressOverlay from '$lib/components/InatProgressOverlay.svelte';
+import {
+  getCurrentWindow,
+  invoke,
+  listen,
+  showSaveDialog,
+} from '$lib/tauri-api';
+import ExtensionCheckbox from './ExtensionCheckbox.svelte';
+import { formatETR } from './format-etr';
 
-  let taxonId = $state<string>('');
-  let placeId = $state<string>('');
-  let user = $state<string>('');
-  let observedDateRange = $state<'all' | 'custom'>('all');
-  // This awkwardness is brought to you by Safari not actually showing a blank
-  // date input when the input value is blank. Instead it shows you the
-  // current date as a placeholder, but the input has no value until you
-  // choose a date with the UI or manually fill out *all* three date parts.
-  // So: better to set it to an actual date by default then mislead the user
-  // into thinking a date is chosen when it isn't
-  let observedD1 = $state<string >('2000-01-01');
-  let observedD2 = $state<string>((new Date()).toDateString());
-  let createdDateRange = $state<'all' | 'custom'>('all');
-  let createdD1 = $state<string >('2000-01-01');
-  let createdD2 = $state<string>((new Date()).toDateString());
-  let fetchPhotos = $state<boolean>(false);
-  let includeSimpleMultimedia = $state<boolean>(true);
-  let includeAudiovisual = $state<boolean>(false);
-  let includeIdentifications = $state<boolean>(false);
+interface InatProgress {
+  stage: 'fetching' | 'downloadingPhotos' | 'building' | 'complete' | 'error';
+  current?: number;
+  total?: number;
+  message?: string;
+}
 
-  let observationCount = $state<number | null>(null);
-  let countLoading = $state<boolean>(false);
-  let countError = $state<string | null>(null);
+let taxonId = $state<string>('');
+let placeId = $state<string>('');
+let user = $state<string>('');
+let observedDateRange = $state<'all' | 'custom'>('all');
+// This awkwardness is brought to you by Safari not actually showing a blank
+// date input when the input value is blank. Instead it shows you the
+// current date as a placeholder, but the input has no value until you
+// choose a date with the UI or manually fill out *all* three date parts.
+// So: better to set it to an actual date by default then mislead the user
+// into thinking a date is chosen when it isn't
+let observedD1 = $state<string>('2000-01-01');
+let observedD2 = $state<string>(new Date().toDateString());
+let createdDateRange = $state<'all' | 'custom'>('all');
+let createdD1 = $state<string>('2000-01-01');
+let createdD2 = $state<string>(new Date().toDateString());
+let fetchPhotos = $state<boolean>(false);
+let includeSimpleMultimedia = $state<boolean>(true);
+let includeAudiovisual = $state<boolean>(false);
+let includeIdentifications = $state<boolean>(false);
 
-  // Auth state
-  interface AuthStatus {
-    authenticated: boolean;
-    username: string | null;
+let observationCount = $state<number | null>(null);
+let countLoading = $state<boolean>(false);
+let countError = $state<string | null>(null);
+
+// Auth state
+interface AuthStatus {
+  authenticated: boolean;
+  username: string | null;
+}
+
+let authStatus = $state<AuthStatus>({ authenticated: false, username: null });
+let authLoading = $state<boolean>(false);
+
+// Progress state
+let showProgress = $state<boolean>(false);
+let progressStage = $state<'active' | 'building' | 'complete' | 'error'>(
+  'active',
+);
+let observationsCurrent = $state<number | undefined>(undefined);
+let observationsTotal = $state<number | undefined>(undefined);
+let photosCurrent = $state<number | undefined>(undefined);
+let photosTotal = $state<number | undefined>(undefined);
+let progressMessage = $state<string | undefined>(undefined);
+
+// ETR state
+let downloadStartTime = $state<number | null>(null);
+let lastETRUpdateTime = $state<number>(0);
+let estimatedSecondsRemaining = $state<number | null>(null);
+const ETR_UPDATE_INTERVAL_MS = 2000; // Update display every 2 seconds
+
+// Success dialog state
+let showSuccessDialog = $state<boolean>(false);
+let completedArchivePath = $state<string | null>(null);
+
+async function loadAuthStatus() {
+  try {
+    authStatus = await invoke<AuthStatus>('inat_get_auth_status');
+  } catch (e) {
+    console.error('Failed to load auth status:', e);
+  }
+}
+
+async function handleSignIn() {
+  authLoading = true;
+  try {
+    authStatus = await invoke<AuthStatus>('inat_authenticate');
+  } catch (e) {
+    console.error('Authentication failed:', e);
+    alert(`Authentication failed: ${e}`);
+  } finally {
+    authLoading = false;
+  }
+}
+
+async function handleSignOut() {
+  authLoading = true;
+  try {
+    await invoke('inat_sign_out');
+    authStatus = { authenticated: false, username: null };
+  } catch (e) {
+    console.error('Sign out failed:', e);
+    alert(`Sign out failed: ${e}`);
+  } finally {
+    authLoading = false;
+  }
+}
+
+function updateETR() {
+  // Only update display every 2 seconds
+  const now = Date.now();
+  if (now - lastETRUpdateTime < ETR_UPDATE_INTERVAL_MS) {
+    return;
   }
 
-  let authStatus = $state<AuthStatus>({ authenticated: false, username: null });
-  let authLoading = $state<boolean>(false);
-
-  // Progress state
-  let showProgress = $state<boolean>(false);
-  let progressStage = $state<'active' | 'building' | 'complete' | 'error'>('active');
-  let observationsCurrent = $state<number | undefined>(undefined);
-  let observationsTotal = $state<number | undefined>(undefined);
-  let photosCurrent = $state<number | undefined>(undefined);
-  let photosTotal = $state<number | undefined>(undefined);
-  let progressMessage = $state<string | undefined>(undefined);
-
-  // ETR state
-  let downloadStartTime = $state<number | null>(null);
-  let lastETRUpdateTime = $state<number>(0);
-  let estimatedSecondsRemaining = $state<number | null>(null);
-  const ETR_UPDATE_INTERVAL_MS = 2000; // Update display every 2 seconds
-
-  // Success dialog state
-  let showSuccessDialog = $state<boolean>(false);
-  let completedArchivePath = $state<string | null>(null);
-
-  async function loadAuthStatus() {
-    try {
-      authStatus = await invoke<AuthStatus>('inat_get_auth_status');
-    } catch (e) {
-      console.error('Failed to load auth status:', e);
-    }
+  if (!downloadStartTime) {
+    downloadStartTime = now;
+    estimatedSecondsRemaining = null;
+    return;
   }
 
-  async function handleSignIn() {
-    authLoading = true;
-    try {
-      authStatus = await invoke<AuthStatus>('inat_authenticate');
-    } catch (e) {
-      console.error('Authentication failed:', e);
-      alert(`Authentication failed: ${e}`);
-    } finally {
-      authLoading = false;
-    }
+  const elapsedSeconds = (now - downloadStartTime) / 1000;
+  const itemsDownloaded = (observationsCurrent || 0) + (photosCurrent || 0);
+  const totalItems = (observationsTotal || 0) + (photosTotal || 0);
+
+  // Need some progress to estimate
+  if (itemsDownloaded === 0 || totalItems === 0 || elapsedSeconds < 1) {
+    estimatedSecondsRemaining = null;
+    return;
   }
 
-  async function handleSignOut() {
-    authLoading = true;
-    try {
-      await invoke('inat_sign_out');
-      authStatus = { authenticated: false, username: null };
-    } catch (e) {
-      console.error('Sign out failed:', e);
-      alert(`Sign out failed: ${e}`);
-    } finally {
-      authLoading = false;
-    }
+  const rate = itemsDownloaded / elapsedSeconds;
+  const remainingItems = totalItems - itemsDownloaded;
+
+  // Avoid showing ETR if rate is too slow (might indicate stall)
+  if (rate < 0.1) {
+    // Less than 1 item per 10 seconds
+    estimatedSecondsRemaining = null;
+    return;
   }
 
-  function updateETR() {
-    // Only update display every 2 seconds
-    const now = Date.now();
-    if (now - lastETRUpdateTime < ETR_UPDATE_INTERVAL_MS) {
+  estimatedSecondsRemaining = remainingItems / rate;
+  lastETRUpdateTime = now;
+}
+
+function handleTaxonIdInput(e: Event) {
+  const target = e.target as HTMLInputElement;
+  taxonId = target.value;
+}
+
+function handlePlaceIdInput(e: Event) {
+  const target = e.target as HTMLInputElement;
+  placeId = target.value;
+}
+
+// Debounce timer
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+const DEBOUNCE_MS = 500;
+
+async function fetchCount() {
+  countLoading = true;
+  countError = null;
+
+  try {
+    // Validate inputs
+    if (taxonId && !/^\d+$/.test(taxonId)) {
+      countError = 'Taxon ID must be an integer';
+      countLoading = false;
       return;
     }
 
-    if (!downloadStartTime) {
-      downloadStartTime = now;
-      estimatedSecondsRemaining = null;
+    if (placeId && !/^\d+$/.test(placeId)) {
+      countError = 'Place ID must be an integer';
+      countLoading = false;
       return;
     }
 
-    const elapsedSeconds = (now - downloadStartTime) / 1000;
-    const itemsDownloaded = (observationsCurrent || 0) + (photosCurrent || 0);
-    const totalItems = (observationsTotal || 0) + (photosTotal || 0);
+    const params = {
+      taxon_id: taxonId ? parseInt(taxonId, 10) : null,
+      place_id: placeId ? parseInt(placeId, 10) : null,
+      user: user || null,
+      d1: observedDateRange === 'custom' && observedD1 ? observedD1 : null,
+      d2: observedDateRange === 'custom' && observedD2 ? observedD2 : null,
+      created_d1: createdDateRange === 'custom' && createdD1 ? createdD1 : null,
+      created_d2: createdDateRange === 'custom' && createdD2 ? createdD2 : null,
+    };
 
-    // Need some progress to estimate
-    if (itemsDownloaded === 0 || totalItems === 0 || elapsedSeconds < 1) {
-      estimatedSecondsRemaining = null;
-      return;
-    }
+    const count = await invoke<number>('get_observation_count', { params });
+    observationCount = count;
+  } catch (e) {
+    console.error('Failed to fetch count:', e);
+    countError = 'Unable to load observation count';
+    observationCount = null;
+  } finally {
+    countLoading = false;
+  }
+}
 
-    const rate = itemsDownloaded / elapsedSeconds;
-    const remainingItems = totalItems - itemsDownloaded;
-
-    // Avoid showing ETR if rate is too slow (might indicate stall)
-    if (rate < 0.1) { // Less than 1 item per 10 seconds
-      estimatedSecondsRemaining = null;
-      return;
-    }
-
-    estimatedSecondsRemaining = remainingItems / rate;
-    lastETRUpdateTime = now;
+function scheduleFetchCount() {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
   }
 
-  function handleTaxonIdInput(e: Event) {
-    const target = e.target as HTMLInputElement;
-    taxonId = target.value;
+  debounceTimer = setTimeout(() => {
+    fetchCount();
+  }, DEBOUNCE_MS);
+}
+
+async function handleDownload() {
+  // Open file picker
+  const filePath = await showSaveDialog({
+    defaultPath: 'observations.zip',
+    filters: [
+      {
+        name: 'Darwin Core Archive',
+        extensions: ['zip'],
+      },
+    ],
+  });
+
+  if (!filePath) {
+    return; // User cancelled
   }
 
-  function handlePlaceIdInput(e: Event) {
-    const target = e.target as HTMLInputElement;
-    placeId = target.value;
-  }
+  // Store path for later (showSaveDialog returns string or string[], but we only expect string for save)
+  completedArchivePath = Array.isArray(filePath) ? filePath[0] : filePath;
 
-  // Debounce timer
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  const DEBOUNCE_MS = 500;
+  // Show progress overlay
+  showProgress = true;
+  progressStage = 'building';
+  progressMessage = 'Starting...';
 
-  async function fetchCount() {
-    countLoading = true;
-    countError = null;
+  // Reset ETR state
+  downloadStartTime = null;
+  lastETRUpdateTime = 0;
+  estimatedSecondsRemaining = null;
 
-    try {
-      // Validate inputs
-      if (taxonId && !/^\d+$/.test(taxonId)) {
-        countError = 'Taxon ID must be an integer';
-        countLoading = false;
-        return;
-      }
+  try {
+    // Build extensions array
+    const extensions: string[] = [];
+    if (includeSimpleMultimedia) extensions.push('SimpleMultimedia');
+    if (includeAudiovisual) extensions.push('Audiovisual');
+    if (includeIdentifications) extensions.push('Identifications');
 
-      if (placeId && !/^\d+$/.test(placeId)) {
-        countError = 'Place ID must be an integer';
-        countLoading = false;
-        return;
-      }
-
-      const params = {
-        taxon_id: taxonId ? parseInt(taxonId) : null,
-        place_id: placeId ? parseInt(placeId) : null,
+    // Call generate command
+    await invoke('generate_inat_archive', {
+      params: {
+        output_path: filePath,
+        taxon_id: taxonId ? parseInt(taxonId, 10) : null,
+        place_id: placeId ? parseInt(placeId, 10) : null,
         user: user || null,
         d1: observedDateRange === 'custom' && observedD1 ? observedD1 : null,
         d2: observedDateRange === 'custom' && observedD2 ? observedD2 : null,
-        created_d1: createdDateRange === 'custom' && createdD1 ? createdD1 : null,
-        created_d2: createdDateRange === 'custom' && createdD2 ? createdD2 : null,
-      };
-
-      const count = await invoke<number>('get_observation_count', { params });
-      observationCount = count;
-    } catch (e) {
-      console.error('Failed to fetch count:', e);
-      countError = 'Unable to load observation count';
-      observationCount = null;
-    } finally {
-      countLoading = false;
-    }
-  }
-
-  function scheduleFetchCount() {
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-    }
-
-    debounceTimer = setTimeout(() => {
-      fetchCount();
-    }, DEBOUNCE_MS);
-  }
-
-  async function handleDownload() {
-    // Open file picker
-    const filePath = await showSaveDialog({
-      defaultPath: 'observations.zip',
-      filters: [{
-        name: 'Darwin Core Archive',
-        extensions: ['zip']
-      }]
+        created_d1:
+          createdDateRange === 'custom' && createdD1 ? createdD1 : null,
+        created_d2:
+          createdDateRange === 'custom' && createdD2 ? createdD2 : null,
+        fetch_photos: fetchPhotos,
+        extensions,
+      },
     });
 
-    if (!filePath) {
-      return; // User cancelled
-    }
-
-    // Store path for later (showSaveDialog returns string or string[], but we only expect string for save)
-    completedArchivePath = Array.isArray(filePath) ? filePath[0] : filePath;
-
-    // Show progress overlay
-    showProgress = true;
-    progressStage = 'building';
-    progressMessage = 'Starting...';
-
-    // Reset ETR state
-    downloadStartTime = null;
-    lastETRUpdateTime = 0;
-    estimatedSecondsRemaining = null;
-
-    try {
-      // Build extensions array
-      const extensions: string[] = [];
-      if (includeSimpleMultimedia) extensions.push('SimpleMultimedia');
-      if (includeAudiovisual) extensions.push('Audiovisual');
-      if (includeIdentifications) extensions.push('Identifications');
-
-      // Call generate command
-      await invoke('generate_inat_archive', {
-        params: {
-          output_path: filePath,
-          taxon_id: taxonId ? parseInt(taxonId) : null,
-          place_id: placeId ? parseInt(placeId) : null,
-          user: user || null,
-          d1: observedDateRange === 'custom' && observedD1 ? observedD1 : null,
-          d2: observedDateRange === 'custom' && observedD2 ? observedD2 : null,
-          created_d1: createdDateRange === 'custom' && createdD1 ? createdD1 : null,
-          created_d2: createdDateRange === 'custom' && createdD2 ? createdD2 : null,
-          fetch_photos: fetchPhotos,
-          extensions,
-        }
-      });
-
-      // Success handled by progress event listener
-    } catch (e) {
-      console.error('Failed to generate archive:', e);
-      progressStage = 'error';
-      progressMessage = e instanceof Error ? e.message : String(e);
-    }
+    // Success handled by progress event listener
+  } catch (e) {
+    console.error('Failed to generate archive:', e);
+    progressStage = 'error';
+    progressMessage = e instanceof Error ? e.message : String(e);
   }
+}
 
-  function handleCancelDownload() {
-    invoke('cancel_inat_archive').catch(e => {
-      console.error('Failed to cancel:', e);
-    });
-    showProgress = false;
-  }
+function handleCancelDownload() {
+  invoke('cancel_inat_archive').catch((e) => {
+    console.error('Failed to cancel:', e);
+  });
+  showProgress = false;
+}
 
-  async function handleOpenInChuck() {
-    if (!completedArchivePath) return;
+async function handleOpenInChuck() {
+  if (!completedArchivePath) return;
 
-    try {
-      await invoke('open_archive', { path: completedArchivePath });
-      showSuccessDialog = false;
-
-      // Close the download window
-      getCurrentWindow().close();
-    } catch (e) {
-      console.error('Failed to open archive:', e);
-      alert(`Failed to open archive: ${e}`);
-    }
-  }
-
-  function handleCloseDialog() {
+  try {
+    await invoke('open_archive', { path: completedArchivePath });
     showSuccessDialog = false;
+
+    // Close the download window
+    getCurrentWindow().close();
+  } catch (e) {
+    console.error('Failed to open archive:', e);
+    alert(`Failed to open archive: ${e}`);
   }
+}
 
-  onMount(() => {
-    // Load auth status
-    loadAuthStatus();
+function handleCloseDialog() {
+  showSuccessDialog = false;
+}
 
-    // Listen for progress events
-    const unlistenProgress = listen<any>('inat-progress', (event) => {
-      const progress = event.payload;
+onMount(() => {
+  // Load auth status
+  loadAuthStatus();
 
-      if (progress.stage === 'fetching') {
-        progressStage = 'active';
-        observationsCurrent = progress.current;
-        observationsTotal = progress.total;
-        updateETR();
-      } else if (progress.stage === 'downloadingPhotos') {
-        progressStage = 'active';
-        photosCurrent = progress.current;
-        photosTotal = progress.total;
-        updateETR();
-      } else if (progress.stage === 'building') {
-        progressStage = 'building';
-        progressMessage = progress.message;
-      } else if (progress.stage === 'complete') {
-        progressStage = 'complete';
-        progressMessage = 'Archive created successfully!';
+  // Listen for progress events
+  const unlistenProgress = listen<InatProgress>('inat-progress', (event) => {
+    const progress = event.payload;
 
-        setTimeout(() => {
-          showProgress = false;
-          showSuccessDialog = true;
-        }, 1000);
-      } else if (progress.stage === 'error') {
-        progressStage = 'error';
-        progressMessage = progress.message;
-      }
-    });
+    if (progress.stage === 'fetching') {
+      progressStage = 'active';
+      observationsCurrent = progress.current;
+      observationsTotal = progress.total;
+      updateETR();
+    } else if (progress.stage === 'downloadingPhotos') {
+      progressStage = 'active';
+      photosCurrent = progress.current;
+      photosTotal = progress.total;
+      updateETR();
+    } else if (progress.stage === 'building') {
+      progressStage = 'building';
+      progressMessage = progress.message;
+    } else if (progress.stage === 'complete') {
+      progressStage = 'complete';
+      progressMessage = 'Archive created successfully!';
 
-    return () => {
-      unlistenProgress.then(fn => fn());
-    };
+      setTimeout(() => {
+        showProgress = false;
+        showSuccessDialog = true;
+      }, 1000);
+    } else if (progress.stage === 'error') {
+      progressStage = 'error';
+      progressMessage = progress.message;
+    }
   });
 
-  // Trigger count fetch when filters change
-  $effect(() => {
-    // Track dependencies
-    const deps = [
-      taxonId,
-      placeId,
-      user,
-      observedDateRange,
-      observedD1,
-      observedD2,
-      createdDateRange,
-      createdD1,
-      createdD2,
-    ];
+  return () => {
+    unlistenProgress.then((fn) => fn());
+  };
+});
 
-    // Clear previous count while debouncing
-    observationCount = null;
+// Trigger count fetch when filters change
+$effect(() => {
+  // Track dependencies
+  const deps = [
+    taxonId,
+    placeId,
+    user,
+    observedDateRange,
+    observedD1,
+    observedD2,
+    createdDateRange,
+    createdD1,
+    createdD2,
+  ];
 
-    scheduleFetchCount();
-  });
+  // Clear previous count while debouncing
+  observationCount = null;
+
+  scheduleFetchCount();
+});
 </script>
 
 <div class="p-6 max-w-2xl mx-auto">

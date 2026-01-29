@@ -47,6 +47,14 @@ export interface EMLAdditionalMetadata {
   physical?: EMLPhysical;
 }
 
+export interface EMLGeographicalCoverage {
+  description?: string;
+  north?: number;
+  south?: number;
+  east?: number;
+  west?: number;
+}
+
 export interface EMLData {
   title?: string;
   creators: EMLParty[];
@@ -56,13 +64,7 @@ export interface EMLData {
   language?: string;
   pubDate?: string;
   keywords?: string[];
-  geographicCoverage?: {
-    description?: string;
-    north?: number;
-    south?: number;
-    east?: number;
-    west?: number;
-  };
+  geographicCoverage?: EMLGeographicalCoverage;
   additionalMetadata?: EMLAdditionalMetadata;
 }
 
@@ -101,18 +103,20 @@ function parseParty(partyEl: Element): EMLParty | null {
   const individualNameEl = partyEl.querySelector('individualName');
   if (individualNameEl) {
     const salutations: string[] = [];
-    individualNameEl.querySelectorAll('salutation').forEach(el => {
+    individualNameEl.querySelectorAll('salutation').forEach((el) => {
       const text = el.textContent?.trim();
       if (text) salutations.push(text);
     });
 
     const givenNames: string[] = [];
-    individualNameEl.querySelectorAll('givenName').forEach(el => {
+    individualNameEl.querySelectorAll('givenName').forEach((el) => {
       const text = el.textContent?.trim();
       if (text) givenNames.push(text);
     });
 
-    const surName = individualNameEl.querySelector('surName')?.textContent?.trim();
+    const surName = individualNameEl
+      .querySelector('surName')
+      ?.textContent?.trim();
 
     if (surName) {
       individualName = {
@@ -124,16 +128,20 @@ function parseParty(partyEl: Element): EMLParty | null {
   }
 
   // Extract organizationName
-  const organizationName = partyEl.querySelector('organizationName')?.textContent?.trim();
+  const organizationName = partyEl
+    .querySelector('organizationName')
+    ?.textContent?.trim();
 
   // Extract positionName
-  const positionName = partyEl.querySelector('positionName')?.textContent?.trim();
+  const positionName = partyEl
+    .querySelector('positionName')
+    ?.textContent?.trim();
 
   // Extract addresses
   const addresses: EMLAddress[] = [];
-  partyEl.querySelectorAll('address').forEach(addressEl => {
+  partyEl.querySelectorAll('address').forEach((addressEl) => {
     const deliveryPoints: string[] = [];
-    addressEl.querySelectorAll('deliveryPoint').forEach(el => {
+    addressEl.querySelectorAll('deliveryPoint').forEach((el) => {
       const text = el.textContent?.trim();
       if (text) deliveryPoints.push(text);
     });
@@ -141,7 +149,9 @@ function parseParty(partyEl: Element): EMLParty | null {
     const address: EMLAddress = {
       deliveryPoint: deliveryPoints.length > 0 ? deliveryPoints : undefined,
       city: addressEl.querySelector('city')?.textContent?.trim(),
-      administrativeArea: addressEl.querySelector('administrativeArea')?.textContent?.trim(),
+      administrativeArea: addressEl
+        .querySelector('administrativeArea')
+        ?.textContent?.trim(),
       postalCode: addressEl.querySelector('postalCode')?.textContent?.trim(),
       country: addressEl.querySelector('country')?.textContent?.trim(),
     };
@@ -151,28 +161,28 @@ function parseParty(partyEl: Element): EMLParty | null {
 
   // Extract phones
   const phones: string[] = [];
-  partyEl.querySelectorAll('phone').forEach(el => {
+  partyEl.querySelectorAll('phone').forEach((el) => {
     const text = el.textContent?.trim();
     if (text) phones.push(text);
   });
 
   // Extract emails
   const emails: string[] = [];
-  partyEl.querySelectorAll('electronicMailAddress').forEach(el => {
+  partyEl.querySelectorAll('electronicMailAddress').forEach((el) => {
     const text = el.textContent?.trim();
     if (text) emails.push(text);
   });
 
   // Extract URLs
   const urls: string[] = [];
-  partyEl.querySelectorAll('onlineUrl').forEach(el => {
+  partyEl.querySelectorAll('onlineUrl').forEach((el) => {
     const text = el.textContent?.trim();
     if (text) urls.push(text);
   });
 
   // Extract userIds
   const userIds: Array<{ value: string; directory: string }> = [];
-  partyEl.querySelectorAll('userId').forEach(el => {
+  partyEl.querySelectorAll('userId').forEach((el) => {
     const value = el.textContent?.trim();
     const directory = el.getAttribute('directory');
     if (value && directory) {
@@ -289,42 +299,72 @@ export function parseEML(xml: string): EMLData | null {
     });
 
     // Extract geographic coverage
-    let geographicCoverage;
+    let geographicCoverage: EMLGeographicalCoverage | undefined;
     const geoCoverage = dataset.querySelector('coverage geographicCoverage');
     if (geoCoverage) {
-      const description = geoCoverage.querySelector('geographicDescription')?.textContent?.trim();
-      const north = parseFloat(geoCoverage.querySelector('northBoundingCoordinate')?.textContent || '');
-      const south = parseFloat(geoCoverage.querySelector('southBoundingCoordinate')?.textContent || '');
-      const east = parseFloat(geoCoverage.querySelector('eastBoundingCoordinate')?.textContent || '');
-      const west = parseFloat(geoCoverage.querySelector('westBoundingCoordinate')?.textContent || '');
+      const description = geoCoverage
+        .querySelector('geographicDescription')
+        ?.textContent?.trim();
+      const north = parseFloat(
+        geoCoverage.querySelector('northBoundingCoordinate')?.textContent || '',
+      );
+      const south = parseFloat(
+        geoCoverage.querySelector('southBoundingCoordinate')?.textContent || '',
+      );
+      const east = parseFloat(
+        geoCoverage.querySelector('eastBoundingCoordinate')?.textContent || '',
+      );
+      const west = parseFloat(
+        geoCoverage.querySelector('westBoundingCoordinate')?.textContent || '',
+      );
 
       geographicCoverage = {
         description: description || undefined,
-        north: !isNaN(north) ? north : undefined,
-        south: !isNaN(south) ? south : undefined,
-        east: !isNaN(east) ? east : undefined,
-        west: !isNaN(west) ? west : undefined,
+        north: !Number.isNaN(north) ? north : undefined,
+        south: !Number.isNaN(south) ? south : undefined,
+        east: !Number.isNaN(east) ? east : undefined,
+        west: !Number.isNaN(west) ? west : undefined,
       };
     }
 
     // Extract additionalMetadata (outside dataset element)
-    let additionalMetadata;
-    const additionalMetadataEl = doc.querySelector('additionalMetadata metadata gbif');
+    let additionalMetadata: EMLAdditionalMetadata | undefined;
+    const additionalMetadataEl = doc.querySelector(
+      'additionalMetadata metadata gbif',
+    );
     if (additionalMetadataEl) {
-      const dateStamp = additionalMetadataEl.querySelector('dateStamp')?.textContent?.trim();
-      const hierarchyLevel = additionalMetadataEl.querySelector('hierarchyLevel')?.textContent?.trim();
-      const citation = additionalMetadataEl.querySelector('citation')?.textContent?.trim();
-      const resourceLogoUrl = additionalMetadataEl.querySelector('resourceLogoUrl')?.textContent?.trim();
-      const livingTimePeriod = additionalMetadataEl.querySelector('livingTimePeriod')?.textContent?.trim();
+      const dateStamp = additionalMetadataEl
+        .querySelector('dateStamp')
+        ?.textContent?.trim();
+      const hierarchyLevel = additionalMetadataEl
+        .querySelector('hierarchyLevel')
+        ?.textContent?.trim();
+      const citation = additionalMetadataEl
+        .querySelector('citation')
+        ?.textContent?.trim();
+      const resourceLogoUrl = additionalMetadataEl
+        .querySelector('resourceLogoUrl')
+        ?.textContent?.trim();
+      const livingTimePeriod = additionalMetadataEl
+        .querySelector('livingTimePeriod')
+        ?.textContent?.trim();
 
       // Extract physical and distribution
-      let physical;
+      let physical: EMLPhysical | undefined;
       const physicalEl = additionalMetadataEl.querySelector('physical');
       if (physicalEl) {
-        const objectName = physicalEl.querySelector('objectName')?.textContent?.trim();
-        const characterEncoding = physicalEl.querySelector('characterEncoding')?.textContent?.trim();
-        const formatName = physicalEl.querySelector('dataFormat externallyDefinedFormat formatName')?.textContent?.trim();
-        const distributionUrl = physicalEl.querySelector('distribution online url')?.textContent?.trim();
+        const objectName = physicalEl
+          .querySelector('objectName')
+          ?.textContent?.trim();
+        const characterEncoding = physicalEl
+          .querySelector('characterEncoding')
+          ?.textContent?.trim();
+        const formatName = physicalEl
+          .querySelector('dataFormat externallyDefinedFormat formatName')
+          ?.textContent?.trim();
+        const distributionUrl = physicalEl
+          .querySelector('distribution online url')
+          ?.textContent?.trim();
 
         if (objectName || characterEncoding || formatName || distributionUrl) {
           physical = {
@@ -336,7 +376,14 @@ export function parseEML(xml: string): EMLData | null {
         }
       }
 
-      if (dateStamp || hierarchyLevel || citation || resourceLogoUrl || livingTimePeriod || physical) {
+      if (
+        dateStamp ||
+        hierarchyLevel ||
+        citation ||
+        resourceLogoUrl ||
+        livingTimePeriod ||
+        physical
+      ) {
         additionalMetadata = {
           dateStamp: dateStamp || undefined,
           hierarchyLevel: hierarchyLevel || undefined,
@@ -351,7 +398,8 @@ export function parseEML(xml: string): EMLData | null {
     return {
       title: title || undefined,
       creators,
-      metadataProviders: metadataProviders.length > 0 ? metadataProviders : undefined,
+      metadataProviders:
+        metadataProviders.length > 0 ? metadataProviders : undefined,
       contact: contact.length > 0 ? contact : undefined,
       abstract: abstractParagraphs.length > 0 ? abstractParagraphs : undefined,
       language: language || undefined,
@@ -372,25 +420,25 @@ export function metaFieldsFromElements(fieldEls: NodeListOf<Element>) {
   // This weird approach probably isn't necessary but sometimes GBIF has
   // multiple sibling elements for the same term and different other
   // attributes
-  const defaults: any = {};
-  const vocabs: any = {};
-  fieldEls.forEach(field => {
+  const defaults: Record<string, string> = {};
+  const vocabs: Record<string, string> = {};
+  fieldEls.forEach((field) => {
     const term = field.getAttribute('term') || '';
     const defaultVal = field.getAttribute('default') || '';
     const vocabulary = field.getAttribute('vocabulary') || '';
     if (term && defaultVal) defaults[term] = defaultVal;
     if (term && vocabulary) vocabs[term] = vocabulary;
   });
-  fieldEls.forEach(field => {
-    const index = parseInt(field.getAttribute('index') || '');
+  fieldEls.forEach((field) => {
+    const index = parseInt(field.getAttribute('index') || '', 10);
     const term = field.getAttribute('term') || '';
-    if (!isNaN(index) && term) {
+    if (!Number.isNaN(index) && term) {
       fields.push({
         index,
         term,
-      default: defaults[term],
-      vocabulary: vocabs[term]
-    });
+        default: defaults[term],
+        vocabulary: vocabs[term],
+      });
     }
   });
   return fields;
@@ -421,14 +469,18 @@ export function parseMeta(xml: string): MetaData | null {
     }
 
     const rowType = extractTermName(coreEl.getAttribute('rowType') || '');
-    const location = coreEl.querySelector('location')?.textContent?.trim() || '';
-    const idIndex = parseInt(coreEl.querySelector('id')?.getAttribute('index') || '');
+    const location =
+      coreEl.querySelector('location')?.textContent?.trim() || '';
+    const idIndex = parseInt(
+      coreEl.querySelector('id')?.getAttribute('index') || '',
+      10,
+    );
     const fieldEls = coreEl.querySelectorAll('field');
 
     const core: MetaCore = {
       rowType,
       location,
-      idIndex: !isNaN(idIndex) ? idIndex : undefined,
+      idIndex: !Number.isNaN(idIndex) ? idIndex : undefined,
       fields: metaFieldsFromElements(fieldEls),
     };
 
@@ -437,14 +489,18 @@ export function parseMeta(xml: string): MetaData | null {
     const extensionEls = archive.querySelectorAll('extension');
     extensionEls.forEach((extEl) => {
       const rowType = extractTermName(extEl.getAttribute('rowType') || '');
-      const location = extEl.querySelector('location')?.textContent?.trim() || '';
-      const coreIdIndex = parseInt(extEl.querySelector('coreid')?.getAttribute('index') || '');
+      const location =
+        extEl.querySelector('location')?.textContent?.trim() || '';
+      const coreIdIndex = parseInt(
+        extEl.querySelector('coreid')?.getAttribute('index') || '',
+        10,
+      );
       const fieldEls = extEl.querySelectorAll('field');
 
       extensions.push({
         rowType,
         location,
-        coreIdIndex: !isNaN(coreIdIndex) ? coreIdIndex : undefined,
+        coreIdIndex: !Number.isNaN(coreIdIndex) ? coreIdIndex : undefined,
         fields: metaFieldsFromElements(fieldEls),
       });
     });
@@ -471,27 +527,30 @@ function extractTermName(uri: string): string {
 
 // Works fine except it doesn't indent attributes... which doesn't seem to be
 // something most 3rd parties support either.
-// 
+//
 // https://stackoverflow.com/a/47317538
 export function prettify(xml: string) {
   const xmlDoc = new DOMParser().parseFromString(xml, 'application/xml');
-  const xsltDoc = new DOMParser().parseFromString([
-    // describes how we want to modify the XML - indent everything
-    '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform">',
-    '  <xsl:strip-space elements="*"/>',
-    '  <xsl:template match="para[content-style][not(text())]">', // change to just text() to strip space in text nodes
-    '    <xsl:value-of select="normalize-space(.)"/>',
-    '  </xsl:template>',
-    '  <xsl:template match="node()|@*">',
-    '    <xsl:copy><xsl:apply-templates select="node()|@*"/></xsl:copy>',
-    '  </xsl:template>',
-    '  <xsl:output indent="yes"/>',
-    '</xsl:stylesheet>',
-  ].join('\n'), 'application/xml');
+  const xsltDoc = new DOMParser().parseFromString(
+    [
+      // describes how we want to modify the XML - indent everything
+      '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform">',
+      '  <xsl:strip-space elements="*"/>',
+      '  <xsl:template match="para[content-style][not(text())]">', // change to just text() to strip space in text nodes
+      '    <xsl:value-of select="normalize-space(.)"/>',
+      '  </xsl:template>',
+      '  <xsl:template match="node()|@*">',
+      '    <xsl:copy><xsl:apply-templates select="node()|@*"/></xsl:copy>',
+      '  </xsl:template>',
+      '  <xsl:output indent="yes"/>',
+      '</xsl:stylesheet>',
+    ].join('\n'),
+    'application/xml',
+  );
 
   const xsltProcessor = new XSLTProcessor();
   xsltProcessor.importStylesheet(xsltDoc);
   return new XMLSerializer().serializeToString(
-    xsltProcessor.transformToDocument(xmlDoc)
+    xsltProcessor.transformToDocument(xmlDoc),
   );
 }

@@ -4,164 +4,174 @@
 -->
 
 <script lang="ts">
-  import { createVirtualizer, type Virtualizer, type VirtualItem } from '@tanstack/svelte-virtual';
-  import { untrack } from 'svelte';
-  import { get } from 'svelte/store';
-  import type { Snippet } from 'svelte';
+import {
+  createVirtualizer,
+  type VirtualItem,
+  type Virtualizer,
+} from '@tanstack/svelte-virtual';
+import type { Snippet } from 'svelte';
+import { untrack } from 'svelte';
+import { get } from 'svelte/store';
 
-  export interface VirtualListData {
-    virtualItems: VirtualItem[];
-    totalSize: number;
-    offsetY: number;
-    scrollToIndex?: (index: number, options?: { align?: 'start' | 'center' | 'end' | 'auto' }) => void;
-    _key?: number;
+export interface VirtualListData {
+  virtualItems: VirtualItem[];
+  totalSize: number;
+  offsetY: number;
+  scrollToIndex?: (
+    index: number,
+    options?: { align?: 'start' | 'center' | 'end' | 'auto' },
+  ) => void;
+  _key?: number;
+}
+
+export interface Props {
+  count: number;
+  scrollElement: Element | undefined;
+  estimateSize: number;
+  lanes: number;
+  onVisibleRangeChange?: (range: {
+    firstIndex: number;
+    lastIndex: number;
+    scrollOffsetIndex: number | undefined;
+  }) => void;
+  scrollState?: { targetIndex: number; shouldScroll: boolean };
+  children: Snippet<[VirtualListData]>;
+}
+
+const {
+  count,
+  scrollElement,
+  estimateSize,
+  lanes,
+  onVisibleRangeChange,
+  scrollState,
+  children,
+}: Props = $props();
+
+// Note: virtualizer is a store from TanStack Virtual, not wrapped in $state
+// to avoid infinite loops. Use initialized flag for initial render trigger.
+// Using type assertion (as) instead of type annotation (:) because when Svelte's
+// template compiler sees $virtualizer, it needs to unwrap the store type. With a
+// strict type annotation, TypeScript's inference fails and resolves to 'never'.
+// Type assertion allows TypeScript to infer the unwrapped type correctly.
+//
+// svelte-ignore non_reactive_update
+let virtualizer = null as ReturnType<
+  typeof createVirtualizer<Element, Element>
+> | null;
+
+// We set up the virtualizer once at startup in an effect which we never
+// want to run again
+let initialized = $state(false);
+
+// Due to mysterious mysteries, recreating the virtualizer doesn't always
+// result in the heights set by virtualRow.size getting reset when the
+// virtualized items render which causes problems when toggling between
+// views where items have different heights... even though the virtualizer
+// gets trashed and recreated and so does the DOM. I don't understand why,
+// but using this key to wrap the relevant parts of the DOM fixes it.
+let virtualizerVersion = $state(0);
+
+// Performance optimization: cache scrollOffsetIndex and only recalculate
+// when scroll position changes significantly, i.e. more than the height of
+// a virtualized item
+let lastScrollOffsetIndex: number | undefined;
+let lastCalculatedScrollTop = 0;
+let lastReportedFirstIndex = -1;
+let lastReportedLastIndex = -1;
+
+function handleChange(instance: Virtualizer<Element, Element>) {
+  if (!onVisibleRangeChange) return;
+
+  const items = instance.getVirtualItems();
+  if (items.length === 0) return;
+
+  const firstIndex = items[0].index;
+  const lastIndex = items[items.length - 1].index;
+
+  // Only calculate scrollOffsetIndex if scroll position changed significantly
+  // Skip calculation entirely if at scroll position 0 (initial render)
+  let scrollOffsetIndex = lastScrollOffsetIndex;
+  const currentScrollTop = instance.scrollOffset || 0;
+
+  if (
+    // Don't need to preserve scroll position if we're at the top
+    currentScrollTop > 0 &&
+    // Don't need to preserve scroll position if we haven't scrolled more
+    // than the height of an item
+    Math.abs(currentScrollTop - lastCalculatedScrollTop) > estimateSize
+  ) {
+    const rowHeight = items[0].size;
+    const scrollOffsetRows = Math.floor(currentScrollTop / rowHeight);
+    scrollOffsetIndex = scrollOffsetRows * lanes;
+    lastScrollOffsetIndex = scrollOffsetIndex;
+    lastCalculatedScrollTop = currentScrollTop;
   }
 
-  export interface Props {
-    count: number;
-    scrollElement: Element | undefined;
-    estimateSize: number;
-    lanes: number;
-    onVisibleRangeChange?: (
-      range: {
-        firstIndex: number,
-        lastIndex: number,
-        scrollOffsetIndex: number | undefined
-      }
-    ) => void;
-    scrollState?: { targetIndex: number; shouldScroll: boolean };
-    children: Snippet<[VirtualListData]>;
+  // Only call callback if range actually changed
+  if (
+    firstIndex !== lastReportedFirstIndex ||
+    lastIndex !== lastReportedLastIndex
+  ) {
+    lastReportedFirstIndex = firstIndex;
+    lastReportedLastIndex = lastIndex;
+    onVisibleRangeChange({ firstIndex, lastIndex, scrollOffsetIndex });
   }
+}
 
-  let {
+// Wrapper for the Tanstack Virtualizer function so we can pass it down to children
+function scrollToIndex(
+  index: number,
+  options?: { align?: 'start' | 'center' | 'end' | 'auto' },
+) {
+  if (!virtualizer) return;
+  const instance = get(virtualizer);
+  if (instance?.scrollToIndex) {
+    instance.scrollToIndex(index, options);
+  }
+}
+
+// Initialize virtualizer when dependencies change
+// Recreate the virtualizer when count, lanes, or estimateSize change
+$effect(() => {
+  if (!scrollElement) return;
+
+  // Capture current scroll position before recreating virtualizer
+  const currentScrollOffset = scrollElement.scrollTop;
+
+  virtualizer = createVirtualizer({
     count,
-    scrollElement,
-    estimateSize,
+    getScrollElement: () => scrollElement ?? null,
+    estimateSize: () => estimateSize,
+    overscan: 50,
     lanes,
-    onVisibleRangeChange,
-    scrollState,
-    children
-  }: Props = $props();
-
-  // Note: virtualizer is a store from TanStack Virtual, not wrapped in $state
-  // to avoid infinite loops. Use initialized flag for initial render trigger.
-  // Using type assertion (as) instead of type annotation (:) because when Svelte's
-  // template compiler sees $virtualizer, it needs to unwrap the store type. With a
-  // strict type annotation, TypeScript's inference fails and resolves to 'never'.
-  // Type assertion allows TypeScript to infer the unwrapped type correctly.
-  //
-  // svelte-ignore non_reactive_update
-  let virtualizer = null as ReturnType<typeof createVirtualizer<Element, Element>> | null;
-
-  // We set up the virtualizer once at startup in an effect which we never
-  // want to run again
-  let initialized = $state(false);
-
-  // Due to mysterious mysteries, recreating the virtualizer doesn't always
-  // result in the heights set by virtualRow.size getting reset when the
-  // virtualized items render which causes problems when toggling between
-  // views where items have different heights... even though the virtualizer
-  // gets trashed and recreated and so does the DOM. I don't understand why,
-  // but using this key to wrap the relevant parts of the DOM fixes it.
-  let virtualizerVersion = $state(0);
-
-  // Performance optimization: cache scrollOffsetIndex and only recalculate
-  // when scroll position changes significantly, i.e. more than the height of
-  // a virtualized item
-  let lastScrollOffsetIndex: number | undefined = undefined;
-  let lastCalculatedScrollTop = 0;
-  let lastReportedFirstIndex = -1;
-  let lastReportedLastIndex = -1;
-
-  function handleChange(instance: Virtualizer<Element, Element>) {
-    if (!onVisibleRangeChange) return;
-
-    const items = instance.getVirtualItems();
-    if (items.length === 0) return;
-
-    const firstIndex = items[0].index;
-    const lastIndex = items[items.length - 1].index;
-
-    // Only calculate scrollOffsetIndex if scroll position changed significantly
-    // Skip calculation entirely if at scroll position 0 (initial render)
-    let scrollOffsetIndex = lastScrollOffsetIndex;
-    const currentScrollTop = instance.scrollOffset || 0;
-
-    if (
-      // Don't need to preserve scroll position if we're at the top
-      currentScrollTop > 0
-      // Don't need to preserve scroll position if we haven't scrolled more
-      // than the height of an item
-      && Math.abs(currentScrollTop - lastCalculatedScrollTop) > estimateSize
-    ) {
-      const rowHeight = items[0].size;
-      const scrollOffsetRows = Math.floor(currentScrollTop / rowHeight);
-      scrollOffsetIndex = scrollOffsetRows * lanes;
-      lastScrollOffsetIndex = scrollOffsetIndex;
-      lastCalculatedScrollTop = currentScrollTop;
-    }
-
-    // Only call callback if range actually changed
-    if (
-      firstIndex !== lastReportedFirstIndex
-      || lastIndex !== lastReportedLastIndex
-    ) {
-      lastReportedFirstIndex = firstIndex;
-      lastReportedLastIndex = lastIndex;
-      onVisibleRangeChange({ firstIndex, lastIndex, scrollOffsetIndex });
-    }
-  }
-
-  // Wrapper for the Tanstack Virtualizer function so we can pass it down to children
-  function scrollToIndex(index: number, options?: { align?: 'start' | 'center' | 'end' | 'auto' }) {
-    if (!virtualizer) return;
-    const instance = get(virtualizer);
-    if (instance?.scrollToIndex) {
-      instance.scrollToIndex(index, options);
-    }
-  }
-
-  // Initialize virtualizer when dependencies change
-  // Recreate the virtualizer when count, lanes, or estimateSize change
-  $effect(() => {
-    if (!scrollElement) return;
-
-    // Capture current scroll position before recreating virtualizer
-    const currentScrollOffset = scrollElement.scrollTop;
-
-    virtualizer = createVirtualizer({
-      count,
-      getScrollElement: () => scrollElement ?? null,
-      estimateSize: () => estimateSize,
-      overscan: 50,
-      lanes,
-      onChange: handleChange,
-      // Preserve scroll position when virtualizer is recreated
-      initialOffset: currentScrollOffset
-    });
-
-    untrack(() => {
-      virtualizerVersion++;
-    });
-    initialized = true;
+    onChange: handleChange,
+    // Preserve scroll position when virtualizer is recreated
+    initialOffset: currentScrollOffset,
   });
 
-  // Separate effect to handle scroll to index when view switches
-  $effect(() => {
-    if (!scrollState) return;
-    if (!virtualizer || !initialized) return;
-    if (!scrollState.shouldScroll || scrollState.targetIndex === 0) return;
-
-    const { targetIndex } = scrollState;
-    // Scroll to the target index after a delay
-    setTimeout(() => {
-      if (virtualizer && scrollState.shouldScroll) {
-        scrollToIndex(targetIndex, { align: 'start' });
-        // Mark as consumed
-        scrollState.shouldScroll = false;
-      }
-    }, 100);
+  untrack(() => {
+    virtualizerVersion++;
   });
+  initialized = true;
+});
+
+// Separate effect to handle scroll to index when view switches
+$effect(() => {
+  if (!scrollState) return;
+  if (!virtualizer || !initialized) return;
+  if (!scrollState.shouldScroll || scrollState.targetIndex === 0) return;
+
+  const { targetIndex } = scrollState;
+  // Scroll to the target index after a delay
+  setTimeout(() => {
+    if (virtualizer && scrollState.shouldScroll) {
+      scrollToIndex(targetIndex, { align: 'start' });
+      // Mark as consumed
+      scrollState.shouldScroll = false;
+    }
+  }, 100);
+});
 </script>
 
 {#if initialized && virtualizer}

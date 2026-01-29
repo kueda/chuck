@@ -1,9 +1,5 @@
-import { test, expect } from '@playwright/test';
-import {
-  setupMockTauri,
-  waitForAppReady,
-  openArchive,
-} from './helpers/setup';
+import { expect, test } from '@playwright/test';
+import { openArchive, setupMockTauri, waitForAppReady } from './helpers/setup';
 
 test.describe('PhotoViewer Keyboard Accessibility', () => {
   test.beforeEach(async ({ page }) => {
@@ -11,24 +7,32 @@ test.describe('PhotoViewer Keyboard Accessibility', () => {
     await page.goto('/');
     await waitForAppReady(page);
     await openArchive(page);
-    await page.waitForSelector('.table-cell:has-text("TEST-001")', { timeout: 5000 });
+    await page.waitForSelector('.table-cell:has-text("TEST-001")', {
+      timeout: 5000,
+    });
   });
 
   test('container div is keyboard focusable', async ({ page }) => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
       await page.waitForTimeout(300);
 
       // Find the container div with aria-label
-      const container = page.locator('[aria-label="Photo zoom and pan container"]');
+      const container = page.locator(
+        '[aria-label="Photo zoom and pan container"]',
+      );
       await expect(container).toBeVisible();
 
       // Focus the container
@@ -44,10 +48,14 @@ test.describe('PhotoViewer Keyboard Accessibility', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -57,7 +65,9 @@ test.describe('PhotoViewer Keyboard Accessibility', () => {
       await expect(page.locator('text=/Zoom: 50%/')).toBeVisible();
 
       // Focus container and press +
-      const container = page.locator('[aria-label="Photo zoom and pan container"]');
+      const container = page.locator(
+        '[aria-label="Photo zoom and pan container"]',
+      );
       await container.focus();
       await page.keyboard.press('+');
       await page.waitForTimeout(100);
@@ -71,10 +81,14 @@ test.describe('PhotoViewer Keyboard Accessibility', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
@@ -84,7 +98,9 @@ test.describe('PhotoViewer Keyboard Accessibility', () => {
       await expect(page.locator('text=/Zoom: 50%/')).toBeVisible();
 
       // Focus container and press =
-      const container = page.locator('[aria-label="Photo zoom and pan container"]');
+      const container = page.locator(
+        '[aria-label="Photo zoom and pan container"]',
+      );
       await container.focus();
       await page.keyboard.press('=');
       await page.waitForTimeout(100);
@@ -98,16 +114,22 @@ test.describe('PhotoViewer Keyboard Accessibility', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
       await page.waitForTimeout(300);
 
-      const container = page.locator('[aria-label="Photo zoom and pan container"]');
+      const container = page.locator(
+        '[aria-label="Photo zoom and pan container"]',
+      );
       await container.focus();
 
       // Zoom in first
@@ -128,17 +150,23 @@ test.describe('PhotoViewer Keyboard Accessibility', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
       await page.waitForTimeout(300);
 
       const img = page.locator('img[alt="Full size"]');
-      const container = page.locator('[aria-label="Photo zoom and pan container"]');
+      const container = page.locator(
+        '[aria-label="Photo zoom and pan container"]',
+      );
       await container.focus();
 
       // Zoom in several times
@@ -168,16 +196,22 @@ test.describe('PhotoViewer Keyboard Accessibility', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
       await page.waitForTimeout(300);
 
-      const container = page.locator('[aria-label="Photo zoom and pan container"]');
+      const container = page.locator(
+        '[aria-label="Photo zoom and pan container"]',
+      );
       await container.focus();
 
       // Already at min zoom (50%)
@@ -196,16 +230,22 @@ test.describe('PhotoViewer Keyboard Accessibility', () => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
-    const photo = page.locator('section:has(h2:has-text("Media")) button').first();
-    const hasPhotos = await photo.count() > 0;
+    const photo = page
+      .locator('section:has(h2:has-text("Media")) button')
+      .first();
+    const hasPhotos = (await photo.count()) > 0;
 
     if (hasPhotos) {
       await photo.click();
       await page.waitForTimeout(300);
 
-      const container = page.locator('[aria-label="Photo zoom and pan container"]');
+      const container = page.locator(
+        '[aria-label="Photo zoom and pan container"]',
+      );
       await container.focus();
 
       // Zoom to max (500%)
@@ -225,11 +265,15 @@ test.describe('PhotoViewer Keyboard Accessibility', () => {
     }
   });
 
-  test('arrow keys still navigate photos (regression test)', async ({ page }) => {
+  test('arrow keys still navigate photos (regression test)', async ({
+    page,
+  }) => {
     const firstOccurrence = page.locator('main .occurrence-item').first();
     await firstOccurrence.click();
 
-    await page.waitForSelector('[data-testid="occurrence-drawer"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="occurrence-drawer"]', {
+      timeout: 5000,
+    });
 
     const photos = page.locator('section:has(h2:has-text("Media")) button');
     const photoCount = await photos.count();
@@ -239,7 +283,9 @@ test.describe('PhotoViewer Keyboard Accessibility', () => {
       await photos.first().click();
       await page.waitForTimeout(300);
 
-      const initialCounter = await page.locator('text=/\\d+ \\/ \\d+/').textContent();
+      const initialCounter = await page
+        .locator('text=/\\d+ \\/ \\d+/')
+        .textContent();
       expect(initialCounter).toContain('1 /');
 
       // Press right arrow to navigate
@@ -247,14 +293,18 @@ test.describe('PhotoViewer Keyboard Accessibility', () => {
       await page.waitForTimeout(300);
 
       // Verify counter updated
-      const newCounter = await page.locator('text=/\\d+ \\/ \\d+/').textContent();
+      const newCounter = await page
+        .locator('text=/\\d+ \\/ \\d+/')
+        .textContent();
       expect(newCounter).toContain('2 /');
 
       // Press left arrow to navigate back
       await page.keyboard.press('ArrowLeft');
       await page.waitForTimeout(300);
 
-      const finalCounter = await page.locator('text=/\\d+ \\/ \\d+/').textContent();
+      const finalCounter = await page
+        .locator('text=/\\d+ \\/ \\d+/')
+        .textContent();
       expect(finalCounter).toContain('1 /');
     }
   });

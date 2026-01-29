@@ -1,7 +1,7 @@
-import { test, expect } from '@playwright/test';
-import { setupMockTauri, waitForAppReady, openArchive } from './helpers/setup';
 import type { Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import type { ArchiveInfo } from '$lib/types/archive';
+import { openArchive, waitForAppReady } from './helpers/setup';
 
 // Not quite the ideal 200, but maybe enough
 const MAX_RESPONSE_TIME = 300;
@@ -14,7 +14,7 @@ async function setupMockTauriWithCustomData(
   page: Page,
   archiveName: string,
   coreCount: number,
-  totalResults: number
+  totalResults: number,
 ) {
   const { getInjectionScript } = await import('./mocks/tauri');
 
@@ -28,7 +28,7 @@ async function setupMockTauriWithCustomData(
       'decimalLatitude',
       'decimalLongitude',
       'eventDate',
-      'eventTime'
+      'eventTime',
     ],
   };
 
@@ -41,7 +41,12 @@ async function setupMockTauriWithCustomData(
       'Quercus agrifolia',
       'Arctostaphylos manzanita',
     ];
-    const observers = ['Jane Smith', 'John Doe', 'Bob Johnson', 'Alice Williams'];
+    const observers = [
+      'Jane Smith',
+      'John Doe',
+      'Bob Johnson',
+      'Alice Williams',
+    ];
 
     const occurrences = [];
     for (let i = 0; i < count; i++) {
@@ -52,7 +57,7 @@ async function setupMockTauriWithCustomData(
         decimalLongitude: -124 + Math.random() * 6,
         eventDate: `2024-01-${String((i % 28) + 1).padStart(2, '0')}`,
         eventTime: `${String(Math.floor(Math.random() * 24)).padStart(2, '0')}:${String(
-          Math.floor(Math.random() * 60)
+          Math.floor(Math.random() * 60),
         ).padStart(2, '0')}:00`,
         recordedBy: observers[i % observers.length],
         basisOfRecord: 'HumanObservation',
@@ -67,13 +72,20 @@ async function setupMockTauriWithCustomData(
   };
 
   await page.addInitScript(
-    getInjectionScript(customArchive, customSearchResult, customArchive, customSearchResult)
+    getInjectionScript(
+      customArchive,
+      customSearchResult,
+      customArchive,
+      customSearchResult,
+    ),
   );
 }
 
 async function measureViewSwitch(page: Page): Promise<number> {
   // Wait for table view to be ready with virtualized content
-  await expect(page.locator('.occurrence-table .occurrence-row').first()).toBeVisible();
+  await expect(
+    page.locator('.occurrence-table .occurrence-row').first(),
+  ).toBeVisible();
 
   // Measure the view switch
   const duration = await page.evaluate(() => {
@@ -82,7 +94,7 @@ async function measureViewSwitch(page: Page): Promise<number> {
 
       // Click the Cards button
       const cardsButton = document.querySelector(
-        'input[type="radio"][value="cards"]'
+        'input[type="radio"][value="cards"]',
       ) as HTMLInputElement;
       if (!cardsButton) {
         resolve(-1);
@@ -117,7 +129,6 @@ async function measureViewSwitch(page: Page): Promise<number> {
   return duration;
 }
 
-
 test.describe('Frontend performance of', () => {
   // Timing is always inconsistent, and some of these tests run close to the
   // acceptable limit, so to avoid inconsistent performance due to concurrent
@@ -126,7 +137,12 @@ test.describe('Frontend performance of', () => {
 
   test.describe(`switching to cards view less than ${MAX_RESPONSE_TIME}ms`, () => {
     test('with 1,000 records', async ({ page }) => {
-      await setupMockTauriWithCustomData(page, 'Small Archive - 1K', 1000, 1000);
+      await setupMockTauriWithCustomData(
+        page,
+        'Small Archive - 1K',
+        1000,
+        1000,
+      );
       await page.goto('/');
       await waitForAppReady(page);
       await openArchive(page);
@@ -138,7 +154,12 @@ test.describe('Frontend performance of', () => {
     });
 
     test('with 100,000 records', async ({ page }) => {
-      await setupMockTauriWithCustomData(page, 'Medium Archive - 100K', 100000, 100000);
+      await setupMockTauriWithCustomData(
+        page,
+        'Medium Archive - 100K',
+        100000,
+        100000,
+      );
       await page.goto('/');
       await waitForAppReady(page);
       await openArchive(page);
@@ -154,7 +175,7 @@ test.describe('Frontend performance of', () => {
         page,
         'Large Archive - 1M',
         1000000,
-        1000000
+        1000000,
       );
       await page.goto('/');
       await waitForAppReady(page);
@@ -170,7 +191,8 @@ test.describe('Frontend performance of', () => {
       // Print browser console messages
       // page.on('console', msg => console.log('[BROWSER]', msg.text()));
 
-      const results: Array<{ scale: string; count: number; duration: number }> = [];
+      const results: Array<{ scale: string; count: number; duration: number }> =
+        [];
 
       // Test 1K
       // console.log('[performance.spec.ts] 1K');
@@ -212,8 +234,10 @@ test.describe('Frontend performance of', () => {
       // All should complete
       results.forEach((r) => {
         expect(r.duration).toBeGreaterThan(0);
-        expect(r.duration, `${r.scale} took longer than 200ms (took ${r.duration.toFixed(2)}ms)`)
-          .toBeLessThan(MAX_RESPONSE_TIME);
+        expect(
+          r.duration,
+          `${r.scale} took longer than 200ms (took ${r.duration.toFixed(2)}ms)`,
+        ).toBeLessThan(MAX_RESPONSE_TIME);
       });
     });
   });
