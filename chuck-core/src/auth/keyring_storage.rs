@@ -28,17 +28,17 @@ impl KeyringStorage {
 
     fn get_entry(&self) -> Result<Entry, AuthError> {
         Entry::new(self.service_name, self.account_name)
-            .map_err(|e| AuthError::OAuthFailed(format!("Keyring unavailable: {}", e)))
+            .map_err(|e| AuthError::OAuthFailed(format!("Keyring unavailable: {e}")))
     }
 }
 
 impl TokenStorage for KeyringStorage {
     fn save_token(&self, token: &AuthToken) -> Result<(), AuthError> {
         let token_json = serde_json::to_string(token)
-            .map_err(|e| AuthError::JsonError(e))?;
+            .map_err(AuthError::JsonError)?;
 
         self.get_entry()?.set_password(&token_json)
-            .map_err(|e| AuthError::OAuthFailed(format!("Failed to save to keyring: {}", e)))
+            .map_err(|e| AuthError::OAuthFailed(format!("Failed to save to keyring: {e}")))
     }
 
     fn load_token(&self) -> Result<Option<AuthToken>, AuthError> {
@@ -50,7 +50,7 @@ impl TokenStorage for KeyringStorage {
             Ok(token_json) => {
                 log::info!("[KeyringStorage] Successfully retrieved password from keychain");
                 let token: AuthToken = serde_json::from_str(&token_json)
-                    .map_err(|e| AuthError::JsonError(e))?;
+                    .map_err(AuthError::JsonError)?;
 
                 if token.is_expired() {
                     return Err(AuthError::TokenExpired);
@@ -69,7 +69,7 @@ impl TokenStorage for KeyringStorage {
         let entry = self.get_entry()?;
         match entry.delete_credential() {
             Ok(_) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(AuthError::OAuthFailed(format!("Failed to clear keyring: {}", e))),
+            Err(e) => Err(AuthError::OAuthFailed(format!("Failed to clear keyring: {e}"))),
         }
     }
 }

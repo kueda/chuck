@@ -92,7 +92,7 @@ pub async fn fetch_observations_with_retry(
 ) -> Result<ObservationsResponse, Error<observations_api::ObservationsGetError>> {
     // First attempt with read lock
     let config_read = config.read().await;
-    let first_result = observations_api::observations_get(&*config_read, params.clone()).await;
+    let first_result = observations_api::observations_get(&config_read, params.clone()).await;
     drop(config_read); // Release read lock early
 
     match first_result {
@@ -104,10 +104,10 @@ pub async fn fetch_observations_with_retry(
                 Ok(_) => {
                     eprintln!("Retrying request with refreshed token");
                     let config_read = config.read().await;
-                    observations_api::observations_get(&*config_read, params).await
+                    observations_api::observations_get(&config_read, params).await
                 }
                 Err(e) => {
-                    eprintln!("Failed to refresh JWT token: {}", e);
+                    eprintln!("Failed to refresh JWT token: {e}");
                     eprintln!("Run `chuck auth` to re-authenticate");
                     Err(Error::ResponseError(response.clone()))
                 }

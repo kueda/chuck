@@ -24,15 +24,15 @@ pub async fn authenticate_user<S: TokenStorage>(storage: &S) -> Result<AuthToken
         ClientId::new(client_id),
         None,
         AuthUrl::new(INATURALIST_AUTH_URL.to_string())
-            .map_err(|e| AuthError::OAuthFailed(format!("Invalid auth URL: {}", e)))?,
+            .map_err(|e| AuthError::OAuthFailed(format!("Invalid auth URL: {e}")))?,
         Some(
             TokenUrl::new(INATURALIST_TOKEN_URL.to_string())
-                .map_err(|e| AuthError::OAuthFailed(format!("Invalid token URL: {}", e)))?,
+                .map_err(|e| AuthError::OAuthFailed(format!("Invalid token URL: {e}")))?,
         ),
     )
     .set_redirect_uri(
         RedirectUrl::new(REDIRECT_URI.to_string())
-            .map_err(|e| AuthError::OAuthFailed(format!("Invalid redirect URL: {}", e)))?,
+            .map_err(|e| AuthError::OAuthFailed(format!("Invalid redirect URL: {e}")))?,
     );
 
     let (auth_url, csrf_token) = client
@@ -42,10 +42,10 @@ pub async fn authenticate_user<S: TokenStorage>(storage: &S) -> Result<AuthToken
         .url();
 
     println!("Opening browser for authentication...");
-    println!("If the browser doesn't open automatically, please visit: {}", auth_url);
+    println!("If the browser doesn't open automatically, please visit: {auth_url}");
 
     if let Err(e) = open::that(auth_url.to_string()) {
-        eprintln!("Failed to open browser: {}. Please visit the URL manually.", e);
+        eprintln!("Failed to open browser: {e}. Please visit the URL manually.");
     }
 
     let authorization_code = wait_for_callback(csrf_token).await?;
@@ -55,7 +55,7 @@ pub async fn authenticate_user<S: TokenStorage>(storage: &S) -> Result<AuthToken
         .set_pkce_verifier(pkce_verifier)
         .request_async(oauth2::reqwest::async_http_client)
         .await
-        .map_err(|e| AuthError::OAuthFailed(format!("Token exchange failed: {}", e)))?;
+        .map_err(|e| AuthError::OAuthFailed(format!("Token exchange failed: {e}")))?;
 
     let expires_at = token_result
         .expires_in()
@@ -83,7 +83,7 @@ fn get_client_id() -> Result<String, AuthError> {
 
 async fn wait_for_callback(expected_csrf: CsrfToken) -> Result<AuthorizationCode, AuthError> {
     let listener = TcpListener::bind("127.0.0.1:8080").map_err(|e| {
-        AuthError::OAuthFailed(format!("Failed to bind to localhost:8080: {}", e))
+        AuthError::OAuthFailed(format!("Failed to bind to localhost:8080: {e}"))
     })?;
 
     println!("Waiting for authentication callback...");
@@ -113,7 +113,7 @@ async fn wait_for_callback(expected_csrf: CsrfToken) -> Result<AuthorizationCode
                 }
             }
             Err(e) => {
-                eprintln!("Connection failed: {}", e);
+                eprintln!("Connection failed: {e}");
             }
         }
     }
@@ -132,12 +132,12 @@ fn handle_callback_request(
 
     let url_str = format!("http://localhost:8080{}", parts[1]);
     let url = Url::parse(&url_str)
-        .map_err(|e| AuthError::OAuthFailed(format!("Failed to parse callback URL: {}", e)))?;
+        .map_err(|e| AuthError::OAuthFailed(format!("Failed to parse callback URL: {e}")))?;
 
     let query_params: HashMap<String, String> = url.query_pairs().into_owned().collect();
 
     if let Some(error) = query_params.get("error") {
-        return Err(AuthError::OAuthFailed(format!("OAuth error: {}", error)));
+        return Err(AuthError::OAuthFailed(format!("OAuth error: {error}")));
     }
 
     let state = query_params

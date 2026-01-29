@@ -66,7 +66,7 @@ fn get_metadata_from_storage(storage_dir: &Path) -> Result<ArchiveMetadata> {
                             });
                         }
                         Err(e) => {
-                            log::warn!("Failed to read XML file {}: {}", filename, e);
+                            log::warn!("Failed to read XML file {filename}: {e}");
                         }
                     }
                 }
@@ -115,7 +115,7 @@ pub async fn open_archive(app: tauri::AppHandle, path: String) -> Result<Archive
     // Spawn blocking task
     let app_for_thread = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        Archive::open_with_progress(
+        Archive::open(
             Path::new(&path_clone),
             &base_dir,
             |stage| {
@@ -153,7 +153,7 @@ pub async fn open_archive(app: tauri::AppHandle, path: String) -> Result<Archive
             Ok(info)
         }
         Ok(Err(e)) => {
-            log::debug!("Failed to open archive: {}", e);
+            log::debug!("Failed to open archive: {e}");
 
             // Emit error event
             app.emit(
@@ -167,8 +167,8 @@ pub async fn open_archive(app: tauri::AppHandle, path: String) -> Result<Archive
             Err(e)
         }
         Err(e) => {
-            let err_msg = format!("Task join error: {}", e);
-            log::error!("{}", err_msg);
+            let err_msg = format!("Task join error: {e}");
+            log::error!("{err_msg}");
 
             app.emit(
                 "archive-open-progress",
@@ -315,8 +315,8 @@ mod metadata_tests {
         std::fs::write(storage_dir.join("occurrence.csv"), csv_content).unwrap();
         let db_path = storage_dir.join("test-archive.db");
         let db = crate::db::Database::create_from_core_files(
-            &vec![storage_dir.join("occurrence.csv")],
-            &vec![],
+            &[storage_dir.join("occurrence.csv")],
+            &[],
             &db_path,
             "id"
         ).unwrap();

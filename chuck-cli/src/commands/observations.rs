@@ -46,6 +46,8 @@ fn spawn_observation_write_task<W: ObservationWriter + Send + 'static>(
     })
 }
 
+// TODO consider refactoring with a single options: FetchObservationsOptions arg
+#[allow(clippy::too_many_arguments)]
 pub async fn fetch_observations(
     file: Option<String>,
     taxon: Option<String>,
@@ -95,7 +97,7 @@ pub async fn fetch_observations(
                     let obs_response = match client::fetch_observations_with_retry(config, page_params).await {
                         Ok(response) => response,
                         Err(e) => {
-                            eprintln!("API request failed: {}", e);
+                            eprintln!("API request failed: {e}");
                             break;
                         }
                     };

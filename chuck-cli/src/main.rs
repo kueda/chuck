@@ -57,6 +57,7 @@ enum AuthCommands {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum Commands {
     /// Authenticate with iNaturalist
     Auth {
@@ -122,10 +123,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         Ok(storage) => {
                             match storage.clear_token() {
                                 Ok(_) => println!("Authentication token cleared successfully!"),
-                                Err(e) => eprintln!("Failed to clear token: {}", e),
+                                Err(e) => eprintln!("Failed to clear token: {e}"),
                             }
                         }
-                        Err(e) => eprintln!("Storage error: {}", e),
+                        Err(e) => eprintln!("Storage error: {e}"),
                     }
                 }
                 None => {
@@ -133,10 +134,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         Ok(storage) => {
                             match chuck_core::auth::authenticate_user(&storage).await {
                                 Ok(_) => println!("Authentication successful!"),
-                                Err(e) => eprintln!("Authentication failed: {}", e),
+                                Err(e) => eprintln!("Authentication failed: {e}"),
                             }
                         }
-                        Err(e) => eprintln!("Failed to initialize storage: {}", e),
+                        Err(e) => eprintln!("Failed to initialize storage: {e}"),
                     }
                 }
             }

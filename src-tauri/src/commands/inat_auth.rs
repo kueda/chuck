@@ -25,11 +25,11 @@ async fn get_auth_status_from_cache(cache: &AuthCache) -> Result<AuthStatus, Str
         Ok(Some(token)) => {
             // Fetch JWT to get username
             let jwt = fetch_jwt(&token).await
-                .map_err(|e| format!("Failed to fetch JWT: {}", e))?;
+                .map_err(|e| format!("Failed to fetch JWT: {e}"))?;
 
             let username = fetch_username_from_api(&jwt)
                 .await
-                .map_err(|e| format!("Failed to fetch username: {}", e))?;
+                .map_err(|e| format!("Failed to fetch username: {e}"))?;
 
             Ok(AuthStatus {
                 authenticated: true,
@@ -40,7 +40,7 @@ async fn get_auth_status_from_cache(cache: &AuthCache) -> Result<AuthStatus, Str
             authenticated: false,
             username: None,
         }),
-        Err(e) => Err(format!("Failed to load token: {}", e)),
+        Err(e) => Err(format!("Failed to load token: {e}")),
     }
 }
 
@@ -51,7 +51,7 @@ pub async fn inat_authenticate(
 ) -> Result<AuthStatus, String> {
     // Authenticate and save token
     authenticate_user(cache.inner()).await
-        .map_err(|e| format!("Authentication failed: {}", e))?;
+        .map_err(|e| format!("Authentication failed: {e}"))?;
 
     // Return auth status
     get_auth_status_from_cache(cache.inner()).await
@@ -71,7 +71,7 @@ pub async fn inat_sign_out(
     cache: State<'_, AuthCache>
 ) -> Result<(), String> {
     cache.clear_token()
-        .map_err(|e| format!("Failed to clear token: {}", e))
+        .map_err(|e| format!("Failed to clear token: {e}"))
 }
 
 /// Fetches a JWT for authenticated API requests
@@ -83,11 +83,11 @@ pub async fn inat_get_jwt(
     match cache.load_token() {
         Ok(Some(oauth_token)) => {
             let jwt = fetch_jwt(&oauth_token).await
-                .map_err(|e| format!("Failed to fetch JWT: {}", e))?;
+                .map_err(|e| format!("Failed to fetch JWT: {e}"))?;
             Ok(Some(jwt))
         }
         Ok(None) => Ok(None),
-        Err(e) => Err(format!("Failed to load token: {}", e)),
+        Err(e) => Err(format!("Failed to load token: {e}")),
     }
 }
 
@@ -103,7 +103,7 @@ async fn fetch_username_from_api(jwt: &str) -> Result<String, String> {
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
     let payload_bytes = URL_SAFE_NO_PAD
         .decode(parts[1])
-        .map_err(|e| format!("Base64 decode error: {}", e))?;
+        .map_err(|e| format!("Base64 decode error: {e}"))?;
 
     #[derive(serde::Deserialize)]
     struct JwtClaims {
@@ -111,7 +111,7 @@ async fn fetch_username_from_api(jwt: &str) -> Result<String, String> {
     }
 
     let claims: JwtClaims = serde_json::from_slice(&payload_bytes)
-        .map_err(|e| format!("JSON parse error: {}", e))?;
+        .map_err(|e| format!("JSON parse error: {e}"))?;
 
     // Fetch user info from public API
     let url = format!("https://api.inaturalist.org/v1/users/{}", claims.user_id);
@@ -119,7 +119,7 @@ async fn fetch_username_from_api(jwt: &str) -> Result<String, String> {
     let response = client.get(&url)
         .send()
         .await
-        .map_err(|e| format!("Failed to fetch user info: {}", e))?;
+        .map_err(|e| format!("Failed to fetch user info: {e}"))?;
 
     if !response.status().is_success() {
         return Err(format!("API returned status: {}", response.status()));
@@ -127,7 +127,7 @@ async fn fetch_username_from_api(jwt: &str) -> Result<String, String> {
 
     let user_response: UserResponse = response.json()
         .await
-        .map_err(|e| format!("Failed to parse user response: {}", e))?;
+        .map_err(|e| format!("Failed to parse user response: {e}"))?;
 
     user_response.results
         .first()

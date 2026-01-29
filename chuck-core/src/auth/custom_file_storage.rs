@@ -11,7 +11,7 @@ impl CustomFileStorage {
         // Create parent directories if they don't exist
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
-                .map_err(|e| AuthError::IoError(e))?;
+                .map_err(AuthError::IoError)?;
         }
         Ok(Self { path })
     }
@@ -20,20 +20,20 @@ impl CustomFileStorage {
 impl TokenStorage for CustomFileStorage {
     fn save_token(&self, token: &AuthToken) -> Result<(), AuthError> {
         let contents = serde_json::to_string_pretty(token)
-            .map_err(|e| AuthError::JsonError(e))?;
+            .map_err(AuthError::JsonError)?;
 
         std::fs::write(&self.path, contents)
-            .map_err(|e| AuthError::IoError(e))?;
+            .map_err(AuthError::IoError)?;
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let mut perms = std::fs::metadata(&self.path)
-                .map_err(|e| AuthError::IoError(e))?
+                .map_err(AuthError::IoError)?
                 .permissions();
             perms.set_mode(0o600);
             std::fs::set_permissions(&self.path, perms)
-                .map_err(|e| AuthError::IoError(e))?;
+                .map_err(AuthError::IoError)?;
         }
 
         Ok(())
@@ -45,10 +45,10 @@ impl TokenStorage for CustomFileStorage {
         }
 
         let contents = std::fs::read_to_string(&self.path)
-            .map_err(|e| AuthError::IoError(e))?;
+            .map_err(AuthError::IoError)?;
 
         let token: AuthToken = serde_json::from_str(&contents)
-            .map_err(|e| AuthError::JsonError(e))?;
+            .map_err(AuthError::JsonError)?;
 
         if token.is_expired() {
             return Err(AuthError::TokenExpired);
@@ -60,7 +60,7 @@ impl TokenStorage for CustomFileStorage {
     fn clear_token(&self) -> Result<(), AuthError> {
         if self.path.exists() {
             std::fs::remove_file(&self.path)
-                .map_err(|e| AuthError::IoError(e))?;
+                .map_err(AuthError::IoError)?;
         }
         Ok(())
     }

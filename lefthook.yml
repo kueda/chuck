@@ -1,8 +1,11 @@
 pre-commit:
   commands:
-    format_and_check:
+    format_and_check_frontend:
       glob: "{src,tests}/**/*.{js,ts,svelte,css}"
       run: |
         npm run format -- {staged_files} \
           && npm run check:biome -- {staged_files} \
           && npm run check:svelte -- {staged_files}
+    check_backend:
+      glob: "**/*.rs"
+      run: npm run check:backend

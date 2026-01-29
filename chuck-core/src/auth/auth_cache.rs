@@ -138,7 +138,7 @@ mod tests {
 
             // Use mock credential store - Entry::new will use the mock builder we set
             let entry = Entry::new("Chuck", "iNaturalist access token")
-                .map_err(|e| AuthError::OAuthFailed(format!("Mock keyring unavailable: {}", e)))?;
+                .map_err(|e| AuthError::OAuthFailed(format!("Mock keyring unavailable: {e}")))?;
 
             Ok(Self { entry })
         }
@@ -151,17 +151,17 @@ mod tests {
     impl TokenStorage for MockKeyringStorage {
         fn save_token(&self, token: &AuthToken) -> Result<(), AuthError> {
             let token_json = serde_json::to_string(token)
-                .map_err(|e| AuthError::JsonError(e))?;
+                .map_err(AuthError::JsonError)?;
 
             self.get_entry().set_password(&token_json)
-                .map_err(|e| AuthError::OAuthFailed(format!("Failed to save to mock keyring: {}", e)))
+                .map_err(|e| AuthError::OAuthFailed(format!("Failed to save to mock keyring: {e}")))
         }
 
         fn load_token(&self) -> Result<Option<AuthToken>, AuthError> {
             match self.get_entry().get_password() {
                 Ok(token_json) => {
                     let token: AuthToken = serde_json::from_str(&token_json)
-                        .map_err(|e| AuthError::JsonError(e))?;
+                        .map_err(AuthError::JsonError)?;
 
                     if token.is_expired() {
                         return Err(AuthError::TokenExpired);
@@ -176,7 +176,7 @@ mod tests {
         fn clear_token(&self) -> Result<(), AuthError> {
             match self.get_entry().delete_credential() {
                 Ok(_) | Err(keyring::Error::NoEntry) => Ok(()),
-                Err(e) => Err(AuthError::OAuthFailed(format!("Failed to clear mock keyring: {}", e))),
+                Err(e) => Err(AuthError::OAuthFailed(format!("Failed to clear mock keyring: {e}"))),
             }
         }
     }
@@ -285,8 +285,7 @@ mod tests {
         let call_count = get_storage_call_count();
         assert_eq!(
             call_count, 1,
-            "MockKeyringStorage::new() should be called exactly once, but was called {} times",
-            call_count
+            "MockKeyringStorage::new() should be called exactly once, but was called {call_count} times"
         );
 
         // Verify token was cached

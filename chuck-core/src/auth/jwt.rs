@@ -8,7 +8,7 @@ pub async fn fetch_jwt(oauth_token: &AuthToken) -> Result<String, AuthError> {
         .bearer_auth(&oauth_token.access_token)
         .send()
         .await
-        .map_err(|e| AuthError::OAuthFailed(format!("Failed to fetch JWT: {}", e)))?;
+        .map_err(|e| AuthError::OAuthFailed(format!("Failed to fetch JWT: {e}")))?;
 
     if !response.status().is_success() {
         return Err(AuthError::OAuthFailed(format!(
@@ -20,7 +20,7 @@ pub async fn fetch_jwt(oauth_token: &AuthToken) -> Result<String, AuthError> {
     let jwt_response: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| AuthError::OAuthFailed(format!("Failed to parse JWT response: {}", e)))?;
+        .map_err(|e| AuthError::OAuthFailed(format!("Failed to parse JWT response: {e}")))?;
 
     let jwt_string = jwt_response
         .get("api_token")

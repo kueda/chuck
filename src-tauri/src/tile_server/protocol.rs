@@ -18,7 +18,7 @@ pub fn generate_tile(
             let (tile_x, tile_y) = lat_lng_to_tile_coords(lat, lng, z, x, y);
 
             // Only include points that are within the tile extent (0-4096)
-            if tile_x >= 0.0 && tile_x <= 4096.0 && tile_y >= 0.0 && tile_y <= 4096.0 {
+            if (0.0..=4096.0).contains(&tile_x) && (0.0..=4096.0).contains(&tile_y) {
                 Some(OccurrencePoint {
                     core_id,
                     x: tile_x,
@@ -137,12 +137,12 @@ pub fn handle_tile_request<R: Runtime>(
                 );
             }
             Err(e) => {
-                log::error!("Tile generation error: {}", e);
+                log::error!("Tile generation error: {e}");
                 responder.respond(
                     tauri::http::Response::builder()
                         .status(500)
                         .header("Access-Control-Allow-Origin", "*")
-                        .body(format!("Error: {}", e).into_bytes())
+                        .body(format!("Error: {e}").into_bytes())
                         .unwrap()
                 );
             }

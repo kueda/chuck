@@ -44,8 +44,7 @@ impl PhotoDownloader {
                     last_error = Some(error_msg.clone());
                     if attempt < Self::MAX_RETRIES {
                         let delay = Self::RETRY_BASE_DELAY * (2_u32.pow(attempt as u32 - 1));
-                        log::warn!("Download attempt {} failed for photo {}: {}. Retrying in {:?}...",
-                                 attempt, photo_id, error_msg, delay);
+                        log::warn!("Download attempt {attempt} failed for photo {photo_id}: {error_msg}. Retrying in {delay:?}...");
                         tokio::time::sleep(delay).await;
                     }
                 }
@@ -60,7 +59,7 @@ impl PhotoDownloader {
         file_path: &Path
     ) -> Result<(), String> {
         let tmp_file = tokio::fs::File::create(file_path).await
-            .map_err(|e| format!("Failed to create file: {}", e))?;
+            .map_err(|e| format!("Failed to create file: {e}"))?;
         let response = reqwest::get(photo_url).await
             .map_err(|e| {
                 let status = if let Some(status) = e.status() {
@@ -68,15 +67,15 @@ impl PhotoDownloader {
                 } else {
                     "unknown".to_string()
                 };
-                format!("Failed to fetch URL ({}): {}", status, e)
+                format!("Failed to fetch URL ({status}): {e}")
             })?;
         let mut byte_stream = response.bytes_stream();
 
         let mut tmp_file = tmp_file;
         while let Some(item) = byte_stream.next().await {
-            let bytes = item.map_err(|e| format!("Failed to read response bytes: {}", e))?;
+            let bytes = item.map_err(|e| format!("Failed to read response bytes: {e}"))?;
             tokio::io::copy(&mut bytes.as_ref(), &mut tmp_file).await
-                .map_err(|e| format!("Failed to write to file: {}", e))?;
+                .map_err(|e| format!("Failed to write to file: {e}"))?;
         }
 
         Ok(())
@@ -127,7 +126,7 @@ impl PhotoDownloader {
                     let _permit = semaphore.acquire().await.unwrap();
 
                     let photo_url = url.replace("square", "original");
-                    let filename = format!("{}.jpg", id);
+                    let filename = format!("{id}.jpg");
 
                     // Create date-based subdirectory. The intent is to create
                     // a human-readable directory structure that does not
@@ -173,10 +172,8 @@ impl PhotoDownloader {
 
         let results = futures::future::join_all(tasks).await;
 
-        for result in results {
-            if let Ok(Some((photo_id, filename))) = result {
-                photo_mapping.insert(photo_id, filename);
-            }
+        for (photo_id, filename) in results.into_iter().filter_map(|r| r.ok().flatten()) {
+            photo_mapping.insert(photo_id, filename);
         }
 
         Ok(photo_mapping)

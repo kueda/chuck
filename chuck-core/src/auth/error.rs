@@ -15,10 +15,10 @@ impl fmt::Display for AuthError {
         match self {
             AuthError::TokenNotFound => write!(f, "No authentication token found"),
             AuthError::TokenExpired => write!(f, "Authentication token has expired"),
-            AuthError::OAuthFailed(msg) => write!(f, "OAuth authentication failed: {}", msg),
-            AuthError::IoError(e) => write!(f, "I/O error: {}", e),
-            AuthError::JsonError(e) => write!(f, "JSON error: {}", e),
-            AuthError::HttpError(e) => write!(f, "HTTP error: {}", e),
+            AuthError::OAuthFailed(msg) => write!(f, "OAuth authentication failed: {msg}"),
+            AuthError::IoError(e) => write!(f, "I/O error: {e}"),
+            AuthError::JsonError(e) => write!(f, "JSON error: {e}"),
+            AuthError::HttpError(e) => write!(f, "HTTP error: {e}"),
         }
     }
 }

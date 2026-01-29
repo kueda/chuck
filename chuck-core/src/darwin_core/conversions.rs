@@ -56,7 +56,7 @@ where
     F: Fn(&str) -> bool,
 {
     let annotations = obs.annotations.as_ref()?;
-    let prefix = format!("{}=", attribute_name);
+    let prefix = format!("{attribute_name}=");
 
     // Find annotations with positive vote scores
     let matching_annotations: Vec<_> = annotations
@@ -195,7 +195,7 @@ impl From<(&Observation, &HashMap<i32, ShowTaxon>)> for Occurrence {
         } else {
             obs.public_positional_accuracy
         };
-        let coordinate_uncertainty_in_meters = acc.map_or(None, |acc| Some(acc as f64));
+        let coordinate_uncertainty_in_meters = acc.map(|acc| acc as f64);
 
         // Extract user login for recordedBy
         let recorded_by = obs.user.as_ref()
@@ -280,7 +280,7 @@ impl From<(&Observation, &HashMap<i32, ShowTaxon>)> for Occurrence {
 
         Occurrence {
             id: None,
-            occurrence_id: obs.id.map(|id| format!("https://www.inaturalist.org/observations/{}", id)).unwrap_or_default(),
+            occurrence_id: obs.id.map(|id| format!("https://www.inaturalist.org/observations/{id}")).unwrap_or_default(),
             basis_of_record: "HumanObservation".to_string(),
             recorded_by,
             event_date,
@@ -300,9 +300,7 @@ impl From<(&Observation, &HashMap<i32, ShowTaxon>)> for Occurrence {
             infraspecific_epithet: None, // Would need name parsing
             taxon_id: obs.taxon.as_ref()
                 .and_then(|t|
-                    t.id.and_then(|id|
-                        Some(format!("https://www.inaturalist.org/taxa/{}", id))
-                    )
+                    t.id.map(|id| format!("https://www.inaturalist.org/taxa/{id}"))
                 ),
             occurrence_remarks,
             establishment_means,
@@ -426,7 +424,7 @@ impl From<(&Observation, &HashMap<i32, ShowTaxon>)> for Occurrence {
             collection_code: Some(String::from("Observations")),
             collection_id: None,
             owner_institution_code: None,
-            catalog_number: if let Some(id) = obs.id { Some(format!("{}", id)) } else { None },
+            catalog_number: obs.id.map(|id| format!("{id}")),
             record_number: None,
             other_catalog_numbers: None,
             preparations: None,
@@ -560,7 +558,7 @@ impl From<(&inaturalist::models::Photo, &str, Option<&inaturalist::models::User>
 
         Self {
             coreid: None,
-            occurrence_id: format!("https://www.inaturalist.org/observations/{}", occurrence_id),
+            occurrence_id: format!("https://www.inaturalist.org/observations/{occurrence_id}"),
             r#type: Some("StillImage".to_string()),
             format: Some("image/jpeg".to_string()), // iNaturalist photos are typically JPEG
             identifier,
@@ -602,7 +600,7 @@ impl From<(&inaturalist::models::Photo, &str, &Observation, &HashMap<i32, String
         };
 
         // Create identifier URL from photo ID
-        let identifier = photo.id.map(|id| format!("https://www.inaturalist.org/photos/{}", id));
+        let identifier = photo.id.map(|id| format!("https://www.inaturalist.org/photos/{id}"));
 
         // Extract coordinates if available
         let (decimal_latitude, decimal_longitude) = if let Some(geojson) = &observation.geojson {
@@ -635,7 +633,7 @@ impl From<(&inaturalist::models::Photo, &str, &Observation, &HashMap<i32, String
 
         Self {
             coreid: None,
-            occurrence_id: format!("https://www.inaturalist.org/observations/{}", occurrence_id),
+            occurrence_id: format!("https://www.inaturalist.org/observations/{occurrence_id}"),
             identifier,
             r#type: Some("StillImage".to_string()),
             title: None,
@@ -646,7 +644,7 @@ impl From<(&inaturalist::models::Photo, &str, &Observation, &HashMap<i32, String
             owner,
             usage_terms: photo.license_code.clone(),
             credit: photo.attribution.clone(),
-            attribution_link_url: photo.id.map(|id| format!("https://www.inaturalist.org/photos/{}", id)),
+            attribution_link_url: photo.id.map(|id| format!("https://www.inaturalist.org/photos/{id}")),
             source: Some("iNaturalist".to_string()),
             description: None, // iNat photos don't have their own descriptions
             caption: None,
@@ -716,7 +714,7 @@ impl From<(&inaturalist::models::Identification, &str, &HashMap<i32, ShowTaxon>)
             }
 
             if let Some(user_id) = user.id {
-                parts.push(format!("https://www.inaturalist.org/users/{}", user_id));
+                parts.push(format!("https://www.inaturalist.org/users/{user_id}"));
             }
 
             Some(parts.join("|"))
@@ -845,7 +843,7 @@ impl From<(&inaturalist::models::Identification, &str, &HashMap<i32, ShowTaxon>)
 
         Self {
             coreid: None,
-            occurrence_id: format!("https://www.inaturalist.org/observations/{}", occurrence_id),
+            occurrence_id: format!("https://www.inaturalist.org/observations/{occurrence_id}"),
             identification_id: identification.id.map(|id| id.to_string()),
             identified_by,
             identified_by_id,
@@ -853,7 +851,7 @@ impl From<(&inaturalist::models::Identification, &str, &HashMap<i32, ShowTaxon>)
             identification_remarks: identification.body.clone(),
             taxon_id: identification.taxon.as_ref()
                 .and_then(|t|
-                    t.id.map(|id| format!("https://www.inaturalist.org/taxa/{}", id))
+                    t.id.map(|id| format!("https://www.inaturalist.org/taxa/{id}"))
                 ),
             scientific_name: identification.taxon.as_ref().and_then(|t| t.name.clone()),
             taxon_rank: identification.taxon.as_ref().and_then(|t| t.rank.clone()),
@@ -1453,7 +1451,7 @@ mod tests {
         assert!(obs.taxon.unwrap().id.is_some());
         assert_eq!(
             occ.taxon_id,
-            Some(format!("https://www.inaturalist.org/taxa/{}", taxon_id))
+            Some(format!("https://www.inaturalist.org/taxa/{taxon_id}"))
         );
     }
 }

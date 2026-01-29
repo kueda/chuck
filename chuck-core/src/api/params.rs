@@ -174,31 +174,31 @@ pub fn extract_criteria(params: &observations_api::ObservationsGetParams) -> Vec
         }
     }
     if let Some(ref value) = params.lat {
-        criteria.push(format!("lat: {}", value));
+        criteria.push(format!("lat: {value}"));
     }
     if let Some(ref value) = params.lng {
-        criteria.push(format!("lng: {}", value));
+        criteria.push(format!("lng: {value}"));
     }
     if let Some(ref value) = params.radius {
-        criteria.push(format!("radius: {}", value));
+        criteria.push(format!("radius: {value}"));
     }
     if let Some(ref value) = params.d1 {
-        criteria.push(format!("observed_after: {}", value));
+        criteria.push(format!("observed_after: {value}"));
     }
     if let Some(ref value) = params.d2 {
-        criteria.push(format!("observed_before: {}", value));
+        criteria.push(format!("observed_before: {value}"));
     }
     if let Some(ref value) = params.quality_grade {
-        criteria.push(format!("quality_grade: {}", value));
+        criteria.push(format!("quality_grade: {value}"));
     }
     if let Some(ref value) = params.photos {
-        criteria.push(format!("photos: {}", value));
+        criteria.push(format!("photos: {value}"));
     }
     if let Some(ref value) = params.sounds {
-        criteria.push(format!("sounds: {}", value));
+        criteria.push(format!("sounds: {value}"));
     }
     if let Some(ref value) = params.captive {
-        criteria.push(format!("captive: {}", value));
+        criteria.push(format!("captive: {value}"));
     }
 
     criteria

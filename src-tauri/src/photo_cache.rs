@@ -24,7 +24,7 @@ impl<'a> PhotoCache<'a> {
         ";
 
         self.conn.execute(sql, []).map_err(|e| {
-            log::error!("Failed to create photo_cache table: {}", e);
+            log::error!("Failed to create photo_cache table: {e}");
             e
         })?;
 
@@ -131,7 +131,7 @@ impl<'a> PhotoCache<'a> {
 
             // Delete the cached file
             if let Err(e) = std::fs::remove_file(&cached_file_path) {
-                log::warn!("Failed to delete cached photo {}: {}", cached_file_path, e);
+                log::warn!("Failed to delete cached photo {cached_file_path}: {e}");
             }
 
             // Remove from database
@@ -144,7 +144,7 @@ impl<'a> PhotoCache<'a> {
             evicted += 1;
         }
 
-        log::info!("Evicted {} photos from cache", evicted);
+        log::info!("Evicted {evicted} photos from cache");
         Ok(evicted)
     }
 }

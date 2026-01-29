@@ -135,11 +135,11 @@ impl StorageFactory {
         println!("Default path: {}", default_path.display());
         print!("Enter custom path (or press Enter for default): ");
         io::stdout().flush()
-            .map_err(|e| AuthError::IoError(e))?;
+            .map_err(AuthError::IoError)?;
 
         let mut input = String::new();
         io::stdin().read_line(&mut input)
-            .map_err(|e| AuthError::IoError(e))?;
+            .map_err(AuthError::IoError)?;
 
         let path = if input.trim().is_empty() {
             default_path

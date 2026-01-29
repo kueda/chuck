@@ -51,20 +51,4 @@ impl ProgressManager {
     pub fn set_observations_total(&self, total: u64) {
         self.observations_bar.set_length(total);
     }
-
-    /// Prepare the photos progress bar to be incremented by a certain amount.
-    /// If the bar's length is not long enough to receive that many
-    /// increments, it will be embiggened
-    pub fn prepare_photos_inc(&self, total_to_add: u64) {
-        if let Some(ref bar) = self.photos_bar {
-            let current_position = bar.position();
-            let current_length = bar.length().unwrap_or(0);
-            let remaining = current_length.saturating_sub(current_position);
-
-            if remaining < total_to_add {
-                let additional_length = total_to_add - remaining;
-                bar.inc_length(additional_length);
-            }
-        }
-    }
 }

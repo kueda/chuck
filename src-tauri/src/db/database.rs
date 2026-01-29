@@ -79,8 +79,7 @@ impl Database {
         // file, or read_csv will error out when we tell it to use types for
         // columns that don't exist
         let mut stmt = conn.prepare(&format!(
-            "SELECT unnest(Columns).name FROM sniff_csv('{}')",
-            first_file
+            "SELECT unnest(Columns).name FROM sniff_csv('{first_file}')"
         ))?;
         let column_names: Vec<String> = stmt.query_map([], |row| {
             row.get(0)
@@ -103,7 +102,7 @@ impl Database {
         } else {
             let pairs: Vec<String> = type_map
                 .iter()
-                .map(|(col, typ)| format!("'{}': '{}'", col, typ))
+                .map(|(col, typ)| format!("'{col}': '{typ}'"))
                 .collect();
             format!(", types = {{{}}}", pairs.join(", "))
         };
@@ -112,9 +111,7 @@ impl Database {
         // exist. nullstr will treat empty columns as NULL when converting to
         // boolean
         let sql = format!(
-            "CREATE TABLE occurrences AS SELECT * FROM read_csv('{}', all_varchar = true, nullstr = ''{})",
-            first_file,
-            types_param
+            "CREATE TABLE occurrences AS SELECT * FROM read_csv('{first_file}', all_varchar = true, nullstr = ''{types_param})"
         );
         let create_result = conn.execute(&sql, []);
 
@@ -129,9 +126,7 @@ impl Database {
 
                     conn.execute(
                         &format!(
-                            "INSERT INTO occurrences SELECT * FROM read_csv('{}', all_varchar = true, nullstr = ''{})",
-                            csv_path,
-                            types_param
+                            "INSERT INTO occurrences SELECT * FROM read_csv('{csv_path}', all_varchar = true, nullstr = ''{types_param})"
                         ),
                         [],
                     )?;
@@ -169,8 +164,7 @@ impl Database {
     /// Helper to get column names for a table
     fn get_column_names(conn: &duckdb::Connection, table_name: &str) -> Result<Vec<String>> {
         let mut stmt = conn.prepare(&format!(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = '{}' ORDER BY column_name",
-            table_name
+            "SELECT column_name FROM information_schema.columns WHERE table_name = '{table_name}' ORDER BY column_name"
         ))?;
         let columns: Vec<String> = stmt.query_map([], |row| {
             row.get(0)
@@ -196,26 +190,25 @@ impl Database {
                 .map(|(_, typ)| *typ);
 
             // Quote column name to handle reserved keywords like "order"
-            let quoted_column = format!("\"{}\"", column_name);
+            let quoted_column = format!("\"{column_name}\"");
 
             let query = match type_override {
                 Some("DOUBLE") | Some("BIGINT") => {
                     // For numeric types, just check for NULL
-                    format!("SELECT COUNT(*) FROM occurrences WHERE {} IS NOT NULL", quoted_column)
+                    format!("SELECT COUNT(*) FROM occurrences WHERE {quoted_column} IS NOT NULL")
                 }
                 Some("DATE") => {
                     // For date types, just check for NULL
-                    format!("SELECT COUNT(*) FROM occurrences WHERE {} IS NOT NULL", quoted_column)
+                    format!("SELECT COUNT(*) FROM occurrences WHERE {quoted_column} IS NOT NULL")
                 }
                 Some("BOOLEAN") => {
                     // For boolean types, just check for NULL
-                    format!("SELECT COUNT(*) FROM occurrences WHERE {} IS NOT NULL", quoted_column)
+                    format!("SELECT COUNT(*) FROM occurrences WHERE {quoted_column} IS NOT NULL")
                 }
                 _ => {
                     // For VARCHAR (default), check for NULL and empty strings
                     format!(
-                        "SELECT COUNT(*) FROM occurrences WHERE {} IS NOT NULL AND {} != ''",
-                        quoted_column, quoted_column
+                        "SELECT COUNT(*) FROM occurrences WHERE {quoted_column} IS NOT NULL AND {quoted_column} != ''"
                     )
                 }
             };
@@ -224,8 +217,8 @@ impl Database {
 
             // If no non-empty values, drop the column
             if count == 0 {
-                log::info!("Dropping empty column: {}", column_name);
-                conn.execute(&format!("ALTER TABLE occurrences DROP COLUMN {}", quoted_column), [])?;
+                log::info!("Dropping empty column: {column_name}");
+                conn.execute(&format!("ALTER TABLE occurrences DROP COLUMN {quoted_column}"), [])?;
             }
         }
 
@@ -256,8 +249,7 @@ impl Database {
 
             // Sniff the CSV to get column names
             let mut stmt = conn.prepare(&format!(
-                "SELECT unnest(Columns).name FROM sniff_csv('{}')",
-                csv_path
+                "SELECT unnest(Columns).name FROM sniff_csv('{csv_path}')"
             ))?;
             let column_names: Vec<String> = stmt
                 .query_map([], |row| row.get(0))?
@@ -280,7 +272,7 @@ impl Database {
             } else {
                 let pairs: Vec<String> = type_map
                     .iter()
-                    .map(|(col, typ)| format!("'{}': '{}'", col, typ))
+                    .map(|(col, typ)| format!("'{col}': '{typ}'"))
                     .collect();
                 format!(", types = {{{}}}", pairs.join(", "))
             };
@@ -288,8 +280,7 @@ impl Database {
             // Try to create the table
             let table_name = ext.extension.table_name();
             let sql = format!(
-                "CREATE TABLE {} AS SELECT * FROM read_csv('{}', all_varchar = true, nullstr = ''{})",
-                table_name, csv_path, types_param
+                "CREATE TABLE {table_name} AS SELECT * FROM read_csv('{csv_path}', all_varchar = true, nullstr = ''{types_param})"
             );
 
             let create_result = conn.execute(&sql, []);
@@ -302,13 +293,11 @@ impl Database {
                 Err(e) => {
                     let error_msg = e.to_string();
                     if error_msg.contains("already exists") || error_msg.contains("Table with name") {
-                        log::info!("Extension table already exists: {}", table_name);
+                        log::info!("Extension table already exists: {table_name}");
                         created_tables.push((ext.extension, ext.core_id_column.clone()));
                     } else {
                         log::error!(
-                            "Failed to create extension table {}: {}",
-                            table_name,
-                            e
+                            "Failed to create extension table {table_name}: {e}"
                         );
                         return Err(e.into());
                     }
@@ -412,7 +401,8 @@ impl Database {
                     serde_json::Value::Null
                 }
             }
-            "Varchar" | _ => {
+            // VARCHAR is the default
+            _ => {
                 // For VARCHAR columns, try to parse as number if possible
                 if let Ok(Some(s)) = row.get::<_, Option<String>>(idx) {
                     // Try parsing as float first (handles both int and float)
@@ -436,14 +426,15 @@ impl Database {
     /// Quotes an identifier for use in SQL queries to handle reserved keywords
     /// like "order", "class", "type", etc.
     fn quote_identifier(identifier: &str) -> String {
-        format!("\"{}\"", identifier)
+        format!("\"{identifier}\"")
     }
 
     pub fn sql_parts(
         search_params: SearchParams,
         fields: Option<Vec<String>>,
         core_id_column: &str,
-        extension_tables: &Vec<(chuck_core::DwcaExtension, String)>,
+        // extension_tables: &Vec<(chuck_core::DwcaExtension, String)>,
+        extension_tables: &[(chuck_core::DwcaExtension, String)],
     ) -> (String, String, Vec<Box<dyn duckdb::ToSql>>, String) {
         // Validate and filter requested fields against allowlist
         let core_select_fields = if let Some(ref requested) = fields {
@@ -477,8 +468,7 @@ impl Database {
                 let table_name = extension.table_name();
                 let quoted_ext_core_id = Self::quote_identifier(ext_core_id_col);
                 format!(
-                    "(SELECT COALESCE(to_json(list({})), '[]') FROM {} WHERE {}.{} = occurrences.{}) as {}",
-                    table_name, table_name, table_name, quoted_ext_core_id, quoted_core_id, table_name
+                    "(SELECT COALESCE(to_json(list({table_name})), '[]') FROM {table_name} WHERE {table_name}.{quoted_ext_core_id} = occurrences.{quoted_core_id}) as {table_name}"
                 )
             })
             .collect();
@@ -516,7 +506,7 @@ impl Database {
                             let upper_bound = lower_bound + increment;
 
                             let quoted = Self::quote_identifier(column_name);
-                            where_clauses.push(format!("{} >= ? AND {} < ?", quoted, quoted));
+                            where_clauses.push(format!("{quoted} >= ? AND {quoted} < ?"));
                             where_interpolations.push(Box::new(lower_bound));
                             where_interpolations.push(Box::new(upper_bound));
                         }
@@ -525,14 +515,14 @@ impl Database {
                     Some("DATE") => {
                         // For date types, cast to string and use prefix matching
                         let quoted = Self::quote_identifier(column_name);
-                        where_clauses.push(format!("CAST({} AS VARCHAR) LIKE ?", quoted));
-                        where_interpolations.push(Box::new(format!("{}%", filter_value)));
+                        where_clauses.push(format!("CAST({quoted} AS VARCHAR) LIKE ?"));
+                        where_interpolations.push(Box::new(format!("{filter_value}%")));
                     }
                     _ => {
                         // For VARCHAR (default), use ILIKE with substring matching
                         let quoted = Self::quote_identifier(column_name);
-                        where_clauses.push(format!("{} ILIKE ?", quoted));
-                        where_interpolations.push(Box::new(format!("%{}%", filter_value)));
+                        where_clauses.push(format!("{quoted} ILIKE ?"));
+                        where_interpolations.push(Box::new(format!("%{filter_value}%")));
                     }
                 }
             }
@@ -607,7 +597,7 @@ impl Database {
         );
 
         // Execute COUNT query
-        let count_query = format!("SELECT COUNT(*) FROM occurrences{}", where_clause);
+        let count_query = format!("SELECT COUNT(*) FROM occurrences{where_clause}");
         let count_param_refs: Vec<&dyn duckdb::ToSql> = where_interpolations.iter()
             .map(|p| p.as_ref()).collect();
         let total: usize = self.conn.query_row(
@@ -617,8 +607,7 @@ impl Database {
 
         // Build SELECT query
         let select_query = format!(
-            "SELECT {} FROM occurrences{}{} LIMIT ? OFFSET ?",
-            select_fields, where_clause, order_clause
+            "SELECT {select_fields} FROM occurrences{where_clause}{order_clause} LIMIT ? OFFSET ?"
         );
         where_interpolations.push(Box::new(limit));
         where_interpolations.push(Box::new(offset));
@@ -636,7 +625,7 @@ impl Database {
             for i in 0..column_count {
                 let name = row.as_ref().column_name(i)
                     .map_err(|_e| duckdb::Error::InvalidColumnIndex(i))?;
-                let value = Self::get_column_as_json(&row, i);
+                let value = Self::get_column_as_json(row, i);
 
                 // For extension columns, parse JSON string into array
                 let is_extension = self.extension_tables.iter()
@@ -699,12 +688,11 @@ impl Database {
 
         let quoted = Self::quote_identifier(column_name);
         let query = format!(
-            "SELECT DISTINCT {} FROM occurrences WHERE {} IS NOT NULL AND {} ILIKE ? ORDER BY {} LIMIT ?",
-            quoted, quoted, quoted, quoted
+            "SELECT DISTINCT {quoted} FROM occurrences WHERE {quoted} IS NOT NULL AND {quoted} ILIKE ? ORDER BY {quoted} LIMIT ?"
         );
 
         let mut stmt = self.conn.prepare(&query)?;
-        let search_pattern = format!("%{}%", search_term);
+        let search_pattern = format!("%{search_term}%");
         let mut rows = stmt.query(params![search_pattern, limit as i64])?;
 
         let mut suggestions = Vec::new();
@@ -743,15 +731,14 @@ impl Database {
         let quoted_field = Self::quote_identifier(field_name);
         let quoted_core_id = Self::quote_identifier(core_id_column);
         let mut subquery = format!(
-            "SELECT {} as value, COUNT(*) as count, MIN({}) as min_core_id FROM occurrences",
-            quoted_field, quoted_core_id
+            "SELECT {quoted_field} as value, COUNT(*) as count, MIN({quoted_core_id}) as min_core_id FROM occurrences"
         );
 
         if !where_clause.is_empty() {
             subquery.push_str(&where_clause);
         }
 
-        subquery.push_str(&format!(" GROUP BY {}", quoted_field));
+        subquery.push_str(&format!(" GROUP BY {quoted_field}"));
 
         // Build JOIN clauses based on available extension tables
         let mut joins = String::new();
@@ -809,8 +796,7 @@ impl Database {
 
         // Build final query
         let sql = format!(
-            "SELECT DISTINCT ON (agg.value) agg.value, agg.count, {} as photo_url FROM ({}) agg{} ORDER BY count DESC LIMIT {}",
-            photo_select, subquery, joins, limit
+            "SELECT DISTINCT ON (agg.value) agg.value, agg.count, {photo_select} as photo_url FROM ({subquery}) agg{joins} ORDER BY count DESC LIMIT {limit}"
         );
         // log::debug!("sql: {}", sql);
 
@@ -851,8 +837,7 @@ impl Database {
                 let table_name = extension.table_name();
                 let quoted_ext_core_id = Self::quote_identifier(ext_core_id_col);
                 format!(
-                    "(SELECT COALESCE(to_json(list({})), '[]') FROM {} WHERE {}.{} = occurrences.{}) as {}",
-                    table_name, table_name, table_name, quoted_ext_core_id, quoted_core_id, table_name
+                    "(SELECT COALESCE(to_json(list({table_name})), '[]') FROM {table_name} WHERE {table_name}.{quoted_ext_core_id} = occurrences.{quoted_core_id}) as {table_name}"
                 )
             })
             .collect();
@@ -865,8 +850,7 @@ impl Database {
 
         // Build query with WHERE clause on core_id_column
         let query = format!(
-            "SELECT {} FROM occurrences WHERE {} = ?",
-            select_fields, quoted_core_id
+            "SELECT {select_fields} FROM occurrences WHERE {quoted_core_id} = ?"
         );
 
         let mut stmt = self.conn.prepare(&query)?;
@@ -878,7 +862,7 @@ impl Database {
             for i in 0..column_count {
                 let name = row.as_ref().column_name(i)
                     .map_err(|_| duckdb::Error::InvalidColumnIndex(i))?;
-                let value = Self::get_column_as_json(&row, i);
+                let value = Self::get_column_as_json(row, i);
 
                 // Parse extension JSON strings
                 let is_extension = self.extension_tables.iter()
@@ -922,7 +906,7 @@ mod tests {
     impl TestFixture {
         fn new(test_name: &str, csv_data: Vec<&[u8]>) -> Self {
             let temp_dir = std::env::temp_dir()
-                .join(format!("chuck_test_db_{}", test_name));
+                .join(format!("chuck_test_db_{test_name}"));
 
             // Clean up from any previous test runs
             std::fs::remove_dir_all(&temp_dir).ok();
@@ -931,7 +915,7 @@ mod tests {
             // Create CSV files
             let mut csv_paths = Vec::new();
             for (i, data) in csv_data.iter().enumerate() {
-                let csv_path = temp_dir.join(format!("test{}.csv", i));
+                let csv_path = temp_dir.join(format!("test{i}.csv"));
                 let mut file = std::fs::File::create(&csv_path).unwrap();
                 file.write_all(data).unwrap();
                 csv_paths.push(csv_path);
@@ -963,7 +947,7 @@ mod tests {
         // First call should succeed
         let result1 = Database::create_from_core_files(
             &fixture.csv_paths,
-            &vec![],
+            &[],
             &fixture.db_path,
             "id"
         );
@@ -977,7 +961,7 @@ mod tests {
         // Second call should recognize existing table and not alter it
         let result2 = Database::create_from_core_files(
             &fixture.csv_paths,
-            &vec![],
+            &[],
             &fixture.db_path,
             "id"
         );
@@ -1005,7 +989,7 @@ mod tests {
 
         let result = Database::create_from_core_files(
             &fixture.csv_paths,
-            &vec![],
+            &[],
             &fixture.db_path,
             "id"
         );
@@ -1036,7 +1020,7 @@ mod tests {
         );
         let result = Database::create_from_core_files(
             &fixture.csv_paths,
-            &vec![],
+            &[],
             &fixture.db_path,
             "id"
         );
@@ -1060,7 +1044,7 @@ mod tests {
 
         let db = Database::create_from_core_files(
             &fixture.csv_paths,
-            &vec![],
+            &[],
             &fixture.db_path,
             "occurrenceID"
         ).unwrap();
@@ -1114,7 +1098,7 @@ mod tests {
 
         let fixture = TestFixture::new("search_scientific_name", vec![csv_data]);
 
-        let db = Database::create_from_core_files(&fixture.csv_paths, &vec![], &fixture.db_path, "occurrenceID").unwrap();
+        let db = Database::create_from_core_files(&fixture.csv_paths, &[], &fixture.db_path, "occurrenceID").unwrap();
 
         // Search for "foo" (case-insensitive partial match)
         let mut filters = HashMap::new();
@@ -1165,7 +1149,7 @@ mod tests {
 "#;
 
         let fixture = TestFixture::new("search_field_selection", vec![csv_data]);
-        let db = Database::create_from_core_files(&fixture.csv_paths, &vec![], &fixture.db_path, "occurrenceID").unwrap();
+        let db = Database::create_from_core_files(&fixture.csv_paths, &[], &fixture.db_path, "occurrenceID").unwrap();
 
         // Search with specific fields
         let search_result = db.search(10, 0, SearchParams::default(), Some(vec![
@@ -1222,7 +1206,7 @@ mod tests {
 
         // Create database with extensions
         let db = Database::create_from_core_files(
-            &vec![occurrence_path],
+            &[occurrence_path],
             &extensions,
             &db_path,
             "occurrenceID"
@@ -1309,7 +1293,7 @@ mod tests {
 
         // Create database
         let db = Database::create_from_core_files(
-            &vec![occurrence_path],
+            &[occurrence_path],
             &extensions,
             &db_path,
             "occurrenceID"
@@ -1442,7 +1426,7 @@ mod tests {
         }];
 
         let db = Database::create_from_core_files(
-            &vec![occurrence_path],
+            &[occurrence_path],
             &extensions,
             &db_path,
             "occurrenceID"
@@ -1635,7 +1619,7 @@ mod tests {
 "#;
 
         let fixture = TestFixture::new("search_decimal_latitude_range", vec![csv_data]);
-        let db = Database::create_from_core_files(&fixture.csv_paths, &vec![], &fixture.db_path, "occurrenceID").unwrap();
+        let db = Database::create_from_core_files(&fixture.csv_paths, &[], &fixture.db_path, "occurrenceID").unwrap();
 
         // Test 1: Search for "3" should match 3.0-3.9999 (ids: 1, 2, 3, 4)
         let mut filters = HashMap::new();
@@ -1722,7 +1706,7 @@ mod tests {
 "#;
 
         let fixture = TestFixture::new("autocomplete_type_check", vec![csv_data]);
-        let db = Database::create_from_core_files(&fixture.csv_paths, &vec![], &fixture.db_path, "occurrenceID").unwrap();
+        let db = Database::create_from_core_files(&fixture.csv_paths, &[], &fixture.db_path, "occurrenceID").unwrap();
 
         // Test that VARCHAR column works
         let result = db.get_autocomplete_suggestions("scientificName", "Spec", 10);
@@ -1736,13 +1720,11 @@ mod tests {
         let err_msg = err.to_string();
         assert!(
             err_msg.contains("decimalLatitude") && err_msg.contains("not available for autocomplete"),
-            "Error should mention column name and that it's not available for autocomplete. Got: {}",
-            err_msg
+            "Error should mention column name and that it's not available for autocomplete. Got: {err_msg}"
         );
         assert!(
             err_msg.contains("DOUBLE"),
-            "Error should mention the column type. Got: {}",
-            err_msg
+            "Error should mention the column type. Got: {err_msg}"
         );
     }
 
@@ -1764,7 +1746,7 @@ mod tests {
         ).unwrap();
         drop(conn);
 
-        let db = Database::open(&db_path, "".to_string(), &vec![]).unwrap();
+        let db = Database::open(&db_path, "".to_string(), &[]).unwrap();
 
         let params = SearchParams::default();
         let result = db.aggregate_by_field("basisOfRecord", &params, 1000, "occurrenceID").unwrap();
@@ -1801,7 +1783,7 @@ mod tests {
         ).unwrap();
         drop(conn);
 
-        let db = Database::open(&db_path, "".to_string(), &vec![]).unwrap();
+        let db = Database::open(&db_path, "".to_string(), &[]).unwrap();
         let params = SearchParams::default();
 
         // Test that a valid field name works
@@ -1841,7 +1823,7 @@ mod tests {
         let fixture = TestFixture::new("reserved_keyword_order", vec![csv_data]);
         let db = Database::create_from_core_files(
             &fixture.csv_paths,
-            &vec![],
+            &[],
             &fixture.db_path,
             "occurrenceID"
         ).unwrap();
@@ -1890,7 +1872,7 @@ mod tests {
 
         // Verify Pinales appears in aggregation with count of 2
         let pinales = agg_result.iter().find(|r| {
-            r.value.as_ref().map(|v| v.as_str()) == Some("Pinales")
+            r.value.as_deref() == Some("Pinales")
         });
         assert!(pinales.is_some());
         assert_eq!(pinales.unwrap().count, 2);

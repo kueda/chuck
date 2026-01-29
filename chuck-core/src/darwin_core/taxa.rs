@@ -50,7 +50,7 @@ where
     let config = tokio::sync::RwLock::new(config_instance);
 
     let rate_limiter = get_rate_limiter().await;
-    let total_chunks = (taxon_ids.len() + 499) / 500;
+    let total_chunks = taxon_ids.len().div_ceil(500);
     let mut chunks_processed = 0;
 
     for chunk in taxon_ids.chunks(500) {
@@ -82,18 +82,17 @@ where
         let response = loop {
             attempt += 1;
             let config_read = config.read().await;
-            match taxa_api::taxa_get(&*config_read, params.clone()).await {
+            match taxa_api::taxa_get(&config_read, params.clone()).await {
                 Ok(response) => break response,
                 Err(e) => {
                     if attempt >= 3 {
                         return Err(format!(
-                            "Failed to fetch taxa after 3 attempts: {}", e
+                            "Failed to fetch taxa after 3 attempts: {e}"
                         ).into());
                     }
                     let backoff_ms = 1000 * (2_u64.pow(attempt - 1));
                     eprintln!(
-                        "Taxa API request failed (attempt {}), retrying in {}ms: {}",
-                        attempt, backoff_ms, e
+                        "Taxa API request failed (attempt {attempt}), retrying in {backoff_ms}ms: {e}"
                     );
                     sleep(Duration::from_millis(backoff_ms)).await;
                 }

@@ -52,7 +52,7 @@ impl ArchiveBuilder {
             .from_writer(occurrence_file);
 
         // Write CSV headers
-        occurrence_writer.write_record(&Occurrence::csv_headers())?;
+        occurrence_writer.write_record(Occurrence::csv_headers())?;
         occurrence_writer.flush()?;
 
         Ok(Self {
@@ -83,7 +83,7 @@ impl ArchiveBuilder {
     /// Add a batch of DarwinCore occurrences to the archive
     pub async fn add_occurrences(&mut self, occurrences: &[Occurrence]) -> Result<(), Box<dyn std::error::Error>> {
         for occurrence in occurrences {
-            self.occurrence_writer.write_record(&occurrence.to_csv_record())?;
+            self.occurrence_writer.write_record(occurrence.to_csv_record())?;
             self.record_count += 1;
         }
 
@@ -106,14 +106,14 @@ impl ArchiveBuilder {
                 .from_writer(multimedia_file);
 
             // Write CSV headers
-            writer.write_record(&Multimedia::csv_headers())?;
+            writer.write_record(Multimedia::csv_headers())?;
             writer.flush()?;
             self.multimedia_writer = Some(writer);
         }
 
         if let Some(writer) = &mut self.multimedia_writer {
             for media in multimedia {
-                writer.write_record(&media.to_csv_record())?;
+                writer.write_record(media.to_csv_record())?;
                 self.multimedia_count += 1;
             }
 
@@ -138,14 +138,14 @@ impl ArchiveBuilder {
                 .from_writer(audiovisual_file);
 
             // Write CSV headers
-            writer.write_record(&Audiovisual::csv_headers())?;
+            writer.write_record(Audiovisual::csv_headers())?;
             writer.flush()?;
             self.audiovisual_writer = Some(writer);
         }
 
         if let Some(writer) = &mut self.audiovisual_writer {
             for media in audiovisual {
-                writer.write_record(&media.to_csv_record())?;
+                writer.write_record(media.to_csv_record())?;
                 self.audiovisual_count += 1;
             }
 
@@ -170,14 +170,14 @@ impl ArchiveBuilder {
                 .from_writer(identification_file);
 
             // Write CSV headers
-            writer.write_record(&Identification::csv_headers())?;
+            writer.write_record(Identification::csv_headers())?;
             writer.flush()?;
             self.identification_writer = Some(writer);
         }
 
         if let Some(writer) = &mut self.identification_writer {
             for identification in identifications {
-                writer.write_record(&identification.to_csv_record())?;
+                writer.write_record(identification.to_csv_record())?;
                 self.identification_count += 1;
             }
 
@@ -273,7 +273,7 @@ impl ArchiveBuilder {
         // Finish ZIP
         zip.finish()?;
 
-        println!("DarwinCore Archive created: {}", output_path);
+        println!("DarwinCore Archive created: {output_path}");
         println!("Records exported: {}", self.record_count);
         if self.multimedia_count > 0 {
             println!("Multimedia records exported: {}", self.multimedia_count);
@@ -312,7 +312,7 @@ impl ArchiveBuilder {
                     .and_then(|name| name.to_str())
                     .ok_or("Invalid filename")?;
 
-                let zip_path = format!("{}/{}", zip_prefix, file_name);
+                let zip_path = format!("{zip_prefix}/{file_name}");
                 zip.start_file(zip_path, zip_opts)?;
 
                 // Stream the file contents instead of reading entirely into memory
@@ -324,7 +324,7 @@ impl ArchiveBuilder {
                     .and_then(|name| name.to_str())
                     .ok_or("Invalid directory name")?;
 
-                let subdir_zip_prefix = format!("{}/{}", zip_prefix, dir_name);
+                let subdir_zip_prefix = format!("{zip_prefix}/{dir_name}");
                 Self::add_directory_to_zip(zip, &path, &subdir_zip_prefix)?;
             }
         }

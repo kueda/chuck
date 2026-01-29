@@ -142,7 +142,7 @@ pub fn run() {
                     .build();
 
                     if let Err(e) = window {
-                        log::error!("Failed to open iNat download window: {}", e);
+                        log::error!("Failed to open iNat download window: {e}");
                     }
                 } else if event.id() == "show-metadata" {
                     // Open new window for archive metadata
@@ -157,7 +157,7 @@ pub fn run() {
                     .build();
 
                     if let Err(e) = window {
-                        log::error!("Failed to open metadata window: {}", e);
+                        log::error!("Failed to open metadata window: {e}");
                     }
                 }
             });

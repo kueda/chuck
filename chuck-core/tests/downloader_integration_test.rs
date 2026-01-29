@@ -491,8 +491,7 @@ async fn test_downloader_estimates_total_photos() {
     // So the estimate should be roughly 2 * 10 = 20 photos (or some estimate > 10)
     assert!(
         estimated_total > 10,
-        "Expected photos_total estimate ({}) to be greater than total observations (10)",
-        estimated_total
+        "Expected photos_total estimate ({estimated_total}) to be greater than total observations (10)"
     );
 
     // Verify mocks were called

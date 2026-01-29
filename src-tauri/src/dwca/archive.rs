@@ -14,6 +14,8 @@ use crate::error::{ChuckError, Result};
 #[derive(Debug, Clone)]
 pub struct ExtensionInfo {
     /// The rowType from meta.xml (e.g., "http://rs.gbif.org/terms/1.0/Multimedia")
+    // This does get used in the frontend after being serialized
+    #[allow(dead_code)]
     pub row_type: String,
     /// Path to the extension CSV file
     pub location: PathBuf,
@@ -47,13 +49,8 @@ pub struct Archive {
 }
 
 impl Archive {
-    /// Opens and extracts a Darwin Core Archive
-    pub fn open(archive_path: &Path, base_dir: &Path) -> Result<Self> {
-        Self::open_with_progress(archive_path, base_dir, |_| {})
-    }
-
     /// Opens and extracts a Darwin Core Archive with progress callback
-    pub fn open_with_progress<F>(
+    pub fn open<F>(
         archive_path: &Path,
         base_dir: &Path,
         mut progress_callback: F,
@@ -88,7 +85,7 @@ impl Archive {
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("archive");
-        let db_path = storage_dir.join(format!("{}.db", db_name));
+        let db_path = storage_dir.join(format!("{db_name}.db"));
         let db = Database::create_from_core_files(&core_files, &extensions, &db_path, &core_id_column)?;
 
         // Initialize photo cache table
@@ -232,6 +229,7 @@ impl Archive {
     ///
     /// Uses grid-based sampling at low zoom levels to reduce data volume while
     /// preserving spatial extent (showing where observations exist across the tile)
+    #[allow(clippy::type_complexity)]
     pub fn query_tile(
         &self,
         west: f64,
@@ -252,7 +250,7 @@ impl Archive {
             search_params,
             None,
             self.core_id_column.as_ref(),
-            &vec![]
+            &[]
         );
 
         // Determine grid cell size based on zoom level
@@ -283,7 +281,7 @@ impl Archive {
                      FLOOR(decimalLatitude / {}),
                      FLOOR(decimalLongitude / {})",
                 self.core_id_column,
-                if where_clause.len() == 0 {
+                if where_clause.is_empty() {
                     String::from("WHERE")
                 } else {
                     format!("{where_clause} AND")
@@ -302,7 +300,7 @@ impl Archive {
                      AND decimalLatitude IS NOT NULL
                      AND decimalLongitude IS NOT NULL",
                 self.core_id_column,
-                if where_clause.len() == 0 {
+                if where_clause.is_empty() {
                     String::from("WHERE")
                 } else {
                     format!("{where_clause} AND")
@@ -396,7 +394,7 @@ fn create_storage_dir(archive_path: &Path, base_dir: &Path) -> Result<PathBuf> {
         .expect("System clock should be after Unix epoch")
         .as_micros();
 
-    let unique_dir_name = format!("{}-{:x}", fname, timestamp);
+    let unique_dir_name = format!("{fname}-{timestamp:x}");
     let target_dir = base_dir.join(unique_dir_name);
 
     std::fs::create_dir_all(&target_dir).map_err(|e| ChuckError::DirectoryCreate {
@@ -800,7 +798,7 @@ mod tests {
     impl UnzippedArchiveFixture {
         fn new(test_name: &str, meta_xml: &str) -> Self {
             let temp_dir = std::env::temp_dir()
-                .join(format!("chuck_test_dwca_archive_{}", test_name));
+                .join(format!("chuck_test_dwca_archive_{test_name}"));
             std::fs::create_dir_all(&temp_dir).unwrap();
             let meta_path = temp_dir.join("meta.xml");
             let mut file = std::fs::File::create(&meta_path).unwrap();
@@ -813,7 +811,7 @@ mod tests {
 
         fn with_files(test_name: &str, files: &[(&str, &[u8])]) -> Self {
             let temp_dir = std::env::temp_dir()
-                .join(format!("chuck_test_dwca_archive_{}", test_name));
+                .join(format!("chuck_test_dwca_archive_{test_name}"));
             std::fs::create_dir_all(&temp_dir).unwrap();
 
             for (filename, content) in files {
@@ -835,10 +833,10 @@ mod tests {
             create_db: bool,
         ) -> Self {
             let base_dir = std::env::temp_dir()
-                .join(format!("chuck_test_dwca_archive_{}", test_name));
+                .join(format!("chuck_test_dwca_archive_{test_name}"));
             std::fs::create_dir_all(&base_dir).unwrap();
 
-            let storage_dir = base_dir.join(format!("{}-abc123", archive_name));
+            let storage_dir = base_dir.join(format!("{archive_name}-abc123"));
             std::fs::create_dir_all(&storage_dir).unwrap();
 
             for (filename, content) in files {
@@ -858,8 +856,8 @@ mod tests {
                     let db_name = archive_name
                         .strip_suffix(".zip")
                         .unwrap_or(archive_name);
-                    let db_path = storage_dir.join(format!("{}.db", db_name));
-                    let db = Database::create_from_core_files(&csv_paths, &vec![], &db_path, "occurrenceID").unwrap();
+                    let db_path = storage_dir.join(format!("{db_name}.db"));
+                    let db = Database::create_from_core_files(&csv_paths, &[], &db_path, "occurrenceID").unwrap();
                     drop(db);
                 }
             }
@@ -908,8 +906,8 @@ mod tests {
             let unzipped_fixture = UnzippedArchiveFixture::with_files(test_name, files);
 
             let temp_dir = std::env::temp_dir();
-            let archive_path = temp_dir.join(format!("{}.zip", test_name));
-            let base_dir = temp_dir.join(format!("{}_base", test_name));
+            let archive_path = temp_dir.join(format!("{test_name}.zip"));
+            let base_dir = temp_dir.join(format!("{test_name}_base"));
 
             // Zip up the unzipped fixture's directory
             let archive_file = std::fs::File::create(&archive_path).unwrap();
@@ -1195,7 +1193,7 @@ mod tests {
         let fixture2 = ZippedArchiveFixture::new("test_archive2", None);
 
         // Open first archive
-        let archive1 = Archive::open(fixture1.archive_path(), fixture1.base_dir()).unwrap();
+        let archive1 = Archive::open(fixture1.archive_path(), fixture1.base_dir(), |_| {}).unwrap();
         let storage_dir1 = archive1.storage_dir.clone();
         assert!(storage_dir1.exists());
 
@@ -1203,7 +1201,7 @@ mod tests {
         drop(archive1);
 
         // Open second archive using the same base directory
-        let archive2 = Archive::open(fixture2.archive_path(), fixture1.base_dir()).unwrap();
+        let archive2 = Archive::open(fixture2.archive_path(), fixture1.base_dir(), |_| {}).unwrap();
         let storage_dir2 = archive2.storage_dir.clone();
 
         // After opening the second archive, the first archive's directory should be removed
@@ -1339,7 +1337,7 @@ mod tests {
 
         // Create a test archive with photos
         let test_name = "lazy_photo_extraction";
-        let temp_dir = std::env::temp_dir().join(format!("chuck_test_{}", test_name));
+        let temp_dir = std::env::temp_dir().join(format!("chuck_test_{test_name}"));
         std::fs::remove_dir_all(&temp_dir).ok();
         std::fs::create_dir_all(&temp_dir).unwrap();
 
@@ -1369,17 +1367,17 @@ mod tests {
     <field index="1" term="http://purl.org/dc/terms/identifier"/>
   </extension>
 </archive>"#;
-        zip.start_file("meta.xml", options.clone()).unwrap();
+        zip.start_file("meta.xml", options).unwrap();
         zip.write_all(meta_xml).unwrap();
 
         // Add occurrence.csv
         let occurrence_csv = b"occurrenceID\n1\n";
-        zip.start_file("occurrence.csv", options.clone()).unwrap();
+        zip.start_file("occurrence.csv", options).unwrap();
         zip.write_all(occurrence_csv).unwrap();
 
         // Add multimedia.csv with photo reference
         let multimedia_csv = b"occurrenceID,identifier\n1,media/2024/01/01/test.jpg\n";
-        zip.start_file("multimedia.csv", options.clone()).unwrap();
+        zip.start_file("multimedia.csv", options).unwrap();
         zip.write_all(multimedia_csv).unwrap();
 
         // Add a photo file
@@ -1391,7 +1389,7 @@ mod tests {
 
         // Open the archive (photos should NOT be extracted)
         let base_dir = temp_dir.join("storage");
-        let archive = Archive::open_with_progress(&archive_path, &base_dir, |_| {}).unwrap();
+        let archive = Archive::open(&archive_path, &base_dir, |_| {}).unwrap();
 
         // Verify photos were not extracted during open
         let media_dir = archive.storage_dir.join("media");
@@ -1448,7 +1446,7 @@ mod tests {
         ];
 
         let fixture = ZippedArchiveFixture::new("info_columns", Some(files));
-        let archive = Archive::open(fixture.archive_path(), fixture.base_dir()).unwrap();
+        let archive = Archive::open(fixture.archive_path(), fixture.base_dir(), |_| {}).unwrap();
 
         let info = archive.info().unwrap();
 

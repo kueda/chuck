@@ -24,10 +24,10 @@ impl StorageBackendConfig {
         }
 
         let contents = std::fs::read_to_string(path)
-            .map_err(|e| AuthError::IoError(e))?;
+            .map_err(AuthError::IoError)?;
 
         let config: Self = serde_json::from_str(&contents)
-            .map_err(|e| AuthError::JsonError(e))?;
+            .map_err(AuthError::JsonError)?;
 
         Ok(Some(config))
     }
@@ -37,14 +37,14 @@ impl StorageBackendConfig {
 
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
-                .map_err(|e| AuthError::IoError(e))?;
+                .map_err(AuthError::IoError)?;
         }
 
         let contents = serde_json::to_string_pretty(self)
-            .map_err(|e| AuthError::JsonError(e))?;
+            .map_err(AuthError::JsonError)?;
 
         std::fs::write(path, contents)
-            .map_err(|e| AuthError::IoError(e))?;
+            .map_err(AuthError::IoError)?;
 
         Ok(())
     }

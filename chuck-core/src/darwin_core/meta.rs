@@ -183,7 +183,7 @@ pub fn generate_eml(metadata: &Metadata) -> String {
     } else {
         metadata.abstract_lines
             .iter()
-            .map(|line| format!("\n      <para>{}</para>", line))
+            .map(|line| format!("\n      <para>{line}</para>"))
             .collect::<Vec<_>>()
             .join("")
     };
@@ -210,5 +210,5 @@ pub fn generate_eml(metadata: &Metadata) -> String {
       <organizationName>Chuck</organizationName>
     </contact>
   </dataset>
-</eml:eml>"#, abstract_paras = abstract_paras)
+</eml:eml>"#)
 }

@@ -77,7 +77,7 @@ impl Downloader {
         abstract_lines.extend(
             crate::api::params::extract_criteria(&params)
                 .into_iter()
-                .map(|c| format!("* {}", c))
+                .map(|c| format!("* {c}"))
         );
         if fetch_photos {
             abstract_lines.push("* Photos downloaded and included in archive".to_string());
@@ -116,6 +116,7 @@ impl Downloader {
         let mut progress = DownloadProgress::default();
 
         // Track pending photo download from previous batch
+        #[allow(clippy::type_complexity)]
         let mut pending_photos: Option<(
             tokio::task::JoinHandle<Result<(HashMap<i32, String>, usize), String>>,
             Vec<inaturalist::models::Observation>,
@@ -138,7 +139,7 @@ impl Downloader {
                 // Before breaking, finish any pending photo downloads
                 if let Some((photo_handle, observations, taxa_hash)) = pending_photos.take() {
                     let (photo_mapping, photos_count) = photo_handle.await
-                        .map_err(|e| format!("Photo download task failed: {}", e))??;
+                        .map_err(|e| format!("Photo download task failed: {e}"))??;
                     progress.photos_current += photos_count;
                     self.process_extensions(&observations, &mut archive, &photo_mapping, &taxa_hash).await?;
                 }
@@ -156,7 +157,7 @@ impl Downloader {
             // If there's a pending photo download from the previous batch, wait for it and process extensions
             if let Some((photo_handle, observations, prev_taxa_hash)) = pending_photos.take() {
                 let (photo_mapping, photos_count) = photo_handle.await
-                    .map_err(|e| format!("Photo download task failed: {}", e))??;
+                    .map_err(|e| format!("Photo download task failed: {e}"))??;
                 progress.photos_current += photos_count;
                 self.process_extensions(&observations, &mut archive, &photo_mapping, &prev_taxa_hash).await?;
             }
@@ -234,6 +235,7 @@ impl Downloader {
 
     /// Start photo downloads as a background task
     /// Returns a handle that can be awaited later to get (photo_mapping, photos_downloaded_count)
+    #[allow(clippy::type_complexity)]
     fn start_photo_downloads<F>(
         &self,
         batch: &inaturalist::models::ObservationsResponse,
@@ -395,7 +397,7 @@ pub fn convert_to_multimedia(
     observations
         .iter()
         .filter_map(|obs| {
-            let occurrence_id = obs.id.map(|id| format!("{}", id))?;
+            let occurrence_id = obs.id.map(|id| format!("{id}"))?;
             Some(obs.photos.as_ref()?.iter().map(|photo| {
                 Multimedia::from((photo, occurrence_id.as_str(), obs.user.as_deref(), photo_mapping))
             }).collect::<Vec<_>>())
@@ -412,7 +414,7 @@ pub fn convert_to_audiovisual(
     observations
         .iter()
         .filter_map(|obs| {
-            let occurrence_id = obs.id.map(|id| format!("{}", id))?;
+            let occurrence_id = obs.id.map(|id| format!("{id}"))?;
             Some(obs.photos.as_ref()?.iter().map(|photo| {
                 Audiovisual::from((photo, occurrence_id.as_str(), obs, photo_mapping))
             }).collect::<Vec<_>>())
@@ -429,7 +431,7 @@ pub fn convert_to_identifications(
     observations
         .iter()
         .filter_map(|obs| {
-            let occurrence_id = obs.id.map(|id| format!("{}", id))?;
+            let occurrence_id = obs.id.map(|id| format!("{id}"))?;
             Some(obs.identifications.as_ref()?.iter().map(|identification| {
                 Identification::from((identification, occurrence_id.as_str(), taxa_hash))
             }).collect::<Vec<_>>())
@@ -457,7 +459,7 @@ mod tests {
 
         assert!(downloader.params.taxon_id == Some(vec!["47126".to_string()]));
         assert_eq!(downloader.extensions.len(), 1);
-        assert_eq!(downloader.fetch_photos, true);
+        assert!(downloader.fetch_photos);
     }
 
     #[test]

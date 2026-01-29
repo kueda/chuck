@@ -97,7 +97,7 @@ mod tests {
         // Zoom 0: whole world in one tile, 0°,0° is in center
         let (x, y) = lat_lng_to_tile_coords(0.0, 0.0, 0, 0, 0);
         assert_eq!(x, 2048.0, "Z=0: X should be exactly 2048 for longitude 0°");
-        assert!((y - 2048.0).abs() < 0.001, "Z=0: Y should be near 2048 for latitude 0°, got {}", y);
+        assert!((y - 2048.0).abs() < 0.001, "Z=0: Y should be near 2048 for latitude 0°, got {y}");
 
         // Zoom 5: 0°,0° is at northwest corner of tile (16,16)
         // bbox: west=0, south=-11.178401873711781, east=11.25, north=0
@@ -124,8 +124,8 @@ mod tests {
 
         // With Web Mercator projection, the pixel coordinates will be different from linear interpolation
         let (pixel_x, pixel_y) = lat_lng_to_tile_coords(lat, lng, 1, tile_x, tile_y);
-        assert!((pixel_x - 2183.0).abs() < 1.0, "z=1: pixel x should be near 2183, got {}", pixel_x);
-        assert!((pixel_y - 3867.0).abs() < 1.0, "z=1: pixel y should be near 3867, got {}", pixel_y);
+        assert!((pixel_x - 2183.0).abs() < 1.0, "z=1: pixel x should be near 2183, got {pixel_x}");
+        assert!((pixel_y - 3867.0).abs() < 1.0, "z=1: pixel y should be near 3867, got {pixel_y}");
 
         // Zoom 5: should be in tile (8,15), pixel coords (2166, 430)
         let (tile_x, tile_y) = lat_lng_to_tile(lat, lng, 5);
@@ -133,8 +133,8 @@ mod tests {
         assert_eq!(tile_y, 15, "z=5: should be in tile y=15");
 
         let (pixel_x, pixel_y) = lat_lng_to_tile_coords(lat, lng, 5, tile_x, tile_y);
-        assert!((pixel_x - 2166.0).abs() < 1.0, "z=5: pixel x should be near 2166, got {}", pixel_x);
-        assert!((pixel_y - 430.0).abs() < 1.0, "z=5: pixel y should be near 430, got {}", pixel_y);
+        assert!((pixel_x - 2166.0).abs() < 1.0, "z=5: pixel x should be near 2166, got {pixel_x}");
+        assert!((pixel_y - 430.0).abs() < 1.0, "z=5: pixel y should be near 430, got {pixel_y}");
 
         // Zoom 10: should be in tile (272,483), pixel coords (3777, 1470)
         let (tile_x, tile_y) = lat_lng_to_tile(lat, lng, 10);
@@ -142,7 +142,7 @@ mod tests {
         assert_eq!(tile_y, 483, "z=10: should be in tile y=483");
 
         let (pixel_x, pixel_y) = lat_lng_to_tile_coords(lat, lng, 10, tile_x, tile_y);
-        assert!((pixel_x - 3777.0).abs() < 1.0, "z=10: pixel x should be near 3777, got {}", pixel_x);
-        assert!((pixel_y - 1471.0).abs() < 1.0, "z=10: pixel y should be near 1471, got {}", pixel_y);
+        assert!((pixel_x - 3777.0).abs() < 1.0, "z=10: pixel x should be near 3777, got {pixel_x}");
+        assert!((pixel_y - 1471.0).abs() < 1.0, "z=10: pixel y should be near 1471, got {pixel_y}");
     }
 }

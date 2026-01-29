@@ -38,11 +38,11 @@ pub async fn get_observation_count(params: CountParams) -> Result<i32, String> {
     count_params.per_page = Some("0".to_string());
 
     // Call iNaturalist API
-    match inaturalist::apis::observations_api::observations_get(&*config_guard, count_params).await {
+    match inaturalist::apis::observations_api::observations_get(&config_guard, count_params).await {
         Ok(response) => Ok(response.total_results.unwrap_or(0)),
         Err(e) => {
-            log::error!("Failed to get observation count: {:?}", e);
-            Err(format!("Failed to get observation count: {}", e))
+            log::error!("Failed to get observation count: {e:?}");
+            Err(format!("Failed to get observation count: {e}"))
         }
     }
 }
@@ -54,7 +54,6 @@ pub enum InatProgress {
     DownloadingPhotos { current: usize, total: usize },
     Building { message: String },
     Complete,
-    Error { message: String },
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,7 +92,7 @@ pub async fn generate_inat_archive(
             "Audiovisual" => extensions.push(chuck_core::DwcaExtension::Audiovisual),
             "Identifications" => extensions.push(chuck_core::DwcaExtension::Identifications),
             _ => {
-                log::warn!("Unknown extension: {}", ext);
+                log::warn!("Unknown extension: {ext}");
             }
         }
     }
