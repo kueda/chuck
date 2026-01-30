@@ -21,7 +21,7 @@ tauri-build = { version = "2", features = [] }
 base64 = "0.22"
 chrono = "0.4"
 chuck-core = { path = "../chuck-core", features = ["keyring-storage"] }
-duckdb = { version = "1.4.1", features = ["bundled"] }
+duckdb = { version = "1.4.1", features = ["bundled", "json"] }
 env_logger = { workspace = true }
 futures = "0.3.31"
 inaturalist = { git = "https://github.com/kueda/rust-inaturalist.git", branch = "complete-get-observations" }
