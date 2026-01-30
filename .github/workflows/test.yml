@@ -39,7 +39,10 @@ jobs:
             xdg-utils
 
       - name: Install frontend dependencies
-        run: npm install
+        # TODO refactor tests so tests on Linux use Chromium
+        run: |
+          npm install
+          npx playwright install --with-deps webkit
 
       - name: Lint and type check
         run: npm run check
@@ -79,7 +82,10 @@ jobs:
             chuck-cli
 
       - name: Install frontend dependencies
-        run: npm install
+        # TODO refactor tests so tests on Windows use Chromium
+        run: |
+          npm install
+          npx playwright install --with-deps webkit
 
       - name: Run tests
         run: npm test
