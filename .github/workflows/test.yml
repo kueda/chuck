@@ -82,10 +82,26 @@ jobs:
             chuck-cli
 
       - name: Install frontend dependencies
-        # TODO refactor tests so tests on Windows use Chromium
+        if: matrix.os == 'mac'
         run: |
           npm install
           npx playwright install --with-deps webkit
 
+      - name: Install frontend dependencies for Windows
+        if: matrix.os == 'windows'
+        run: |
+          npm install
+          npx playwright install --with-deps msedge
+
       - name: Run tests
+        if: matrix.os == 'mac'
         run: npm test
+
+      # Tauri on Windows uses MS Edge Chromium, so we need a different
+      # approach to running the tests
+      - name: Run tests on Windows
+        if: matrix.os == 'windows'
+        run: |
+          cargo test
+          npm run test:frontend:unit
+          npx playwright test --project=integration-windows

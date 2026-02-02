@@ -20,14 +20,24 @@ export default defineConfig({
 
   projects: [
     {
-      name: 'webkit',
+      name: 'integration',
+      // Note that Tauri uses webkit on Mac and Linux:
+      // https://github.com/tauri-apps/wry?tab=readme-ov-file#platform-considerations
       use: { ...devices['Desktop Safari'] },
       testIgnore: '**/performance.spec.ts',
     },
     {
-      name: 'webkit-performance',
+      name: 'performance',
       use: { ...devices['Desktop Safari'] },
       testMatch: '**/performance.spec.ts',
+    },
+    {
+      name: 'integration-windows',
+      use: {
+        ...devices['Desktop Edge'],
+        channel: 'msedge'
+      },
+      testIgnore: '**/performance.spec.ts',
     },
   ],
 
