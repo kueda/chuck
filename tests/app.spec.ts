@@ -517,8 +517,13 @@ test.describe('Frontend', () => {
     await expect(cardContent).toBeVisible();
   });
 
-  test('should render cards with the correct height', async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name === 'integration-windows', 'Card height calculation differs in Edge');
+  test('should render cards with the correct height', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'integration-windows',
+      'Card height calculation differs in Edge',
+    );
     // Open the archive
     await openArchive(page);
 
