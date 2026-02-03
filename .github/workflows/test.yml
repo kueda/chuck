@@ -23,10 +23,6 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1.15.2
         with:
           components: clippy, rustfmt
-          cache-workspaces: |
-            src-tauri
-            chuck-core
-            chuck-cli
 
       - name: Install system dependencies
         run: |
@@ -76,10 +72,6 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1.15.2
         with:
           components: clippy, rustfmt
-          cache-workspaces: |
-            src-tauri
-            chuck-core
-            chuck-cli
 
       - name: Install frontend dependencies
         if: matrix.os == 'mac'
