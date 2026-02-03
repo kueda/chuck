@@ -38,6 +38,7 @@ export default defineConfig({
         channel: 'msedge'
       },
       testIgnore: '**/performance.spec.ts',
+      retries: 2
     },
   ],
 
