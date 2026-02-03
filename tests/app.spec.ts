@@ -252,7 +252,7 @@ test.describe('Frontend', () => {
     // Type in the scientificName field without selecting from autocomplete
     const input = page.locator('input#Combobox-scientificName');
     await input.click();
-    await input.type('Qu');
+    await input.fill('Qu');
 
     // Wait for autocomplete dropdown to appear
     await page.waitForTimeout(500);
@@ -290,7 +290,7 @@ test.describe('Frontend', () => {
     // Type in the scientificName field to show autocomplete
     const input = page.locator('input#Combobox-scientificName');
     await input.click();
-    await input.type('Qu');
+    await input.fill('Qu');
 
     // Wait for autocomplete dropdown to appear
     await page.waitForTimeout(500);
@@ -310,7 +310,8 @@ test.describe('Frontend', () => {
     const suggestionText = (await highlightedItem.textContent())?.trim() || '';
 
     // Press ENTER to select the highlighted suggestion
-    await input.press('Enter');
+    // Use page.keyboard to ensure event bubbles through document (required for Chromium)
+    await page.keyboard.press('Enter');
     await page.waitForTimeout(300);
 
     // Verify the input now contains the selected suggestion

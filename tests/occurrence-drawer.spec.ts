@@ -33,6 +33,9 @@ test.describe('OccurrenceDrawer Keyboard Navigation', () => {
       .locator('header div:has-text("occurrenceID:")')
       .textContent();
 
+    // Focus the drawer so it receives keyboard events (required for Chromium)
+    await page.locator('[data-testid="occurrence-drawer"]').focus();
+
     // Press right arrow key
     await page.keyboard.press('ArrowRight');
 
@@ -64,6 +67,9 @@ test.describe('OccurrenceDrawer Keyboard Navigation', () => {
     const initialId = await page
       .locator('header div:has-text("occurrenceID:")')
       .textContent();
+
+    // Focus the drawer so it receives keyboard events (required for Chromium)
+    await page.locator('[data-testid="occurrence-drawer"]').focus();
 
     // Press left arrow key
     await page.keyboard.press('ArrowLeft');

@@ -143,7 +143,7 @@ test.describe('Bounding Box Filtering', () => {
       .locator('..')
       .locator('input[role="combobox"]');
     await nelatInput.click();
-    await nelatInput.pressSequentially('39');
+    await nelatInput.fill('39');
 
     // Verify the value was entered
     const nelatValue = await nelatInput.inputValue();
@@ -156,7 +156,7 @@ test.describe('Bounding Box Filtering', () => {
       .locator('..')
       .locator('input[role="combobox"]');
     await swlngInput.click();
-    await swlngInput.pressSequentially('-123');
+    await swlngInput.fill('-123');
 
     const swlngValue = await swlngInput.inputValue();
     expect(swlngValue).toBe('-123');
@@ -180,7 +180,7 @@ test.describe('Bounding Box Filtering', () => {
       .locator('..')
       .locator('input[role="combobox"]');
     await nelatInput.click();
-    await nelatInput.pressSequentially('45');
+    await nelatInput.fill('45');
     await page.waitForTimeout(300);
 
     // Verify the value is there
