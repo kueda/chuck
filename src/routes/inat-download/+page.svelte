@@ -77,8 +77,11 @@ let progressMessage = $state<string | undefined>(undefined);
 // ETR state
 let downloadStartTime = $state<number | null>(null);
 let lastETRUpdateTime = $state<number>(0);
+let lastETRItemsDownloaded = $state<number>(0);
+let smoothedRate = $state<number | null>(null);
 let estimatedSecondsRemaining = $state<number | null>(null);
 const ETR_UPDATE_INTERVAL_MS = 2000; // Update display every 2 seconds
+const ETR_SMOOTHING_ALPHA = 0.3; // Weight for new rate samples (lower = smoother)
 
 // Success dialog state
 let showSuccessDialog = $state<boolean>(false);
@@ -122,40 +125,71 @@ async function handleSignOut() {
 }
 
 function updateETR() {
-  // Only update display every 2 seconds
   const now = Date.now();
-  if (now - lastETRUpdateTime < ETR_UPDATE_INTERVAL_MS) {
-    return;
-  }
 
+  // Use photos for rate calculation if available (they dominate download time),
+  // otherwise fall back to observations
+  const hasPhotos = (photosTotal || 0) > 0;
+  const itemsDownloaded = hasPhotos
+    ? photosCurrent || 0
+    : observationsCurrent || 0;
+  const totalItems = hasPhotos ? photosTotal || 0 : observationsTotal || 0;
+
+  // Initialize on first call
   if (!downloadStartTime) {
     downloadStartTime = now;
+    lastETRUpdateTime = now;
+    lastETRItemsDownloaded = itemsDownloaded;
+    smoothedRate = null;
     estimatedSecondsRemaining = null;
     return;
   }
 
-  const elapsedSeconds = (now - downloadStartTime) / 1000;
-  const itemsDownloaded = (observationsCurrent || 0) + (photosCurrent || 0);
-  const totalItems = (observationsTotal || 0) + (photosTotal || 0);
+  // Only update display every 2 seconds
+  const timeSinceLastUpdate = now - lastETRUpdateTime;
+  if (timeSinceLastUpdate < ETR_UPDATE_INTERVAL_MS) {
+    return;
+  }
 
   // Need some progress to estimate
-  if (itemsDownloaded === 0 || totalItems === 0 || elapsedSeconds < 1) {
+  if (itemsDownloaded === 0 || totalItems === 0) {
     estimatedSecondsRemaining = null;
     return;
   }
 
-  const rate = itemsDownloaded / elapsedSeconds;
+  // Calculate instantaneous rate from recent progress
+  const itemsDelta = itemsDownloaded - lastETRItemsDownloaded;
+  const secondsDelta = timeSinceLastUpdate / 1000;
+
+  // If no progress in this window, keep previous estimate
+  if (itemsDelta <= 0 || secondsDelta < 0.1) {
+    lastETRUpdateTime = now;
+    return;
+  }
+
+  const instantRate = itemsDelta / secondsDelta;
+
+  // Apply exponential moving average to smooth rate fluctuations
+  if (smoothedRate === null) {
+    smoothedRate = instantRate;
+  } else {
+    smoothedRate =
+      ETR_SMOOTHING_ALPHA * instantRate +
+      (1 - ETR_SMOOTHING_ALPHA) * smoothedRate;
+  }
+
   const remainingItems = totalItems - itemsDownloaded;
 
   // Avoid showing ETR if rate is too slow (might indicate stall)
-  if (rate < 0.1) {
+  if (smoothedRate < 0.1) {
     // Less than 1 item per 10 seconds
     estimatedSecondsRemaining = null;
-    return;
+  } else {
+    estimatedSecondsRemaining = remainingItems / smoothedRate;
   }
 
-  estimatedSecondsRemaining = remainingItems / rate;
   lastETRUpdateTime = now;
+  lastETRItemsDownloaded = itemsDownloaded;
 }
 
 function handleTaxonIdInput(e: Event) {
@@ -327,6 +361,8 @@ async function startDownload(filePath: string) {
   // Reset ETR state
   downloadStartTime = null;
   lastETRUpdateTime = 0;
+  lastETRItemsDownloaded = 0;
+  smoothedRate = null;
   estimatedSecondsRemaining = null;
 
   try {
