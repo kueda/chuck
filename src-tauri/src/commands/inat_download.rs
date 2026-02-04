@@ -47,6 +47,64 @@ pub async fn get_observation_count(params: CountParams) -> Result<i32, String> {
     }
 }
 
+#[derive(Debug, Serialize)]
+pub struct PhotoEstimate {
+    photo_count: usize,
+    sample_size: usize,
+}
+
+#[tauri::command]
+pub async fn estimate_photo_count(params: CountParams) -> Result<PhotoEstimate, String> {
+    // Build API params
+    let api_params = params::build_params(
+        params.taxon_id.map(|id| id.to_string()),
+        params.place_id,
+        params.user,
+        params.d1,
+        params.d2,
+        params.created_d1,
+        params.created_d2,
+    );
+
+    // Get API config
+    let config = client::get_config().await;
+    let config_guard = config.read().await;
+
+    // Fetch one page of random observations to sample photo density
+    let mut sample_params = api_params;
+    sample_params.per_page = Some("200".to_string());
+    sample_params.order_by = Some("random".to_string());
+
+    // Call iNaturalist API
+    match inaturalist::apis::observations_api::observations_get(&config_guard, sample_params).await {
+        Ok(response) => {
+            let sample_size = response.results.len();
+            let photo_count = response
+                .results
+                .iter()
+                .filter_map(|o| o.photos.as_ref())
+                .flatten()
+                .count();
+            let ratio = if sample_size > 0 {
+                photo_count as f64 / sample_size as f64
+            } else {
+                0.0
+            };
+            log::info!(
+                "Photo estimate sample: {photo_count} photos / {sample_size} obs = {ratio:.2} photos/obs"
+            );
+            Ok(PhotoEstimate {
+                photo_count,
+                sample_size,
+            })
+        }
+        Err(e) => {
+            log::error!("Failed to estimate photo count: {e:?}");
+            Err(format!("Failed to estimate photo count: {e}"))
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "stage", rename_all = "camelCase")]
 pub enum InatProgress {
