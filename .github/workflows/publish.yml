@@ -10,23 +10,54 @@ on:
   workflow_dispatch:
 
 jobs:
+  create-release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.get_tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get tag
+        id: get_tag
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            # For workflow_dispatch, use version from tauri.conf.json
+            VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
+            echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.get_tag.outputs.tag }}" \
+            --draft \
+            --title "Chuck ${{ steps.get_tag.outputs.tag }}" \
+            --notes "See the assets to download this version and install." \
+            || echo "Release may already exist"
+
   publish-tauri:
+    needs: create-release
     permissions:
       contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: 'mac'
+          - os: 'Mac'
             image: 'macos-latest'
             args: '--target universal-apple-darwin'
-          - os: 'linux'
+          - os: 'Linux'
             image: 'ubuntu-24.04'
             args: ''
-          - os: 'linux'
+          - os: 'Linux'
             image: 'ubuntu-24.04-arm'
             args: ''
-          - os: 'windows'
+          - os: 'Windows'
             image: 'windows-latest'
             args: ''
 
@@ -48,10 +79,10 @@ jobs:
             chuck-core
             chuck-cli
           # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
-          target: ${{ matrix.os == 'mac' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          target: ${{ matrix.os == 'Mac' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: install dependencies (Linux only)
-        if: matrix.os == 'linux'
+        if: matrix.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -64,13 +95,77 @@ jobs:
       - name: install frontend dependencies
         run: npm install
 
-      - uses: tauri-apps/tauri-action@v0
+      - name: Build Tauri app
+        id: tauri
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v__VERSION__
-          releaseName: 'Chuck v__VERSION__'
-          releaseBody: 'See the assets to download this version and install.'
-          releaseDraft: true
-          prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Rename artifacts (Unix)
+        if: matrix.os != 'Windows'
+        shell: bash
+        run: |
+          # Get artifact paths from tauri-action output
+          ARTIFACTS='${{ steps.tauri.outputs.artifactPaths }}'
+          mkdir -p renamed-artifacts
+
+          echo "$ARTIFACTS" | jq -r '.[]' | while read -r filepath; do
+            filename=$(basename "$filepath")
+
+            # Skip .app.tar.gz files
+            if [[ "$filename" == *.app.tar.gz ]]; then
+              echo "Skipping $filename"
+              continue
+            fi
+
+            # Normalize RPM naming (Chuck-X.Y.Z-1 -> Chuck_X.Y.Z)
+            newname="$filename"
+            newname=$(echo "$newname" | sed -E 's/^Chuck-([0-9]+\.[0-9]+\.[0-9]+)-[0-9]+\./Chuck_\1_/')
+
+            # Normalize architecture names
+            newname="${newname//_amd64/_x64}"
+            newname="${newname//_x86_64/_x64}"
+            newname="${newname//_aarch64/_arm64}"
+
+            # Insert OS name after version (Chuck_0.1.0_ -> Chuck_0.1.0_Mac_)
+            # Match pattern: Chuck_X.Y.Z_ and insert OS after it
+            newname=$(echo "$newname" | sed -E "s/(Chuck_[0-9]+\.[0-9]+\.[0-9]+_)/\1${{ matrix.os }}_/")
+
+            echo "Renaming $filename -> $newname"
+            cp "$filepath" "renamed-artifacts/$newname"
+          done
+
+      - name: Rename artifacts (Windows)
+        if: matrix.os == 'Windows'
+        shell: pwsh
+        run: |
+          $artifacts = '${{ steps.tauri.outputs.artifactPaths }}' | ConvertFrom-Json
+          New-Item -ItemType Directory -Force -Path renamed-artifacts
+
+          foreach ($filepath in $artifacts) {
+            $filename = Split-Path $filepath -Leaf
+
+            # Normalize architecture and clean up names
+            $newname = $filename
+            $newname = $newname -replace '_amd64', '_x64'
+            $newname = $newname -replace '_x86_64', '_x64'
+            $newname = $newname -replace '_en-US', ''
+
+            # Insert OS name after version
+            $newname = $newname -replace '(Chuck_[\d]+\.[\d]+\.[\d]+_)', "`$1${{ matrix.os }}_"
+
+            Write-Host "Renaming $filename -> $newname"
+            Copy-Item $filepath "renamed-artifacts/$newname"
+          }
+
+      - name: Upload artifacts to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          for file in renamed-artifacts/*; do
+            echo "Uploading $file"
+            gh release upload "${{ needs.create-release.outputs.tag }}" "$file" --clobber
+          done
