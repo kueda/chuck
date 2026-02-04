@@ -42,6 +42,19 @@ let observationCount = $state<number | null>(null);
 let countLoading = $state<boolean>(false);
 let countError = $state<string | null>(null);
 
+// Photo estimate state (for size calculation when fetchPhotos is checked)
+interface PhotoEstimate {
+  photo_count: number;
+  sample_size: number;
+}
+let photoEstimate = $state<PhotoEstimate | null>(null);
+let photoEstimateLoading = $state<boolean>(false);
+
+// Size estimation constants (derived from sample archives)
+const BYTES_PER_OBSERVATION = 500;
+const BYTES_PER_PHOTO = 1_800_000;
+const ONE_GB = 1_000_000_000;
+
 // Auth state
 interface AuthStatus {
   authenticated: boolean;
@@ -71,6 +84,10 @@ const ETR_UPDATE_INTERVAL_MS = 2000; // Update display every 2 seconds
 // Success dialog state
 let showSuccessDialog = $state<boolean>(false);
 let completedArchivePath = $state<string | null>(null);
+
+// Large download confirmation dialog state
+let showLargeDownloadDialog = $state<boolean>(false);
+let pendingDownloadPath = $state<string | null>(null);
 
 async function loadAuthStatus() {
   try {
@@ -205,6 +222,70 @@ function scheduleFetchCount() {
   }, DEBOUNCE_MS);
 }
 
+// Photo estimate debounce timer
+let photoDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function fetchPhotoEstimate() {
+  if (!fetchPhotos) {
+    photoEstimate = null;
+    return;
+  }
+
+  photoEstimateLoading = true;
+
+  try {
+    const params = {
+      taxon_id: taxonId ? parseInt(taxonId, 10) : null,
+      place_id: placeId ? parseInt(placeId, 10) : null,
+      user: user || null,
+      d1: observedDateRange === 'custom' && observedD1 ? observedD1 : null,
+      d2: observedDateRange === 'custom' && observedD2 ? observedD2 : null,
+      created_d1: createdDateRange === 'custom' && createdD1 ? createdD1 : null,
+      created_d2: createdDateRange === 'custom' && createdD2 ? createdD2 : null,
+    };
+
+    photoEstimate = await invoke<PhotoEstimate>('estimate_photo_count', {
+      params,
+    });
+  } catch (e) {
+    console.error('Failed to fetch photo estimate:', e);
+    photoEstimate = null;
+  } finally {
+    photoEstimateLoading = false;
+  }
+}
+
+function scheduleFetchPhotoEstimate() {
+  if (photoDebounceTimer) {
+    clearTimeout(photoDebounceTimer);
+  }
+
+  photoDebounceTimer = setTimeout(() => {
+    fetchPhotoEstimate();
+  }, DEBOUNCE_MS);
+}
+
+function calculateEstimatedSize(): number | null {
+  if (observationCount === null) return null;
+
+  let sizeBytes = observationCount * BYTES_PER_OBSERVATION;
+
+  if (fetchPhotos && photoEstimate && photoEstimate.sample_size > 0) {
+    const photosPerObs = photoEstimate.photo_count / photoEstimate.sample_size;
+    const estimatedPhotos = Math.round(photosPerObs * observationCount);
+    sizeBytes += estimatedPhotos * BYTES_PER_PHOTO;
+  }
+
+  return sizeBytes;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1_000) return `${bytes} bytes`;
+  if (bytes < 1_000_000) return `${(bytes / 1_000).toFixed(1)} KB`;
+  if (bytes < 1_000_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
+  return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+}
+
 async function handleDownload() {
   // Open file picker
   const filePath = await showSaveDialog({
@@ -221,8 +302,23 @@ async function handleDownload() {
     return; // User cancelled
   }
 
-  // Store path for later (showSaveDialog returns string or string[], but we only expect string for save)
-  completedArchivePath = Array.isArray(filePath) ? filePath[0] : filePath;
+  const resolvedPath = Array.isArray(filePath) ? filePath[0] : filePath;
+
+  // Check if estimated size exceeds 1GB
+  const estimatedSize = calculateEstimatedSize();
+  if (estimatedSize !== null && estimatedSize > ONE_GB) {
+    pendingDownloadPath = resolvedPath;
+    showLargeDownloadDialog = true;
+    return;
+  }
+
+  // Proceed with download
+  await startDownload(resolvedPath);
+}
+
+async function startDownload(filePath: string) {
+  // Store path for later
+  completedArchivePath = filePath;
 
   // Show progress overlay
   showProgress = true;
@@ -265,6 +361,19 @@ async function handleDownload() {
     progressStage = 'error';
     progressMessage = e instanceof Error ? e.message : String(e);
   }
+}
+
+function handleConfirmLargeDownload() {
+  showLargeDownloadDialog = false;
+  if (pendingDownloadPath) {
+    startDownload(pendingDownloadPath);
+    pendingDownloadPath = null;
+  }
+}
+
+function handleCancelLargeDownload() {
+  showLargeDownloadDialog = false;
+  pendingDownloadPath = null;
 }
 
 function handleCancelDownload() {
@@ -352,6 +461,30 @@ $effect(() => {
   observationCount = null;
 
   scheduleFetchCount();
+});
+
+// Trigger photo estimate fetch when filters change or fetchPhotos is toggled
+$effect(() => {
+  // Track dependencies
+  const deps = [
+    taxonId,
+    placeId,
+    user,
+    observedDateRange,
+    observedD1,
+    observedD2,
+    createdDateRange,
+    createdD1,
+    createdD2,
+    fetchPhotos,
+  ];
+
+  // Clear previous estimate while debouncing
+  photoEstimate = null;
+
+  if (fetchPhotos) {
+    scheduleFetchPhotoEstimate();
+  }
 });
 </script>
 
@@ -592,6 +725,16 @@ $effect(() => {
       <div class="text-red-600">Unable to load observation count</div>
     {:else if observationCount !== null}
       <div>{observationCount.toLocaleString()} observations match</div>
+      {#if photoEstimateLoading}
+        <div class="text-gray-500 text-sm mt-1">Estimating size...</div>
+      {:else}
+        {@const estimatedSize = calculateEstimatedSize()}
+        {#if estimatedSize !== null}
+          <div class="text-gray-600 text-sm mt-1">
+            Estimated archive size: {formatBytes(estimatedSize)}
+          </div>
+        {/if}
+      {/if}
     {:else}
       <div class="text-gray-500">Enter filters to see observation count</div>
     {/if}
@@ -640,6 +783,36 @@ $effect(() => {
           onclick={handleCloseDialog}
         >
           Close
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showLargeDownloadDialog}
+  {@const estimatedSize = calculateEstimatedSize()}
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
+      <h2 class="text-xl font-bold mb-4">Large Download Warning</h2>
+      <p class="mb-6">
+        The estimated archive size is ~{estimatedSize ? formatBytes(estimatedSize) : 'unknown'}.
+        Are you sure you want to continue?
+      </p>
+
+      <div class="flex gap-3">
+        <button
+          type="button"
+          class="btn preset-tonal flex-1"
+          onclick={handleCancelLargeDownload}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="btn preset-filled flex-1"
+          onclick={handleConfirmLargeDownload}
+        >
+          Download Anyway
         </button>
       </div>
     </div>
