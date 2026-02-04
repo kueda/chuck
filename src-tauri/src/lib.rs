@@ -41,8 +41,10 @@ pub fn run() {
                 .accelerator("CmdOrCtrl+O")
                 .build(app)?;
 
-            let download_item = MenuItemBuilder::with_id("download-from-inaturalist", "Download from iNaturalist")
-                .build(app)?;
+            let download_item = MenuItemBuilder::with_id(
+                "download-from-inaturalist",
+                "Download from iNaturalist"
+            ).build(app)?;
 
             let metadata_item = MenuItemBuilder::with_id("show-metadata", "Show Metadata")
                 .accelerator("CmdOrCtrl+I")

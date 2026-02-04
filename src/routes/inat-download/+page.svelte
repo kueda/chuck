@@ -1,5 +1,4 @@
 <script lang="ts">
-import { ExternalLink } from 'lucide-svelte';
 import { onMount } from 'svelte';
 import InatProgressOverlay from '$lib/components/InatProgressOverlay.svelte';
 import {
@@ -384,7 +383,7 @@ $effect(() => {
     {:else}
       <div class="flex items-center justify-between">
         <div class="text-sm text-gray-600">
-          Sign in to access your private observations (optional)
+          Sign in to access your private coordinates (optional)
         </div>
         <button
           type="button"
