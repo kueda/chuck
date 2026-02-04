@@ -76,9 +76,10 @@ updateCargoToml('chuck-cli/Cargo.toml', newVersion);
 // Sync package-lock.json
 execSync('npm install --package-lock-only', { stdio: 'inherit' });
 
-// Git commit and tag (--no-verify skips hooks)
-execSync(`git add ${FILES.join(' ')} package-lock.json`);
-execSync(`git commit --no-verify -m "${tag}"`);
-execSync(`git tag -a ${tag} -m "${tag}"`);
+// Maybe uncomment if you REALLY want this to commit and tag
+// // Git commit and tag (--no-verify skips hooks)
+// execSync(`git add ${FILES.join(' ')} package-lock.json`);
+// execSync(`git commit --no-verify -m "${tag}"`);
+// execSync(`git tag -a ${tag} -m "${tag}"`);
 
-console.log(`Committed and tagged ${tag}`);
+// console.log(`Committed and tagged ${tag}`);
