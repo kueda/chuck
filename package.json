@@ -33,6 +33,7 @@
     "@tauri-apps/plugin-dialog": "^2.4.0",
     "@tauri-apps/plugin-opener": "^2",
     "dompurify": "^3.3.0",
+    "inaturalistjs": "github:inaturalist/inaturalistjs",
     "lightningcss": "^1.30.2",
     "lucide-svelte": "^0.546.0",
     "maplibre-gl": "^5.9.0",
