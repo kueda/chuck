@@ -1,6 +1,7 @@
 <script lang="ts">
 import { Progress, Tabs } from '@skeletonlabs/skeleton-svelte';
-import { Combine, Grid3x3, Rows4 } from 'lucide-svelte';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { Combine, Grid3x3 } from 'lucide-svelte';
 import { onMount } from 'svelte';
 import Filters from '$lib/components/Filters.svelte';
 import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
@@ -586,12 +587,27 @@ onMount(() => {
 {:else}
   <div class="w-full h-screen flex flex-col justify-center items-center p-4 text-center">
     <p class="w-3/4 mb-5">Chuck is an application for viewing archives of biodiversity occurrences called DarwinCore Archives. Open an existing archive to get started</p>
-    <button
-      type="button"
-      class="btn preset-filled"
-      onclick={openArchive}
-    >
-      Open Archive
-    </button>
+    <div>
+      <button
+        type="button"
+        class="btn preset-filled flex w-full"
+        onclick={openArchive}
+      >
+        Open Archive
+      </button>
+      <button
+        type="button"
+        class="btn preset-tonal mt-3"
+        onclick={() => {
+          new WebviewWindow('inat-download', {
+            url: 'inat-download',
+            width: 700,
+            height: 800
+          });
+        }}
+      >
+        Download From iNaturalist
+      </button>
+    </div>
   </div>
 {/if}

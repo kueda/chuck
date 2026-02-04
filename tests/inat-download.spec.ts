@@ -444,7 +444,7 @@ test.describe('iNat Download UI', () => {
   }) => {
     // Auth section should be visible
     await expect(
-      page.locator('text=Sign in to access your private observations'),
+      page.locator('text=Sign in to access your private coordinates'),
     ).toBeVisible();
 
     // Sign In button should be visible

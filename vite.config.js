@@ -18,21 +18,26 @@ export default defineConfig(async () => ({
     strictPort: true,
     host: host || false,
     hmr: host ? { protocol: 'ws', host, port: 1421 } : undefined,
-    // Ignore everything other than frontend src, static files, config.
-    // Otherwise if you, say, but a 33GB disk image in this dir, Vite tries
-    // to watch it and maybe load it into memory and everything goes to hell
+    // Ignore backend code and common large files to prevent Vite from
+    // watching irrelevant files (function-based ignored doesn't work in Vite 6)
     watch: {
-      /** @param {string} path */
-      ignored: (path) => {
-        // Always watch these directories
-        if (/\/(src|static|\.svelte-kit)\//.test(path)) return false;
-
-        // Watch config files at root
-        if (/\/chuck\/[^/]+\.(js|ts|json)$/.test(path)) return false;
-
-        // Ignore everything else
-        return true;
-      },
+      ignored: [
+        '**/src-tauri/**',
+        '**/chuck-core/**',
+        '**/chuck-cli/**',
+        '**/target/**',
+        '**/*.dmg',
+        '**/*.iso',
+        '**/*.zip',
+        '**/*.tar',
+        '**/*.tar.gz',
+        '**/*.tgz',
+        '**/*.rar',
+        '**/*.7z',
+        '**/*.db',
+        '**/*.sqlite',
+        '**/*.sqlite3',
+      ],
     },
   },
 
