@@ -34,11 +34,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ steps.get_tag.outputs.tag }}" \
-            --draft \
-            --title "Chuck ${{ steps.get_tag.outputs.tag }}" \
-            --notes "See the assets to download this version and install." \
-            || echo "Release may already exist"
+          TAG="${{ steps.get_tag.outputs.tag }}"
+          if ! gh release view "$TAG" &>/dev/null; then
+            gh release create "$TAG" \
+              --draft \
+              --title "Chuck $TAG" \
+              --notes "See the assets to download this version and install."
+          else
+            echo "Release $TAG already exists, skipping creation"
+          fi
 
   publish-tauri:
     needs: create-release
