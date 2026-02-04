@@ -88,6 +88,8 @@ async fn wait_for_callback(expected_csrf: CsrfToken) -> Result<AuthorizationCode
 
     println!("Waiting for authentication callback...");
 
+    let mut auth_code: Option<AuthorizationCode> = None;
+
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
@@ -96,20 +98,51 @@ async fn wait_for_callback(expected_csrf: CsrfToken) -> Result<AuthorizationCode
                     let request = String::from_utf8_lossy(&buffer[..size]);
 
                     if let Some(line) = request.lines().next() {
-                        if line.starts_with("GET /callback") {
-                            let response = handle_callback_request(line, expected_csrf.clone())?;
-
-                            let _ = stream.write_all(
-                                b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
+                        if line.starts_with("GET /chuck_icon.png") {
+                            const ICON: &[u8] = include_bytes!(
+                                "../../../src-tauri/icons/icon.png"
                             );
                             let _ = stream.write_all(
-                                b"<html><body><h1>Authentication successful!</h1><p>You can close this window and return to the terminal.</p></body></html>"
+                                b"HTTP/1.1 200 OK\r\n\
+                                  Content-Type: image/png\r\n\r\n",
+                            );
+                            let _ = stream.write_all(ICON);
+                            let _ = stream.flush();
+                        } else if line.starts_with("GET /callback")
+                            && auth_code.is_none()
+                        {
+                            auth_code = Some(handle_callback_request(
+                                line,
+                                expected_csrf.clone(),
+                            )?);
+
+                            const SUCCESS_PAGE: &str =
+                                include_str!("oauth_success.html");
+                            let _ = stream.write_all(
+                                b"HTTP/1.1 200 OK\r\n\
+                                  Content-Type: text/html\r\n\r\n",
+                            );
+                            let _ = stream.write_all(
+                                SUCCESS_PAGE.as_bytes(),
                             );
                             let _ = stream.flush();
 
-                            return Ok(response);
+                            // Stay alive briefly to serve page assets
+                            // (e.g. images), then switch to non-blocking
+                            // so we return once no more requests arrive.
+                            std::thread::sleep(
+                                std::time::Duration::from_secs(1),
+                            );
+                            listener.set_nonblocking(true).ok();
                         }
                     }
+                }
+            }
+            Err(ref e)
+                if e.kind() == std::io::ErrorKind::WouldBlock =>
+            {
+                if let Some(code) = auth_code {
+                    return Ok(code);
                 }
             }
             Err(e) => {
@@ -118,7 +151,9 @@ async fn wait_for_callback(expected_csrf: CsrfToken) -> Result<AuthorizationCode
         }
     }
 
-    Err(AuthError::OAuthFailed("No valid callback received".to_string()))
+    Err(AuthError::OAuthFailed(
+        "No valid callback received".to_string(),
+    ))
 }
 
 fn handle_callback_request(
