@@ -158,6 +158,12 @@ impl Database {
         // Create extension tables
         let extension_tables = Self::create_extension_tables(&conn, extensions)?;
 
+        // Force a WAL checkpoint so all data is written to the main .db file.
+        // Without this, the WAL file persists and a subsequent read-only open
+        // (via Database::open) can fail with "Bad file descriptor" during WAL
+        // replay, because replay requires write access to the .db file.
+        conn.execute("CHECKPOINT", [])?;
+
         Ok(Self { conn, core_id_column: core_id_column.to_string(), extension_tables })
     }
 
@@ -1890,5 +1896,36 @@ mod tests {
             swlng: None,
         }, None).unwrap();
         assert_eq!(search_result.total, 2, "Should find 2 Pinopsida records");
+    }
+
+    #[test]
+    fn test_create_from_core_files_checkpoints_wal() {
+        // After create_from_core_files returns, the WAL should already be
+        // checkpointed (not relying on connection drop to do it). If a WAL
+        // file remains when the connection is dropped in an async context,
+        // a subsequent read-only open can fail with "Bad file descriptor"
+        // during WAL replay, because replaying requires write access.
+        let csv_data = b"occurrenceID,scientificName\n1,Species A\n2,Species B\n";
+        let fixture = TestFixture::new("wal_checkpoint", vec![csv_data]);
+
+        let db = Database::create_from_core_files(
+            &fixture.csv_paths,
+            &[],
+            &fixture.db_path,
+            "occurrenceID",
+        )
+        .unwrap();
+
+        // WAL file should not exist while connection is still open,
+        // because create_from_core_files should checkpoint before returning
+        let wal_path = fixture.db_path.with_extension("db.wal");
+        assert!(
+            !wal_path.exists(),
+            "WAL file should not exist after create_from_core_files returns; \
+             its presence causes 'Bad file descriptor' errors when the \
+             database is later opened in read-only mode"
+        );
+
+        drop(db);
     }
 }
