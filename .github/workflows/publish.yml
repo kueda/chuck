@@ -114,8 +114,8 @@ jobs:
           echo "$ARTIFACTS" | jq -r '.[]' | while read -r filepath; do
             filename=$(basename "$filepath")
 
-            # Skip .app.tar.gz files
-            if [[ "$filename" == *.app.tar.gz ]]; then
+            # Skip .app.tar.gz files and .app directories (Mac only needs .dmg)
+            if [[ "$filename" == *.app.tar.gz ]] || [[ "$filename" == *.app ]]; then
               echo "Skipping $filename"
               continue
             fi
