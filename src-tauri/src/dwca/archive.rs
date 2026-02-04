@@ -88,10 +88,6 @@ impl Archive {
         let db_path = storage_dir.join(format!("{db_name}.db"));
         let db = Database::create_from_core_files(&core_files, &extensions, &db_path, &core_id_column)?;
 
-        // Initialize photo cache table
-        let photo_cache = crate::photo_cache::PhotoCache::new(db.connection());
-        photo_cache.create_table()?;
-
         Ok(Self {
             // archive_path: archive_path.to_path_buf(),
             storage_dir,
@@ -337,44 +333,35 @@ impl Archive {
     /// Gets a photo from the cache or extracts it from the archive
     /// Returns the absolute path to the cached photo file
     pub fn get_photo(&self, photo_path: &str) -> Result<String> {
-        // Create photo cache
-        let photo_cache = crate::photo_cache::PhotoCache::new(self.db.connection());
-
-        // Check if photo is already cached
-        if let Some(cached_path) = photo_cache.get_cached_photo(photo_path)? {
-            // Update access time and return cached path
-            photo_cache.update_access_time(photo_path)?;
-            return Ok(cached_path);
-        }
-
-        // Photo not cached - extract it from the archive
-        let archive_zip_path = self.storage_dir.join("archive.zip");
+        // Create photo cache directory
         let cache_dir = self.storage_dir.join("photo_cache");
         std::fs::create_dir_all(&cache_dir).map_err(|e| ChuckError::DirectoryCreate {
             path: cache_dir.clone(),
             source: e,
         })?;
 
-        // Create a unique filename based on the photo path to avoid conflicts
-        let safe_filename = photo_path.replace(['/', '\\'], "_");
-        let cached_file_path = cache_dir.join(&safe_filename);
+        let photo_cache = crate::photo_cache::PhotoCache::new(&cache_dir);
+
+        // Check if photo is already cached
+        if let Some(cached_path) = photo_cache.get_cached_photo(photo_path)? {
+            // Update access time and return cached path
+            photo_cache.touch_file(&cached_path)?;
+            return Ok(cached_path.to_string_lossy().to_string());
+        }
+
+        // Photo not cached - extract it from the archive
+        let archive_zip_path = self.storage_dir.join("archive.zip");
+        let cached_file_path = photo_cache.get_cache_path(photo_path);
 
         // Extract the photo from the ZIP using the path from the multimedia table
-        let bytes_written = extract_single_file(
+        extract_single_file(
             &archive_zip_path,
             photo_path,
             &cached_file_path,
         )?;
 
-        // Add to cache
-        photo_cache.add_photo(
-            photo_path,
-            cached_file_path.to_str().ok_or_else(|| ChuckError::InvalidFileName(cached_file_path.clone()))?,
-            bytes_written as i64,
-        )?;
-
         // Evict LRU photos if cache is too large (2GB default)
-        const MAX_CACHE_SIZE: i64 = 2 * 1024 * 1024 * 1024; // 2GB
+        const MAX_CACHE_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2GB
         photo_cache.evict_lru(MAX_CACHE_SIZE)?;
 
         Ok(cached_file_path.to_string_lossy().to_string())
@@ -1399,8 +1386,9 @@ mod tests {
         let archive_zip = archive.storage_dir.join("archive.zip");
         assert!(archive_zip.exists(), "archive.zip hard link should exist");
 
-        // Verify photo cache table exists
-        let photo_cache = crate::photo_cache::PhotoCache::new(archive.db.connection());
+        // Verify cache is empty initially
+        let cache_dir = archive.storage_dir.join("photo_cache");
+        let photo_cache = crate::photo_cache::PhotoCache::new(&cache_dir);
         let cache_size = photo_cache.get_cache_size().unwrap();
         assert_eq!(cache_size, 0, "Cache should be empty initially");
 
@@ -1512,6 +1500,84 @@ obs789,34.0522,-118.2437,Pinus coulteri
         assert_eq!(first_point.1, 37.7749); // latitude
         assert_eq!(first_point.2, -122.4194); // longitude
         assert_eq!(first_point.3, Some("Quercus agrifolia".to_string())); // scientific name
+    }
+
+    #[test]
+    fn test_get_photo_works_after_reopening_archive() {
+        use std::io::Write;
+
+        // Create a test archive with photos
+        let test_name = "get_photo_after_reopen";
+        let temp_dir = std::env::temp_dir().join(format!("chuck_test_{test_name}"));
+        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // Create a simple ZIP archive with photos
+        let archive_path = temp_dir.join("test.zip");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&archive_path).unwrap());
+        let options: zip::write::FileOptions<()> = zip::write::FileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored)
+            .unix_permissions(0o644);
+
+        // Add meta.xml
+        let meta_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<archive xmlns="http://rs.tdwg.org/dwc/text/">
+  <core rowType="http://rs.tdwg.org/dwc/terms/Occurrence" encoding="UTF-8" fieldsTerminatedBy="," linesTerminatedBy="\n" fieldsEnclosedBy='"' ignoreHeaderLines="1">
+    <files>
+      <location>occurrence.csv</location>
+    </files>
+    <id index="0" />
+    <field index="0" term="http://rs.tdwg.org/dwc/terms/occurrenceID"/>
+  </core>
+  <extension rowType="http://rs.gbif.org/terms/1.0/Multimedia" encoding="UTF-8" fieldsTerminatedBy="," linesTerminatedBy="\n" fieldsEnclosedBy='"' ignoreHeaderLines="1">
+    <files>
+      <location>multimedia.csv</location>
+    </files>
+    <coreid index="0" />
+    <field index="0" term="http://rs.tdwg.org/dwc/terms/occurrenceID"/>
+    <field index="1" term="http://purl.org/dc/terms/identifier"/>
+  </extension>
+</archive>"#;
+        zip.start_file("meta.xml", options).unwrap();
+        zip.write_all(meta_xml).unwrap();
+
+        // Add occurrence.csv
+        let occurrence_csv = b"occurrenceID\n1\n";
+        zip.start_file("occurrence.csv", options).unwrap();
+        zip.write_all(occurrence_csv).unwrap();
+
+        // Add multimedia.csv with photo reference
+        let multimedia_csv = b"occurrenceID,identifier\n1,media/photo.jpg\n";
+        zip.start_file("multimedia.csv", options).unwrap();
+        zip.write_all(multimedia_csv).unwrap();
+
+        // Add a photo file
+        let photo_data = b"fake jpeg data";
+        zip.start_file("media/photo.jpg", options).unwrap();
+        zip.write_all(photo_data).unwrap();
+
+        zip.finish().unwrap();
+
+        // Open the archive initially (this works because db is read-write)
+        let base_dir = temp_dir.join("storage");
+        let archive = Archive::open(&archive_path, &base_dir, |_| {}).unwrap();
+
+        // Drop the archive to release the database connection
+        drop(archive);
+
+        // Re-open using Archive::current() (simulates app restart)
+        let archive = Archive::current(&base_dir).unwrap();
+
+        // This should work - but currently fails with read-only database error
+        let cached_path = archive.get_photo("media/photo.jpg").unwrap();
+        assert!(std::path::Path::new(&cached_path).exists(), "Photo should be extracted to cache");
+
+        // Verify the photo content
+        let content = std::fs::read(&cached_path).unwrap();
+        assert_eq!(content, photo_data, "Cached photo content should match original");
+
+        // Clean up
+        std::fs::remove_dir_all(&temp_dir).ok();
     }
 }
 

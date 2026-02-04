@@ -14,7 +14,7 @@ test.describe('Bounding Box Filtering', () => {
     // TODO figure out why playwright doesn't render the map correctly on windows
     test.skip(
       testInfo.project.name === 'integration-windows',
-      'Map rendering in playwright on Windows not quite working'
+      'Map rendering in playwright on Windows not quite working',
     );
     // Open archive
     await openArchive(page);

@@ -7,7 +7,7 @@
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "npm run check:backend && npm run check:backend",
+    "check": "npm run check:backend && npm run check:frontend",
     "check:frontend": "npm run check:biome -- ./src/ ./tests/ && npm run check:svelte -- ./src/ ./tests/",
     "check:svelte": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:biome": "npx biome check --no-errors-on-unmatched --files-ignore-unknown=true",
