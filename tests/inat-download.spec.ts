@@ -15,6 +15,81 @@ async function setupInatDownloadMocks(page: Page) {
     let progressListener: any = null;
     let progressEventSequence: any[] = [];
 
+    // Mock iNaturalist API search responses
+    const originalFetch = window.fetch;
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+
+      // Mock iNaturalist search API
+      if (url.includes('api.inaturalist.org/v1/search')) {
+        const mockResponse = {
+          total_results: 1,
+          page: 1,
+          per_page: 10,
+          results: [
+            {
+              type: 'Taxon',
+              score: 10,
+              record: {
+                id: 47126,
+                name: 'Aves',
+                rank: 'class',
+                rank_level: 50,
+                preferred_common_name: 'Birds',
+                iconic_taxon_name: 'Aves',
+                default_photo: {
+                  medium_url: 'https://example.com/bird.jpg',
+                  square_url: 'https://example.com/bird_square.jpg',
+                },
+              },
+              taxon: {
+                id: 47126,
+                name: 'Aves',
+                rank: 'class',
+                rank_level: 50,
+                preferred_common_name: 'Birds',
+                iconic_taxon_name: 'Aves',
+                default_photo: {
+                  medium_url: 'https://example.com/bird.jpg',
+                  square_url: 'https://example.com/bird_square.jpg',
+                },
+              },
+            },
+          ],
+        };
+        return new Response(JSON.stringify(mockResponse), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Mock iNaturalist taxa fetch API
+      if (url.includes('api.inaturalist.org/v1/taxa')) {
+        const mockResponse = {
+          total_results: 1,
+          page: 1,
+          per_page: 1,
+          results: [
+            {
+              id: 47126,
+              name: 'Aves',
+              rank: 'class',
+              rank_level: 50,
+              preferred_common_name: 'Birds',
+              iconic_taxon_name: 'Aves',
+            },
+          ],
+        };
+        return new Response(JSON.stringify(mockResponse), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Pass through other fetch calls
+      return originalFetch(input, init);
+    };
+
     // Mock the module loader
     const originalImport = (window as any).import;
     (window as any).import = async (moduleName: string) => {
@@ -149,26 +224,21 @@ test.describe('iNat Download UI', () => {
   });
 
   test('shows all filter inputs', async ({ page }) => {
-    await expect(page.locator('#taxon-id')).toBeVisible();
-    await expect(page.locator('#place-id')).toBeVisible();
-    await expect(page.locator('#user')).toBeVisible();
+    await expect(page.locator('input[placeholder="Taxon"]')).toBeVisible();
+    await expect(page.locator('input[placeholder="Place"]')).toBeVisible();
+    await expect(page.locator('input[placeholder="User"]')).toBeVisible();
     await expect(page.locator('input[name="observed-range"]')).toHaveCount(2);
     await expect(page.locator('input[name="created-range"]')).toHaveCount(2);
   });
 
-  test('validates taxon ID as integer', async ({ page }) => {
-    await page.fill('#taxon-id', 'abc');
-    await page.waitForTimeout(600); // Wait for debounce
+  test('fetches observation count when taxon selected', async ({ page }) => {
+    // Type in taxon autocomplete
+    await page.fill('input[placeholder="Taxon"]', 'bird');
+    await page.waitForTimeout(400); // Wait for debounce and API
 
-    // Page shows generic error message for validation failures
-    await expect(
-      page.locator('text=Unable to load observation count'),
-    ).toBeVisible();
-  });
-
-  test('fetches observation count on input', async ({ page }) => {
-    await page.fill('#taxon-id', '47126');
-    await page.waitForTimeout(600); // Wait for debounce
+    // Select from autocomplete dropdown
+    await page.click('[role="option"]:has-text("Birds")');
+    await page.waitForTimeout(600); // Wait for count fetch
 
     await expect(page.locator('text=1,234 observations match')).toBeVisible();
   });
@@ -177,7 +247,10 @@ test.describe('iNat Download UI', () => {
     const downloadBtn = page.locator('button:has-text("Download Archive")');
     await expect(downloadBtn).toBeDisabled();
 
-    await page.fill('#taxon-id', '47126');
+    // Type and select from autocomplete
+    await page.fill('input[placeholder="Taxon"]', 'bird');
+    await page.waitForTimeout(400);
+    await page.click('[role="option"]:has-text("Birds")');
     await page.waitForTimeout(600);
 
     await expect(downloadBtn).toBeEnabled();
@@ -211,8 +284,10 @@ test.describe('iNat Download UI', () => {
   });
 
   test('opens file picker and shows progress on download', async ({ page }) => {
-    // First get count loaded
-    await page.fill('#taxon-id', '47126');
+    // First get count loaded by selecting a taxon
+    await page.fill('input[placeholder="Taxon"]', 'bird');
+    await page.waitForTimeout(400);
+    await page.click('[role="option"]:has-text("Birds")');
     await page.waitForTimeout(600);
 
     const downloadBtn = page.locator('button:has-text("Download Archive")');
@@ -225,8 +300,10 @@ test.describe('iNat Download UI', () => {
   });
 
   test('shows success dialog and opens in Chuck', async ({ page }) => {
-    // Load count
-    await page.fill('#taxon-id', '47126');
+    // Load count by selecting a taxon
+    await page.fill('input[placeholder="Taxon"]', 'bird');
+    await page.waitForTimeout(400);
+    await page.click('[role="option"]:has-text("Birds")');
     await page.waitForTimeout(600);
 
     // Start download
@@ -263,8 +340,10 @@ test.describe('iNat Download UI', () => {
   });
 
   test('can close success dialog without opening', async ({ page }) => {
-    // Load count
-    await page.fill('#taxon-id', '47126');
+    // Load count by selecting a taxon
+    await page.fill('input[placeholder="Taxon"]', 'bird');
+    await page.waitForTimeout(400);
+    await page.click('[role="option"]:has-text("Birds")');
     await page.waitForTimeout(600);
 
     // Start download
@@ -299,8 +378,10 @@ test.describe('iNat Download UI', () => {
   });
 
   test('can cancel download', async ({ page }) => {
-    // Load count
-    await page.fill('#taxon-id', '47126');
+    // Load count by selecting a taxon
+    await page.fill('input[placeholder="Taxon"]', 'bird');
+    await page.waitForTimeout(400);
+    await page.click('[role="option"]:has-text("Birds")');
     await page.waitForTimeout(600);
 
     // Start download
@@ -324,8 +405,10 @@ test.describe('iNat Download UI', () => {
   test('maintains stable observation total during download', async ({
     page,
   }) => {
-    // Load count
-    await page.fill('#taxon-id', '47126');
+    // Load count by selecting a taxon
+    await page.fill('input[placeholder="Taxon"]', 'bird');
+    await page.waitForTimeout(400);
+    await page.click('[role="option"]:has-text("Birds")');
     await page.waitForTimeout(600);
 
     // Start download
@@ -387,9 +470,11 @@ test.describe('iNat Download UI', () => {
     });
 
     // Load count and enable photo download
-    await page.fill('#taxon-id', '47126');
+    await page.fill('input[placeholder="Taxon"]', 'bird');
+    await page.waitForTimeout(400);
+    await page.click('[role="option"]:has-text("Birds")');
     await page.waitForTimeout(600);
-    await page.check('input[type="checkbox"]'); // Check "Download photos"
+    await page.check('input[name="fetchPhotos"]'); // Check "Download photos"
 
     // Start download
     await page.locator('button:has-text("Download Archive")').click();
@@ -479,8 +564,10 @@ test.describe('iNat Download UI', () => {
   test('ETR component renders without breaking progress display', async ({
     page,
   }) => {
-    // Load count
-    await page.fill('#taxon-id', '47126');
+    // Load count by selecting a taxon
+    await page.fill('input[placeholder="Taxon"]', 'bird');
+    await page.waitForTimeout(400);
+    await page.click('[role="option"]:has-text("Birds")');
     await page.waitForTimeout(600);
 
     // Start download
@@ -546,7 +633,9 @@ test.describe('Extension checkbox functionality', () => {
 
   // Helper to trigger download
   async function triggerDownload(page: Page) {
-    await page.fill('#taxon-id', '47126');
+    await page.fill('input[placeholder="Taxon"]', 'bird');
+    await page.waitForTimeout(400);
+    await page.click('[role="option"]:has-text("Birds")');
     await page.waitForTimeout(600); // Debounce
     await page.locator('button:has-text("Download Archive")').click();
     await page.waitForTimeout(200); // Wait for invoke

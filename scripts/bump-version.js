@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync } from 'fs';
 import { execSync } from 'child_process';
+import { readFileSync, writeFileSync } from 'fs';
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes('--dry-run');

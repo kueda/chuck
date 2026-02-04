@@ -35,10 +35,10 @@ export default defineConfig({
       name: 'integration-windows',
       use: {
         ...devices['Desktop Edge'],
-        channel: 'msedge'
+        channel: 'msedge',
       },
       testIgnore: '**/performance.spec.ts',
-      retries: 2
+      retries: 2,
     },
   ],
 

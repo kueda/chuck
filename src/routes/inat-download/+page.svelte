@@ -1,6 +1,9 @@
 <script lang="ts">
 import { onMount } from 'svelte';
+import InatPlaceChooser from '$lib/components/InatPlaceChooser.svelte';
 import InatProgressOverlay from '$lib/components/InatProgressOverlay.svelte';
+import InatTaxonChooser from '$lib/components/InatTaxonChooser.svelte';
+import InatUserChooser from '$lib/components/InatUserChooser.svelte';
 import {
   getCurrentWindow,
   invoke,
@@ -17,9 +20,9 @@ interface InatProgress {
   message?: string;
 }
 
-let taxonId = $state<string>('');
-let placeId = $state<string>('');
-let user = $state<string>('');
+let taxonId = $state<number | null>(null);
+let placeId = $state<number | null>(null);
+let userId = $state<number | null>(null);
 let observedDateRange = $state<'all' | 'custom'>('all');
 // This awkwardness is brought to you by Safari not actually showing a blank
 // date input when the input value is blank. Instead it shows you the
@@ -158,16 +161,6 @@ function updateETR() {
   lastETRUpdateTime = now;
 }
 
-function handleTaxonIdInput(e: Event) {
-  const target = e.target as HTMLInputElement;
-  taxonId = target.value;
-}
-
-function handlePlaceIdInput(e: Event) {
-  const target = e.target as HTMLInputElement;
-  placeId = target.value;
-}
-
 // Debounce timer
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 const DEBOUNCE_MS = 500;
@@ -177,23 +170,10 @@ async function fetchCount() {
   countError = null;
 
   try {
-    // Validate inputs
-    if (taxonId && !/^\d+$/.test(taxonId)) {
-      countError = 'Taxon ID must be an integer';
-      countLoading = false;
-      return;
-    }
-
-    if (placeId && !/^\d+$/.test(placeId)) {
-      countError = 'Place ID must be an integer';
-      countLoading = false;
-      return;
-    }
-
     const params = {
-      taxon_id: taxonId ? parseInt(taxonId, 10) : null,
-      place_id: placeId ? parseInt(placeId, 10) : null,
-      user: user || null,
+      taxon_id: taxonId,
+      place_id: placeId,
+      user: userId ? userId.toString() : null,
       d1: observedDateRange === 'custom' && observedD1 ? observedD1 : null,
       d2: observedDateRange === 'custom' && observedD2 ? observedD2 : null,
       created_d1: createdDateRange === 'custom' && createdD1 ? createdD1 : null,
@@ -234,9 +214,9 @@ async function fetchPhotoEstimate() {
 
   try {
     const params = {
-      taxon_id: taxonId ? parseInt(taxonId, 10) : null,
-      place_id: placeId ? parseInt(placeId, 10) : null,
-      user: user || null,
+      taxon_id: taxonId,
+      place_id: placeId,
+      user: userId || null,
       d1: observedDateRange === 'custom' && observedD1 ? observedD1 : null,
       d2: observedDateRange === 'custom' && observedD2 ? observedD2 : null,
       created_d1: createdDateRange === 'custom' && createdD1 ? createdD1 : null,
@@ -340,9 +320,9 @@ async function startDownload(filePath: string) {
     await invoke('generate_inat_archive', {
       params: {
         output_path: filePath,
-        taxon_id: taxonId ? parseInt(taxonId, 10) : null,
-        place_id: placeId ? parseInt(placeId, 10) : null,
-        user: user || null,
+        taxon_id: taxonId,
+        place_id: placeId,
+        user: userId ? userId.toString() : null,
         d1: observedDateRange === 'custom' && observedD1 ? observedD1 : null,
         d2: observedDateRange === 'custom' && observedD2 ? observedD2 : null,
         created_d1:
@@ -447,7 +427,7 @@ $effect(() => {
   const deps = [
     taxonId,
     placeId,
-    user,
+    userId,
     observedDateRange,
     observedD1,
     observedD2,
@@ -468,7 +448,7 @@ $effect(() => {
   const deps = [
     taxonId,
     placeId,
-    user,
+    userId,
     observedDateRange,
     observedD1,
     observedD2,
@@ -533,46 +513,11 @@ $effect(() => {
   <div class="mb-6">
     <h2 class="h4 mb-3">Filters</h2>
     <div class="space-y-4">
-      <div>
-        <label for="taxon-id" class="block text-sm font-medium mb-1">
-          Taxon ID (integer)
-        </label>
-        <input
-          id="taxon-id"
-          type="text"
-          class="input"
-          value={taxonId}
-          oninput={handleTaxonIdInput}
-          placeholder="e.g., 47126"
-        />
-      </div>
+      <InatTaxonChooser bind:selectedId={taxonId} />
 
-      <div>
-        <label for="place-id" class="block text-sm font-medium mb-1">
-          Place ID (integer)
-        </label>
-        <input
-          id="place-id"
-          type="text"
-          class="input"
-          value={placeId}
-          oninput={handlePlaceIdInput}
-          placeholder="e.g., 97394"
-        />
-      </div>
+      <InatPlaceChooser bind:selectedId={placeId} />
 
-      <div>
-        <label for="user" class="block text-sm font-medium mb-1">
-          User
-        </label>
-        <input
-          id="user"
-          type="text"
-          class="input"
-          bind:value={user}
-          placeholder="Username or User ID"
-        />
-      </div>
+      <InatUserChooser bind:selectedId={userId} />
 
       <div>
         <div class="block text-sm font-medium mb-2">
