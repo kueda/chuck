@@ -20,6 +20,17 @@ interface InatProgress {
   message?: string;
 }
 
+// Keep in sync w/ src-tauri/commands/inat_download.rs
+interface CountParams {
+  taxon_id: number | null;
+  place_id: number | null;
+  user: string | null;
+  d1: string | null;
+  d2: string | null;
+  created_d1: string | null;
+  created_d2: string | null;
+}
+
 let taxonId = $state<number | null>(null);
 let placeId = $state<number | null>(null);
 let userId = $state<number | null>(null);
@@ -204,7 +215,7 @@ async function fetchCount() {
   countError = null;
 
   try {
-    const params = {
+    const params: CountParams = {
       taxon_id: taxonId,
       place_id: placeId,
       user: userId ? userId.toString() : null,
@@ -247,10 +258,10 @@ async function fetchPhotoEstimate() {
   photoEstimateLoading = true;
 
   try {
-    const params = {
+    const params: CountParams = {
       taxon_id: taxonId,
       place_id: placeId,
-      user: userId || null,
+      user: userId ? userId.toString() : null,
       d1: observedDateRange === 'custom' && observedD1 ? observedD1 : null,
       d2: observedDateRange === 'custom' && observedD2 ? observedD2 : null,
       created_d1: createdDateRange === 'custom' && createdD1 ? createdD1 : null,
@@ -296,7 +307,9 @@ function formatBytes(bytes: number): string {
   if (bytes < 1_000) return `${bytes} bytes`;
   if (bytes < 1_000_000) return `${(bytes / 1_000).toFixed(1)} KB`;
   if (bytes < 1_000_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
-  return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+  if (bytes < 1_000_000_000_000)
+    return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+  return `${(bytes / 1_000_000_000_000).toFixed(1)} TB`;
 }
 
 async function handleDownload() {
