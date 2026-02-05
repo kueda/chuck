@@ -47,7 +47,7 @@ pub fn run() {
                 "Download from iNaturalist"
             ).build(app)?;
 
-            let metadata_item = MenuItemBuilder::with_id("show-metadata", "Show Metadata")
+            let metadata_item = MenuItemBuilder::with_id("show-metadata", "Show Archive Metadata")
                 .accelerator("CmdOrCtrl+I")
                 .build(app)?;
 
@@ -127,6 +127,15 @@ pub fn run() {
                     .item(&metadata_item)
                     .build()?;
                 menu.append(&view_submenu)?;
+            }
+
+            // Remove empty submenus (e.g. Help on macOS)
+            for item in menu.items()? {
+                if let Some(submenu) = item.as_submenu()
+                    && submenu.items()?.is_empty()
+                {
+                    menu.remove(&item)?;
+                }
             }
 
             app.on_menu_event(move |app, event| {
