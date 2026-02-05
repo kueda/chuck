@@ -7,7 +7,8 @@ pub mod tile_server;
 mod search_params;
 
 use chuck_core::auth::AuthCache;
-use tauri::menu::{Menu, MenuItemBuilder, SubmenuBuilder};
+use tauri::image::Image;
+use tauri::menu::{AboutMetadata, Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -63,6 +64,41 @@ pub fn run() {
                     m
                 }
             };
+
+            // Replace the default "About chuck-app" with "About Chuck"
+            if let Some(first_item) = menu.items()?.first() {
+                if let Some(app_submenu) = first_item.as_submenu() {
+                    for sub_item in app_submenu.items()? {
+                        if let Some(predefined) = sub_item.as_predefined_menuitem()
+                            && let Ok(text) = predefined.text()
+                            && text.starts_with("About")
+                        {
+                            app_submenu.remove(predefined)?;
+                            let about = PredefinedMenuItem::about(
+                                app.handle(),
+                                Some("About Chuck"),
+                                Some(AboutMetadata {
+                                    name: Some("Chuck".into()),
+                                    version: Some(
+                                        app.package_info().version.to_string()
+                                    ),
+                                    license: Some("MIT".into()),
+                                    website: Some(
+                                        "https://github.com/kueda/chuck".into()
+                                    ),
+                                    website_label: Some(
+                                        "GitHub".into()
+                                    ),
+                                    icon: Image::from_bytes(include_bytes!("../icons/icon.png")).ok(),
+                                    ..Default::default()
+                                }),
+                            )?;
+                            app_submenu.prepend(&about)?;
+                            break;
+                        }
+                    }
+                }
+            }
 
             // Get or create File submenu and add Open item
             let mut file_submenu_exists = false;
