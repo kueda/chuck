@@ -63,8 +63,13 @@ interface PhotoEstimate {
 let photoEstimate = $state<PhotoEstimate | null>(null);
 let photoEstimateLoading = $state<boolean>(false);
 
-// Size estimation constants (derived from sample archives)
-const BYTES_PER_OBSERVATION = 500;
+// Size estimation constants (derived from sample archives with 518 observations)
+// Measured compressed bytes per observation:
+//   Base: ~79, SimpleMultimedia: ~16, Identifications: ~146
+const SIZE_ESTIMATE_SAFETY_MARGIN = 1.2;
+const BYTES_PER_OBSERVATION = 79 * SIZE_ESTIMATE_SAFETY_MARGIN;
+const BYTES_PER_OBSERVATION_MULTIMEDIA = 16 * SIZE_ESTIMATE_SAFETY_MARGIN;
+const BYTES_PER_OBSERVATION_IDENTIFICATIONS = 146 * SIZE_ESTIMATE_SAFETY_MARGIN;
 const BYTES_PER_PHOTO = 1_800_000;
 const ONE_GB = 1_000_000_000;
 
@@ -294,6 +299,15 @@ function calculateEstimatedSize(): number | null {
 
   let sizeBytes = observationCount * BYTES_PER_OBSERVATION;
 
+  // Add extension costs
+  if (includeSimpleMultimedia) {
+    sizeBytes += observationCount * BYTES_PER_OBSERVATION_MULTIMEDIA;
+  }
+  if (includeIdentifications) {
+    sizeBytes += observationCount * BYTES_PER_OBSERVATION_IDENTIFICATIONS;
+  }
+
+  // Add photo costs
   if (fetchPhotos && photoEstimate && photoEstimate.sample_size > 0) {
     const photosPerObs = photoEstimate.photo_count / photoEstimate.sample_size;
     const estimatedPhotos = Math.round(photosPerObs * observationCount);
@@ -309,7 +323,7 @@ function formatBytes(bytes: number): string {
   if (bytes < 1_000_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
   if (bytes < 1_000_000_000_000)
     return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
-  return `${(bytes / 1_000_000_000_000).toFixed(1)} TB`;
+  return `${(bytes / 1_000_000_000_000).toFixed(1)} TB 😱`;
 }
 
 async function handleDownload() {
@@ -692,13 +706,14 @@ $effect(() => {
             desc="Photo and sound data with attribution"
             url="https://rs.gbif.org/extension/gbif/1.0/multimedia.xml"
           />
-          <ExtensionCheckbox
+          <!-- Audiovisual doesn't add much to SimpleMultimedia, let's see if we can do without it -->
+          <!-- <ExtensionCheckbox
             bind:value={includeAudiovisual}
             name="audiovisual"
             title="Audiovisual Media Description"
             desc="Photo and sound data with attribution, taxonomic, and geographic metadata"
             url="https://rs.gbif.org/extension/ac/audiovisual_2024_11_07.xml"
-          />
+          /> -->
           <ExtensionCheckbox
             bind:value={includeIdentifications}
             name="identifications"
