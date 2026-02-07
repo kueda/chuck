@@ -49,8 +49,8 @@ let createdD2 = $state<string>(new Date().toDateString());
 let fetchPhotos = $state<boolean>(false);
 let includeSimpleMultimedia = $state<boolean>(true);
 let includeAudiovisual = $state<boolean>(false);
-let includeIdentifications = $state<boolean>(false);
-let includeComments = $state<boolean>(false);
+let includeIdentifications = $state<boolean>(true);
+let includeComments = $state<boolean>(true);
 
 let observationCount = $state<number | null>(null);
 let countLoading = $state<boolean>(false);
@@ -536,208 +536,222 @@ $effect(() => {
 });
 </script>
 
-<div class="p-6 max-w-2xl mx-auto">
+<div class="p-6 max-w-4xl mx-auto">
   <h1 class="h3 mb-3">Download from iNaturalist</h1>
   <div class="mb-6">
     <p>Download iNaturalist observations as a DarwinCore Archive you can open in Chuck.</p>
   </div>
 
-  <!-- Auth Section -->
-  <div class="mb-6 p-4 border rounded">
-    {#if authStatus.authenticated}
-      <div class="flex items-center justify-between">
-        <div class="text-sm">
-          {#if authStatus.username}
-            <span class="text-green-600">Signed in as {authStatus.username}</span>
-          {:else}
-            <span class="text-green-600">Signed in</span>
-          {/if}
-        </div>
-        <button
-          type="button"
-          class="btn preset-tonal-surface text-sm"
-          disabled={authLoading}
-          onclick={handleSignOut}
-        >
-          {authLoading ? 'Signing out...' : 'Sign Out'}
-        </button>
-      </div>
-    {:else}
-      <div class="flex items-center justify-between">
-        <div class="text-sm text-gray-600">
-          Sign in to access your private coordinates (optional)
-        </div>
-        <button
-          type="button"
-          class="btn preset-filled-surface text-sm"
-          disabled={authLoading}
-          onclick={handleSignIn}
-        >
-          {authLoading ? 'Signing in...' : 'Sign In'}
-        </button>
-      </div>
-    {/if}
-  </div>
-
-  <div class="mb-6">
-    <h2 class="h4 mb-3">Filters</h2>
-    <div class="space-y-4">
-      <InatTaxonChooser bind:selectedId={taxonId} />
-
-      <InatPlaceChooser bind:selectedId={placeId} />
-
-      <InatUserChooser bind:selectedId={userId} />
-
-      <div>
-        <div class="block text-sm font-medium mb-2">
-          Observation Date Range
-        </div>
-        <div class="space-y-2">
-          <label class="flex items-center w-fit">
-            <input
-              type="radio"
-              name="observed-range"
-              value="all"
-              checked={observedDateRange === 'all'}
-              onchange={() => observedDateRange = 'all'}
-            />
-            <span class="ml-2">All time</span>
-          </label>
-          <label class="flex items-center w-fit">
-            <input
-              type="radio"
-              name="observed-range"
-              value="custom"
-              checked={observedDateRange === 'custom'}
-              onchange={() => observedDateRange = 'custom'}
-            />
-            <span class="ml-2">Custom range</span>
-          </label>
-          {#if observedDateRange === 'custom'}
-            <div class="ml-6 space-y-2">
-              <div>
-                <label for="observed-d1" class="block text-xs mb-1">From</label>
-                <input
-                  id="observed-d1"
-                  type="date"
-                  class="input"
-                  bind:value={observedD1}
-                />
-              </div>
-              <div>
-                <label for="observed-d2" class="block text-xs mb-1">To</label>
-                <input
-                  id="observed-d2"
-                  type="date"
-                  class="input"
-                  bind:value={observedD2}
-                />
-              </div>
+  <ol class="step-list ps-6">
+    <li>
+      <h2 class="h4 mb-3">Sign in</h2>
+      <!-- Auth Section -->
+      <div class="mb-6 p-4 border rounded">
+        {#if authStatus.authenticated}
+          <div class="flex items-center justify-between">
+            <div class="text-sm">
+              <p class="mb-3 text-green-600">
+                {#if authStatus.username}
+                  Signed in as <strong>{authStatus.username}</strong>
+                {:else}
+                  Signed in
+                {/if}
+              </p>
+              <p>Private coordinates you can access will be included</p>
             </div>
-          {/if}
-        </div>
-      </div>
-
-      <div>
-        <div class="block text-sm font-medium mb-2">
-          Created Date Range
-        </div>
-        <div class="space-y-2">
-          <label class="flex items-center w-fit">
-            <input
-              type="radio"
-              name="created-range"
-              value="all"
-              checked={createdDateRange === 'all'}
-              onchange={() => createdDateRange = 'all'}
-            />
-            <span class="ml-2">All time</span>
-          </label>
-          <label class="flex items-center w-fit">
-            <input
-              type="radio"
-              name="created-range"
-              value="custom"
-              checked={createdDateRange === 'custom'}
-              onchange={() => createdDateRange = 'custom'}
-            />
-            <span class="ml-2">Custom range</span>
-          </label>
-          {#if createdDateRange === 'custom'}
-            <div class="ml-6 space-y-2">
-              <div>
-                <label for="created-d1" class="block text-xs mb-1">From</label>
-                <input
-                  id="created-d1"
-                  type="date"
-                  class="input"
-                  bind:value={createdD1}
-                />
-              </div>
-              <div>
-                <label for="created-d2" class="block text-xs mb-1">To</label>
-                <input
-                  id="created-d2"
-                  type="date"
-                  class="input"
-                  bind:value={createdD2}
-                />
-              </div>
+            <button
+              type="button"
+              class="btn preset-tonal text-sm"
+              disabled={authLoading}
+              onclick={handleSignOut}
+            >
+              {authLoading ? 'Signing out...' : 'Sign Out'}
+            </button>
+          </div>
+        {:else}
+          <div class="flex items-center justify-between">
+            <div class="text-sm text-gray-600">
+              Sign in to access private coordinates (optional)
             </div>
-          {/if}
+            <button
+              type="button"
+              class="btn preset-filled-surface text-sm"
+              disabled={authLoading}
+              onclick={handleSignIn}
+            >
+              {authLoading ? 'Signing in...' : 'Sign In'}
+            </button>
+          </div>
+        {/if}
+      </div>
+    </li>
+
+    <li>
+      <h2 class="h4 mb-3">Filter observations</h2>
+
+      <div class="mb-6">
+        <div class="space-y-4">
+          <InatTaxonChooser bind:selectedId={taxonId} />
+
+          <InatPlaceChooser bind:selectedId={placeId} />
+
+          <InatUserChooser bind:selectedId={userId} />
+
+          <div>
+            <div class="block text-sm font-medium mb-2">
+              Observation Date Range
+            </div>
+            <div class="space-y-2">
+              <label class="flex items-center w-fit">
+                <input
+                  type="radio"
+                  name="observed-range"
+                  value="all"
+                  checked={observedDateRange === 'all'}
+                  onchange={() => observedDateRange = 'all'}
+                />
+                <span class="ml-2">All time</span>
+              </label>
+              <label class="flex items-center w-fit">
+                <input
+                  type="radio"
+                  name="observed-range"
+                  value="custom"
+                  checked={observedDateRange === 'custom'}
+                  onchange={() => observedDateRange = 'custom'}
+                />
+                <span class="ml-2">Custom range</span>
+              </label>
+              {#if observedDateRange === 'custom'}
+                <div class="ml-6 space-y-2">
+                  <div>
+                    <label for="observed-d1" class="block text-xs mb-1">From</label>
+                    <input
+                      id="observed-d1"
+                      type="date"
+                      class="input"
+                      bind:value={observedD1}
+                    />
+                  </div>
+                  <div>
+                    <label for="observed-d2" class="block text-xs mb-1">To</label>
+                    <input
+                      id="observed-d2"
+                      type="date"
+                      class="input"
+                      bind:value={observedD2}
+                    />
+                  </div>
+                </div>
+              {/if}
+            </div>
+          </div>
+
+          <div>
+            <div class="block text-sm font-medium mb-2">
+              Created Date Range
+            </div>
+            <div class="space-y-2">
+              <label class="flex items-center w-fit">
+                <input
+                  type="radio"
+                  name="created-range"
+                  value="all"
+                  checked={createdDateRange === 'all'}
+                  onchange={() => createdDateRange = 'all'}
+                />
+                <span class="ml-2">All time</span>
+              </label>
+              <label class="flex items-center w-fit">
+                <input
+                  type="radio"
+                  name="created-range"
+                  value="custom"
+                  checked={createdDateRange === 'custom'}
+                  onchange={() => createdDateRange = 'custom'}
+                />
+                <span class="ml-2">Custom range</span>
+              </label>
+              {#if createdDateRange === 'custom'}
+                <div class="ml-6 space-y-2">
+                  <div>
+                    <label for="created-d1" class="block text-xs mb-1">From</label>
+                    <input
+                      id="created-d1"
+                      type="date"
+                      class="input"
+                      bind:value={createdD1}
+                    />
+                  </div>
+                  <div>
+                    <label for="created-d2" class="block text-xs mb-1">To</label>
+                    <input
+                      id="created-d2"
+                      type="date"
+                      class="input"
+                      bind:value={createdD2}
+                    />
+                  </div>
+                </div>
+              {/if}
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  </div>
+    </li>
 
-  <div class="mb-6">
-    <h2 class="h5 mb-3">Download Options</h2>
-    <div class="space-y-2">
-      <label class="flex items-start w-fit space-x-2">
-        <input name="fetchPhotos" class="checkbox mt-1" type="checkbox" bind:checked={fetchPhotos} />
-        <div>
-          <p>Download photos</p>
-          <p class="text-gray-500">Include all observation photos in the archive itself for backup or offline use</p>
-        </div>
-      </label>
+    <li>
+      <h2 class="h4 mb-3">Choose content</h2>
 
-      <div class="mt-3">
-        <h3 class="h6">Extensions</h3>
-        <p class="mb-4 text-gray-500">Files that contain extra data associated with occurrences.</p>
-        <div class="ml-4 space-y-2">
-          <ExtensionCheckbox
-            bind:value={includeSimpleMultimedia}
-            name="simpleMultimedia"
-            title="Simple Multimedia"
-            desc="Photo and sound data with attribution"
-            url="https://rs.gbif.org/extension/gbif/1.0/multimedia.xml"
-          />
-          <!-- Audiovisual doesn't add much to SimpleMultimedia, let's see if we can do without it -->
-          <!-- <ExtensionCheckbox
-            bind:value={includeAudiovisual}
-            name="audiovisual"
-            title="Audiovisual Media Description"
-            desc="Photo and sound data with attribution, taxonomic, and geographic metadata"
-            url="https://rs.gbif.org/extension/ac/audiovisual_2024_11_07.xml"
-          /> -->
-          <ExtensionCheckbox
-            bind:value={includeIdentifications}
-            name="identifications"
-            title="Identification History"
-            desc="All identifications associated with the observation"
-            url="https://rs.gbif.org/extension/dwc/identification_history_2025-07-10.xml"
-         />
-          <ExtensionCheckbox
-            bind:value={includeComments}
-            name="comments"
-            title="Comments"
-            desc="Discussion comments associated with the observation"
-            url="https://schema.org/Comment"
-          />
+      <div class="mb-6">
+        <div class="space-y-2">
+          <label class="flex items-start w-fit space-x-2">
+            <input name="fetchPhotos" class="checkbox mt-1" type="checkbox" bind:checked={fetchPhotos} />
+            <div>
+              <p>Download photos</p>
+              <p class="text-gray-500">Include all observation photos in the archive itself for backup or offline use</p>
+            </div>
+          </label>
+
+          <div class="mt-3">
+            <h3 class="h6">Extensions</h3>
+            <p class="mb-4 text-gray-500">Files that contain extra data associated with occurrences.</p>
+            <div class="ml-4 space-y-2">
+              <ExtensionCheckbox
+                bind:value={includeSimpleMultimedia}
+                name="simpleMultimedia"
+                title="Simple Multimedia"
+                desc="Photo and sound data with attribution"
+                url="https://rs.gbif.org/extension/gbif/1.0/multimedia.xml"
+              />
+              <!-- Audiovisual doesn't add much to SimpleMultimedia, let's see if we can do without it -->
+              <!-- <ExtensionCheckbox
+                bind:value={includeAudiovisual}
+                name="audiovisual"
+                title="Audiovisual Media Description"
+                desc="Photo and sound data with attribution, taxonomic, and geographic metadata"
+                url="https://rs.gbif.org/extension/ac/audiovisual_2024_11_07.xml"
+              /> -->
+              <ExtensionCheckbox
+                bind:value={includeIdentifications}
+                name="identifications"
+                title="Identification History"
+                desc="All identifications associated with the observation"
+                url="https://rs.gbif.org/extension/dwc/identification_history_2025-07-10.xml"
+             />
+             <ExtensionCheckbox
+               bind:value={includeComments}
+               name="comments"
+               title="Comments"
+               desc="Discussion comments associated with the observation"
+               url="https://schema.org/Comment"
+             />
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  </div>
+    </li>
+  </ol>
 
   <div class="mb-6 p-4 border rounded">
     {#if countLoading}
@@ -764,7 +778,7 @@ $effect(() => {
   <button
     type="button"
     class="btn preset-filled w-full"
-    disabled={countLoading || countError !== null || observationCount === null || observationCount === 0}
+    disabled={countLoading || countError !== null || !observationCount}
     onclick={handleDownload}
   >
     Download Archive
@@ -839,3 +853,36 @@ $effect(() => {
     </div>
   </div>
 {/if}
+
+<style>
+  ol.step-list {
+    list-style: none;
+    counter-reset: step;
+  }
+  ol.step-list > li {
+    counter-increment: step;
+  }
+  ol.step-list > li > h2 {
+    position: relative;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+  }
+  ol.step-list > li > h2::before {
+    content: counter(step);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5em;
+    height: 1.5em;
+    border-radius: 9999px;
+    background: currentColor;
+    color: white;
+    background-color: black;
+    line-height: 0;
+    font-size: 0.875rem;
+    margin-right: 0.5rem;
+    position: absolute;
+    left: -2em;
+  }
+</style>

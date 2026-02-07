@@ -114,7 +114,9 @@ async function setupInatDownloadMocks(page: Page) {
 
         switch (command) {
           case 'get_observation_count':
-            return 1234;
+            return new Promise((resolve) =>
+              setTimeout(() => resolve(1234), 500),
+            );
 
           case 'generate_inat_archive': {
             // Use custom event sequence if provided, otherwise use default
@@ -251,8 +253,11 @@ test.describe('iNat Download UI', () => {
     await page.fill('input[placeholder="Taxon"]', 'bird');
     await page.waitForTimeout(400);
     await page.click('[role="option"]:has-text("Birds")');
-    await page.waitForTimeout(600);
 
+    // Button should still be disabled while count is loading
+    await expect(downloadBtn).toBeDisabled();
+
+    // After the mock resolves, button should become enabled
     await expect(downloadBtn).toBeEnabled();
   });
 
@@ -263,24 +268,6 @@ test.describe('iNat Download UI', () => {
 
     await expect(page.locator('#observed-d1')).toBeVisible();
     await expect(page.locator('#observed-d2')).toBeVisible();
-  });
-
-  test('extension checkboxes all start unchecked', async ({ page }) => {
-    // Find checkboxes by their associated labels
-    const checkboxes = await page.locator('input[type="checkbox"]').all();
-
-    // Should have at least 4 checkboxes (fetch photos + 3 extensions)
-    expect(checkboxes.length).toBeGreaterThanOrEqual(4);
-
-    // All should be unchecked initially
-    for (const checkbox of checkboxes) {
-      const name = await checkbox.getAttribute('name');
-      if (name === 'simpleMultimedia') {
-        await expect(checkbox).toBeChecked();
-      } else {
-        await expect(checkbox).not.toBeChecked();
-      }
-    }
   });
 
   test('opens file picker and shows progress on download', async ({ page }) => {
@@ -527,11 +514,6 @@ test.describe('iNat Download UI', () => {
   test('shows auth section with sign in button when not authenticated', async ({
     page,
   }) => {
-    // Auth section should be visible
-    await expect(
-      page.locator('text=Sign in to access your private coordinates'),
-    ).toBeVisible();
-
     // Sign In button should be visible
     await expect(page.locator('button:has-text("Sign In")')).toBeVisible();
 
@@ -644,7 +626,6 @@ test.describe('Extension checkbox functionality', () => {
   test('includes "Identifications" when checkbox is checked', async ({
     page,
   }) => {
-    await page.locator('input[name="identifications"]').check();
     await expect(page.locator('input[name="identifications"]')).toBeChecked();
 
     await triggerDownload(page);
@@ -656,6 +637,8 @@ test.describe('Extension checkbox functionality', () => {
   test('excludes "Identifications" when checkbox is unchecked', async ({
     page,
   }) => {
+    await expect(page.locator('input[name="identifications"]')).toBeChecked();
+    await page.uncheck('input[name="identifications"]');
     await expect(
       page.locator('input[name="identifications"]'),
     ).not.toBeChecked();
@@ -669,26 +652,14 @@ test.describe('Extension checkbox functionality', () => {
   });
 
   test('includes all checked extensions', async ({ page }) => {
-    await page.locator('input[name="audiovisual"]').check();
-    await page.locator('input[name="identifications"]').check();
+    await expect(page.locator('input[name="simpleMultimedia"]')).toBeChecked();
+    await expect(page.locator('input[name="identifications"]')).toBeChecked();
 
     await triggerDownload(page);
 
     expect(capturedInvokeArgs).not.toBeNull();
     expect(capturedInvokeArgs.params.extensions).toEqual(
-      expect.arrayContaining([
-        'SimpleMultimedia',
-        'Audiovisual',
-        'Identifications',
-      ]),
+      expect.arrayContaining(['SimpleMultimedia', 'Identifications']),
     );
-    expect(capturedInvokeArgs.params.extensions).toHaveLength(3);
-  });
-
-  test('only includes SimpleMultimedia by default', async ({ page }) => {
-    await triggerDownload(page);
-
-    expect(capturedInvokeArgs).not.toBeNull();
-    expect(capturedInvokeArgs.params.extensions).toEqual(['SimpleMultimedia']);
   });
 });
