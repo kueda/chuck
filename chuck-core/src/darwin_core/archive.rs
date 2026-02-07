@@ -6,6 +6,7 @@ use zip::write::{FileOptions, ZipWriter};
 use zip::CompressionMethod;
 use crate::darwin_core::{
     audiovisual::Audiovisual,
+    comment::Comment,
     identification::Identification,
     meta::{self, Metadata},
     multimedia::Multimedia,
@@ -19,15 +20,18 @@ pub struct ArchiveBuilder {
     multimedia_writer: Option<csv::Writer<File>>,
     audiovisual_writer: Option<csv::Writer<File>>,
     identification_writer: Option<csv::Writer<File>>,
+    comment_writer: Option<csv::Writer<File>>,
     enabled_extensions: Vec<crate::DwcaExtension>,
     record_count: u64,
     multimedia_count: u64,
     audiovisual_count: u64,
     identification_count: u64,
+    comment_count: u64,
     occurrence_file_path: PathBuf,
     multimedia_file_path: PathBuf,
     audiovisual_file_path: PathBuf,
     identification_file_path: PathBuf,
+    comment_file_path: PathBuf,
     media_dir_path: PathBuf,
     metadata: Metadata,
 }
@@ -40,6 +44,7 @@ impl ArchiveBuilder {
         let multimedia_file_path = temp_dir.path().join("multimedia.csv");
         let audiovisual_file_path = temp_dir.path().join("audiovisual.csv");
         let identification_file_path = temp_dir.path().join("identification.csv");
+        let comment_file_path = temp_dir.path().join("comment.csv");
         let media_dir_path = temp_dir.path().join("media");
 
         // Create media directory
@@ -61,15 +66,18 @@ impl ArchiveBuilder {
             multimedia_writer: None,
             audiovisual_writer: None,
             identification_writer: None,
+            comment_writer: None,
             enabled_extensions: dwc_extensions,
             record_count: 0,
             multimedia_count: 0,
             audiovisual_count: 0,
             identification_count: 0,
+            comment_count: 0,
             occurrence_file_path,
             multimedia_file_path,
             audiovisual_file_path,
             identification_file_path,
+            comment_file_path,
             media_dir_path,
             metadata,
         })
@@ -188,6 +196,41 @@ impl ArchiveBuilder {
         Ok(())
     }
 
+    /// Add a batch of DarwinCore comment records to the archive
+    pub async fn add_comments(
+        &mut self,
+        comments: &[Comment],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if comments.is_empty() {
+            return Ok(());
+        }
+
+        // Initialize comment writer if this is the first comment batch
+        if self.comment_writer.is_none() {
+            let comment_file = File::create(&self.comment_file_path)?;
+            let mut writer = csv::WriterBuilder::new()
+                .has_headers(true)
+                .from_writer(comment_file);
+
+            // Write CSV headers
+            writer.write_record(Comment::csv_headers())?;
+            writer.flush()?;
+            self.comment_writer = Some(writer);
+        }
+
+        if let Some(writer) = &mut self.comment_writer {
+            for comment in comments {
+                writer.write_record(comment.to_csv_record())?;
+                self.comment_count += 1;
+            }
+
+            // Flush after each batch to ensure data is written
+            writer.flush()?;
+        }
+
+        Ok(())
+    }
+
     /// Build the final archive and create the ZIP file
     pub async fn build(mut self, output_path: &str) -> Result<(), Box<dyn std::error::Error>> {
         // Ensure all CSV data is written
@@ -208,6 +251,12 @@ impl ArchiveBuilder {
 
         // Close identification writer if it exists
         if let Some(mut writer) = self.identification_writer.take() {
+            writer.flush()?;
+            drop(writer);
+        }
+
+        // Close comment writer if it exists
+        if let Some(mut writer) = self.comment_writer.take() {
             writer.flush()?;
             drop(writer);
         }
@@ -266,6 +315,13 @@ impl ArchiveBuilder {
             zip.write_all(&identification_content)?;
         }
 
+        // Add comment.csv to ZIP if we have comment records
+        if self.comment_count > 0 {
+            zip.start_file("comment.csv", options)?;
+            let comment_content = std::fs::read(&self.comment_file_path)?;
+            zip.write_all(&comment_content)?;
+        }
+
         // Add media directory contents to ZIP if it exists and has files
         println!("Zipping media...");
         Self::add_directory_to_zip(&mut zip, &self.media_dir_path, "media")?;
@@ -283,6 +339,9 @@ impl ArchiveBuilder {
         }
         if self.identification_count > 0 {
             println!("Identification records exported: {}", self.identification_count);
+        }
+        if self.comment_count > 0 {
+            println!("Comment records exported: {}", self.comment_count);
         }
 
         Ok(())

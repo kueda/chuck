@@ -6,6 +6,8 @@ pub enum DwcaExtension {
     Audiovisual,
     /// Identifications extension
     Identifications,
+    /// Comments extension
+    Comments,
 }
 
 impl DwcaExtension {
@@ -15,6 +17,7 @@ impl DwcaExtension {
             "http://rs.gbif.org/terms/1.0/Multimedia" => Some(Self::SimpleMultimedia),
             "http://rs.tdwg.org/ac/terms/Multimedia" => Some(Self::Audiovisual),
             "http://rs.tdwg.org/dwc/terms/Identification" => Some(Self::Identifications),
+            "https://schema.org/Comment" => Some(Self::Comments),
             _ => None,
         }
     }
@@ -25,6 +28,7 @@ impl DwcaExtension {
             Self::SimpleMultimedia => "multimedia",
             Self::Audiovisual => "audiovisual",
             Self::Identifications => "identifications",
+            Self::Comments => "comments",
         }
     }
 
@@ -34,6 +38,7 @@ impl DwcaExtension {
             "http://rs.gbif.org/terms/1.0/Multimedia",
             "http://rs.tdwg.org/ac/terms/Multimedia",
             "http://rs.tdwg.org/dwc/terms/Identification",
+            "https://schema.org/Comment",
         ]
     }
 }
@@ -44,6 +49,7 @@ impl std::fmt::Display for DwcaExtension {
             Self::SimpleMultimedia => write!(f, "SimpleMultimedia"),
             Self::Audiovisual => write!(f, "Audiovisual"),
             Self::Identifications => write!(f, "Identifications"),
+            Self::Comments => write!(f, "Comments"),
         }
     }
 }
@@ -73,18 +79,28 @@ mod tests {
     }
 
     #[test]
+    fn test_from_row_type_comments() {
+        assert_eq!(
+            DwcaExtension::from_row_type("https://schema.org/Comment"),
+            Some(DwcaExtension::Comments)
+        );
+    }
+
+    #[test]
     fn test_table_name() {
         assert_eq!(DwcaExtension::SimpleMultimedia.table_name(), "multimedia");
         assert_eq!(DwcaExtension::Audiovisual.table_name(), "audiovisual");
         assert_eq!(DwcaExtension::Identifications.table_name(), "identifications");
+        assert_eq!(DwcaExtension::Comments.table_name(), "comments");
     }
 
     #[test]
     fn test_all_row_types() {
         let row_types = DwcaExtension::all_row_types();
-        assert_eq!(row_types.len(), 3);
+        assert_eq!(row_types.len(), 4);
         assert!(row_types.contains(&"http://rs.gbif.org/terms/1.0/Multimedia"));
         assert!(row_types.contains(&"http://rs.tdwg.org/ac/terms/Multimedia"));
         assert!(row_types.contains(&"http://rs.tdwg.org/dwc/terms/Identification"));
+        assert!(row_types.contains(&"https://schema.org/Comment"));
     }
 }

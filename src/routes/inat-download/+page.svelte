@@ -50,6 +50,7 @@ let fetchPhotos = $state<boolean>(false);
 let includeSimpleMultimedia = $state<boolean>(true);
 let includeAudiovisual = $state<boolean>(false);
 let includeIdentifications = $state<boolean>(false);
+let includeComments = $state<boolean>(false);
 
 let observationCount = $state<number | null>(null);
 let countLoading = $state<boolean>(false);
@@ -70,6 +71,7 @@ const SIZE_ESTIMATE_SAFETY_MARGIN = 1.2;
 const BYTES_PER_OBSERVATION = 79 * SIZE_ESTIMATE_SAFETY_MARGIN;
 const BYTES_PER_OBSERVATION_MULTIMEDIA = 16 * SIZE_ESTIMATE_SAFETY_MARGIN;
 const BYTES_PER_OBSERVATION_IDENTIFICATIONS = 146 * SIZE_ESTIMATE_SAFETY_MARGIN;
+const BYTES_PER_OBSERVATION_COMMENTS = 40 * SIZE_ESTIMATE_SAFETY_MARGIN;
 const BYTES_PER_PHOTO = 1_800_000;
 const ONE_GB = 1_000_000_000;
 
@@ -306,6 +308,9 @@ function calculateEstimatedSize(): number | null {
   if (includeIdentifications) {
     sizeBytes += observationCount * BYTES_PER_OBSERVATION_IDENTIFICATIONS;
   }
+  if (includeComments) {
+    sizeBytes += observationCount * BYTES_PER_OBSERVATION_COMMENTS;
+  }
 
   // Add photo costs
   if (fetchPhotos && photoEstimate && photoEstimate.sample_size > 0) {
@@ -378,6 +383,7 @@ async function startDownload(filePath: string) {
     if (includeSimpleMultimedia) extensions.push('SimpleMultimedia');
     if (includeAudiovisual) extensions.push('Audiovisual');
     if (includeIdentifications) extensions.push('Identifications');
+    if (includeComments) extensions.push('Comments');
 
     // Call generate command
     await invoke('generate_inat_archive', {
@@ -721,6 +727,13 @@ $effect(() => {
             desc="All identifications associated with the observation"
             url="https://rs.gbif.org/extension/dwc/identification_history_2025-07-10.xml"
          />
+          <ExtensionCheckbox
+            bind:value={includeComments}
+            name="comments"
+            title="Comments"
+            desc="Discussion comments associated with the observation"
+            url="https://schema.org/Comment"
+          />
         </div>
       </div>
     </div>

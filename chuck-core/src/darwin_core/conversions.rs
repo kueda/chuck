@@ -1,6 +1,6 @@
 use inaturalist::models::{Observation, ShowTaxon};
 use std::collections::HashMap;
-use super::{Occurrence, Multimedia, Audiovisual, Identification};
+use super::{Occurrence, Multimedia, Audiovisual, Identification, Comment};
 
 // GBIF-valid life stages
 const GBIF_LIFE_STAGES: &[&str] = &[
@@ -670,6 +670,62 @@ impl From<(&inaturalist::models::Photo, &str, &Observation, &HashMap<i32, String
             created: None, // Photo creation date not available in iNaturalist API
             date_time_original: None, // Can't be derived from API response
             temporal_coverage: None, // Can't be derived from API response
+        }
+    }
+}
+
+// Map iNaturalist comment to DarwinCore comment record
+impl From<(&inaturalist::models::Comment, &str)> for Comment {
+    fn from(
+        (comment, occurrence_id): (&inaturalist::models::Comment, &str),
+    ) -> Self {
+        // Combine user login and name for author
+        let author = if let Some(ref user) = comment.user {
+            let parts: Vec<&str> = [
+                user.login.as_deref().unwrap_or(""),
+                user.name.as_deref().unwrap_or(""),
+            ]
+            .iter()
+            .filter(|s| !s.is_empty())
+            .copied()
+            .collect();
+
+            if parts.is_empty() { None } else { Some(parts.join("|")) }
+        } else {
+            None
+        };
+
+        // Build authorID from user id
+        let author_id = comment.user.as_ref().and_then(|user| {
+            user.id
+                .map(|id| format!("https://www.inaturalist.org/users/{id}"))
+        });
+
+        // Build identifier: URI from id, with UUID as pipe-separated alternative
+        let identifier = {
+            let mut parts = Vec::new();
+            if let Some(id) = comment.id {
+                parts.push(format!(
+                    "https://www.inaturalist.org/comments/{id}"
+                ));
+            }
+            if let Some(ref uuid) = comment.uuid {
+                parts.push(uuid.clone());
+            }
+            if parts.is_empty() { None } else { Some(parts.join("|")) }
+        };
+
+        Self {
+            coreid: None,
+            occurrence_id: format!(
+                "https://www.inaturalist.org/observations/{occurrence_id}"
+            ),
+            identifier,
+            text: comment.body.clone(),
+            author,
+            author_id,
+            created: comment.created_at.clone(),
+            modified: None,
         }
     }
 }
@@ -1453,5 +1509,152 @@ mod tests {
             occ.taxon_id,
             Some(format!("https://www.inaturalist.org/taxa/{taxon_id}"))
         );
+    }
+
+    #[test]
+    fn test_comment_conversion() {
+        use inaturalist::models::{Comment as InatComment, User};
+
+        let comment = InatComment {
+            id: Some(99),
+            uuid: Some("abc-123".to_string()),
+            body: Some("Nice find!".to_string()),
+            created_at: Some("2024-01-15T10:30:00Z".to_string()),
+            user: Some(Box::new(User {
+                id: Some(42),
+                login: Some("jsmith".to_string()),
+                name: Some("Jane Smith".to_string()),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+
+        let dwc = Comment::from((&comment, "123"));
+        assert_eq!(
+            dwc.occurrence_id,
+            "https://www.inaturalist.org/observations/123"
+        );
+        assert_eq!(
+            dwc.identifier,
+            Some(
+                "https://www.inaturalist.org/comments/99|abc-123"
+                    .to_string()
+            )
+        );
+        assert_eq!(dwc.text, Some("Nice find!".to_string()));
+        assert_eq!(dwc.author, Some("jsmith|Jane Smith".to_string()));
+        assert_eq!(
+            dwc.author_id,
+            Some("https://www.inaturalist.org/users/42".to_string())
+        );
+        assert_eq!(
+            dwc.created,
+            Some("2024-01-15T10:30:00Z".to_string())
+        );
+        assert_eq!(dwc.modified, None);
+        assert_eq!(dwc.coreid, None);
+    }
+
+    #[test]
+    fn test_comment_author_login_only() {
+        use inaturalist::models::{Comment as InatComment, User};
+
+        let comment = InatComment {
+            user: Some(Box::new(User {
+                id: Some(1),
+                login: Some("bob".to_string()),
+                name: None,
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+
+        let dwc = Comment::from((&comment, "1"));
+        assert_eq!(dwc.author, Some("bob".to_string()));
+    }
+
+    #[test]
+    fn test_comment_author_login_and_name() {
+        use inaturalist::models::{Comment as InatComment, User};
+
+        let comment = InatComment {
+            user: Some(Box::new(User {
+                id: Some(1),
+                login: Some("bob".to_string()),
+                name: Some("Bob Jones".to_string()),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+
+        let dwc = Comment::from((&comment, "1"));
+        assert_eq!(dwc.author, Some("bob|Bob Jones".to_string()));
+    }
+
+    #[test]
+    fn test_comment_author_no_user() {
+        use inaturalist::models::Comment as InatComment;
+
+        let comment = InatComment {
+            user: None,
+            ..Default::default()
+        };
+
+        let dwc = Comment::from((&comment, "1"));
+        assert_eq!(dwc.author, None);
+        assert_eq!(dwc.author_id, None);
+    }
+
+    #[test]
+    fn test_comment_identifier_uri_with_uuid() {
+        use inaturalist::models::Comment as InatComment;
+
+        let comment = InatComment {
+            id: Some(99),
+            uuid: Some("abc-123".to_string()),
+            ..Default::default()
+        };
+
+        let dwc = Comment::from((&comment, "1"));
+        assert_eq!(
+            dwc.identifier,
+            Some(
+                "https://www.inaturalist.org/comments/99|abc-123"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn test_comment_identifier_uri_without_uuid() {
+        use inaturalist::models::Comment as InatComment;
+
+        let comment = InatComment {
+            id: Some(99),
+            uuid: None,
+            ..Default::default()
+        };
+
+        let dwc = Comment::from((&comment, "1"));
+        assert_eq!(
+            dwc.identifier,
+            Some(
+                "https://www.inaturalist.org/comments/99".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn test_comment_identifier_uuid_only() {
+        use inaturalist::models::Comment as InatComment;
+
+        let comment = InatComment {
+            id: None,
+            uuid: Some("abc-123".to_string()),
+            ..Default::default()
+        };
+
+        let dwc = Comment::from((&comment, "1"));
+        assert_eq!(dwc.identifier, Some("abc-123".to_string()));
     }
 }

@@ -8,6 +8,17 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
     node.setAttribute('target', '_blank');
     node.setAttribute('rel', 'noopener noreferrer');
   }
+
+  // Override tailwind's weird base styles for lists
+  const listClass = 'ps-6';
+  if (node.nodeName === 'OL') {
+    node.setAttribute('class', `${listClass} list-decimal`);
+    node.setAttribute('role', 'list');
+  }
+  if (node.nodeName === 'UL') {
+    node.setAttribute('class', `${listClass} list-disc`);
+    node.setAttribute('role', 'list');
+  }
 });
 
 const { text }: { text: string } = $props();

@@ -149,6 +149,7 @@ pub async fn generate_inat_archive(
             "SimpleMultimedia" => extensions.push(chuck_core::DwcaExtension::SimpleMultimedia),
             "Audiovisual" => extensions.push(chuck_core::DwcaExtension::Audiovisual),
             "Identifications" => extensions.push(chuck_core::DwcaExtension::Identifications),
+            "Comments" => extensions.push(chuck_core::DwcaExtension::Comments),
             _ => {
                 log::warn!("Unknown extension: {ext}");
             }

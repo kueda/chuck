@@ -381,13 +381,21 @@ impl Downloader {
             }
         }
 
+        // Comments extension
+        if self.extensions.contains(&DwcaExtension::Comments) {
+            let records = convert_to_comments(observations);
+            if !records.is_empty() {
+                archive.add_comments(&records).await?;
+            }
+        }
+
         Ok(())
     }
 }
 
 use std::collections::HashMap;
 use inaturalist::models::{Observation, ShowTaxon};
-use crate::darwin_core::{Multimedia, Audiovisual, Identification};
+use crate::darwin_core::{Multimedia, Audiovisual, Identification, Comment};
 
 /// Convert observations to multimedia records
 pub fn convert_to_multimedia(
@@ -435,6 +443,27 @@ pub fn convert_to_identifications(
             Some(obs.identifications.as_ref()?.iter().map(|identification| {
                 Identification::from((identification, occurrence_id.as_str(), taxa_hash))
             }).collect::<Vec<_>>())
+        })
+        .flatten()
+        .collect()
+}
+
+/// Convert observations to comment records, filtering out hidden comments
+pub fn convert_to_comments(observations: &[Observation]) -> Vec<Comment> {
+    observations
+        .iter()
+        .filter_map(|obs| {
+            let occurrence_id = obs.id.map(|id| format!("{id}"))?;
+            Some(
+                obs.comments
+                    .as_ref()?
+                    .iter()
+                    .filter(|c| !c.hidden.unwrap_or(false))
+                    .map(|comment| {
+                        Comment::from((comment, occurrence_id.as_str()))
+                    })
+                    .collect::<Vec<_>>(),
+            )
         })
         .flatten()
         .collect()
@@ -576,6 +605,44 @@ mod tests {
             identifications[0].occurrence_id,
             "https://www.inaturalist.org/observations/123"
         );
+    }
+
+    #[test]
+    fn test_convert_to_comments_filters_hidden() {
+        use inaturalist::models::{
+            Comment as InatComment, Observation,
+        };
+
+        let observations = vec![Observation {
+            id: Some(123),
+            comments: Some(vec![
+                InatComment {
+                    id: Some(1),
+                    body: Some("visible".to_string()),
+                    hidden: Some(false),
+                    ..Default::default()
+                },
+                InatComment {
+                    id: Some(2),
+                    body: Some("hidden".to_string()),
+                    hidden: Some(true),
+                    ..Default::default()
+                },
+                InatComment {
+                    id: Some(3),
+                    body: Some("no hidden field".to_string()),
+                    hidden: None,
+                    ..Default::default()
+                },
+            ]),
+            ..Default::default()
+        }];
+
+        let comments = convert_to_comments(&observations);
+
+        assert_eq!(comments.len(), 2);
+        assert_eq!(comments[0].text, Some("visible".to_string()));
+        assert_eq!(comments[1].text, Some("no hidden field".to_string()));
     }
 
 }

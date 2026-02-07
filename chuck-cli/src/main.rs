@@ -38,6 +38,8 @@ pub enum DwcExtension {
     Audiovisual,
     /// Identifications extension
     Identifications,
+    /// Comments extension
+    Comments,
 }
 
 impl From<DwcExtension> for chuck_core::DwcaExtension {
@@ -46,6 +48,7 @@ impl From<DwcExtension> for chuck_core::DwcaExtension {
             DwcExtension::SimpleMultimedia => chuck_core::DwcaExtension::SimpleMultimedia,
             DwcExtension::Audiovisual => chuck_core::DwcaExtension::Audiovisual,
             DwcExtension::Identifications => chuck_core::DwcaExtension::Identifications,
+            DwcExtension::Comments => chuck_core::DwcaExtension::Comments,
         }
     }
 }

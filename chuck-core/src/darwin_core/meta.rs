@@ -168,6 +168,23 @@ fn generate_extensions(enabled_extensions: &[crate::DwcaExtension]) -> String {
   </extension>"#);
     }
 
+    if enabled_extensions.contains(&crate::DwcaExtension::Comments) {
+        extensions.push_str(r#"
+  <extension encoding="UTF-8" fieldsTerminatedBy="," linesTerminatedBy="\n" fieldsEnclosedBy='"' ignoreHeaderLines="1" rowType="https://schema.org/Comment">
+    <files>
+      <location>comment.csv</location>
+    </files>
+    <coreid index="0"/>
+    <field index="0" term="http://rs.tdwg.org/dwc/terms/occurrenceID"/>
+    <field index="1" term="http://purl.org/dc/terms/identifier"/>
+    <field index="2" term="https://schema.org/text"/>
+    <field index="3" term="https://schema.org/author"/>
+    <field index="4" term="https://chuck.kueda.net/terms/authorID"/>
+    <field index="5" term="http://purl.org/dc/terms/created"/>
+    <field index="6" term="http://purl.org/dc/terms/modified"/>
+  </extension>"#);
+    }
+
     extensions
 }
 

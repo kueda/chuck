@@ -17,7 +17,14 @@ import Agent from '$lib/components/Agent.svelte';
 import Markup from '$lib/components/Markup.svelte';
 import Taxon from '$lib/components/Taxon.svelte';
 import { invoke } from '$lib/tauri-api';
-import type { Audiovisual, Multimedia, Occurrence } from '$lib/types/archive';
+import type {
+  Audiovisual,
+  Comment as CommentType,
+  Identification as IdentificationType,
+  Multimedia,
+  Occurrence,
+} from '$lib/types/archive';
+import Comment from './Comment.svelte';
 import Identification from './Identification.svelte';
 import MediaItem from './MediaItem.svelte';
 import OccurrenceMap from './OccurrenceMap.svelte';
@@ -47,13 +54,27 @@ let error = $state<string | null>(null);
 let photoViewerOpen = $state(false);
 let photoUrls = $state<string[]>([]);
 let selectedPhotoIndex = $state(0);
-const identifications = $derived.by(() =>
-  occurrence?.identifications?.toSorted((i1, i2) => {
-    const n1 = i1.dateIdentified ? Date.parse(i1.dateIdentified) : 0;
-    const n2 = i2.dateIdentified ? Date.parse(i2.dateIdentified) : 0;
-    return n1 - n2;
-  }),
-);
+type ActivityItem =
+  | { type: 'identification'; date: number; item: IdentificationType }
+  | { type: 'comment'; date: number; item: CommentType };
+
+const activity = $derived.by(() => {
+  const items: ActivityItem[] = [];
+  if (occurrence?.identifications) {
+    for (const ident of occurrence.identifications) {
+      const date = ident.dateIdentified ? Date.parse(ident.dateIdentified) : 0;
+      items.push({ type: 'identification', date, item: ident });
+    }
+  }
+  if (occurrence?.comments) {
+    for (const comment of occurrence.comments) {
+      const date = comment.created ? Date.parse(comment.created) : 0;
+      items.push({ type: 'comment', date, item: comment });
+    }
+  }
+  items.sort((a, b) => a.date - b.date);
+  return items;
+});
 const displayLocality = $derived.by(() => {
   if (!occurrence) return;
   if (occurrence.verbatimLocality && occurrence.verbatimLocality.length > 0) {
@@ -359,12 +380,16 @@ const coreFields = {
               </dl>
             </section>
 
-            {#if identifications && identifications.length > 0}
+            {#if activity.length > 0}
               <section>
-                <h2 class="text-xl font-bold mb-4">Identifications</h2>
+                <h2 class="text-xl font-bold mb-4">Activity</h2>
                 <div class="grid gap-2">
-                  {#each identifications as ident}
-                    <Identification identification={ident} />
+                  {#each activity as entry}
+                    {#if entry.type === 'identification'}
+                      <Identification identification={entry.item} />
+                    {:else}
+                      <Comment comment={entry.item} />
+                    {/if}
                   {/each}
                 </div>
               </section>
@@ -375,7 +400,7 @@ const coreFields = {
               <summary class="text-lg font-semibold cursor-pointer">All Fields</summary>
               <dl class="mt-4 grid grid-cols-2 gap-4">
                 {#each Object.entries(occurrence) as [key, value]}
-                  {#if value && !['multimedia', 'audiovisual', 'identifications'].includes(key)}
+                  {#if value && !['multimedia', 'audiovisual', 'identifications', 'comments'].includes(key)}
                     <div>
                       <dt class="text-sm text-gray-500">{key}</dt>
                       <dd class="font-medium text-sm break-words"><Markup text={value.toString()} /></dd>

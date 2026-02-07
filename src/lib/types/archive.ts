@@ -97,6 +97,16 @@ export interface Identification {
   identificationCurrent?: boolean | null;
 }
 
+export interface Comment {
+  occurrenceID: string;
+  identifier?: string | null;
+  text: string;
+  author?: string | null;
+  authorID?: string | null;
+  created?: string | null;
+  modified?: string | null;
+}
+
 // Attributes are undefined when the client doesn't ask for them, and
 // (hopefully) null when the client asks for them but they are blank
 export interface Occurrence {
@@ -332,7 +342,7 @@ export interface Occurrence {
   verbatimLabel?: string | null;
   multimedia?: Multimedia[];
   audiovisual?: Audiovisual[];
-  identification?: Identification[];
+  comments?: Comment[];
 }
 
 export interface SearchResult {
