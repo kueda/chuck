@@ -11,12 +11,14 @@ const { children } = $props();
 // `csp` config from tauri.conf.json
 const connectSrc = [
   "'self'",
-  'tiles:',
-  'http://tiles.localhost',
-  'ipc:',
+  'basemap:',
   'http://ipc.localhost',
-  'https://tile.openstreetmap.org:*',
+  'http://tiles.localhost',
   'https://api.inaturalist.org:*',
+  'https://protomaps.github.io:*',
+  'https://tile.openstreetmap.org:*',
+  'ipc:',
+  'tiles:',
 ].join(' ');
 const devCsp = {
   'script-src': "'self' 'unsafe-inline' http://localhost:*",

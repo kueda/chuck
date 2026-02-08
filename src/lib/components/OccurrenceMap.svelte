@@ -2,6 +2,8 @@
 import maplibregl from 'maplibre-gl';
 import { onDestroy, onMount } from 'svelte';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { buildMapStyle } from '$lib/mapStyle';
+import { invoke } from '$lib/tauri-api';
 
 interface Props {
   latitude: number;
@@ -15,30 +17,19 @@ let mapContainer: HTMLDivElement;
 let map: maplibregl.Map | null = null;
 let marker: maplibregl.Marker | null = null;
 
-onMount(() => {
+onMount(async () => {
+  // Check if offline basemap is available
+  let hasBasemap = false;
+  try {
+    const status = await invoke<{ downloaded: boolean }>('get_basemap_status');
+    hasBasemap = status.downloaded;
+  } catch {
+    hasBasemap = false;
+  }
+
   map = new maplibregl.Map({
     container: mapContainer,
-    style: {
-      version: 8,
-      sources: {
-        osm: {
-          type: 'raster',
-          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-          tileSize: 256,
-          attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        },
-      },
-      layers: [
-        {
-          id: 'osm',
-          type: 'raster',
-          source: 'osm',
-          minzoom: 0,
-          maxzoom: 19,
-        },
-      ],
-    },
+    style: buildMapStyle(hasBasemap),
     center: [longitude, latitude],
     zoom: 12,
   });

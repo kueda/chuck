@@ -3,6 +3,7 @@ import { Progress, Tabs } from '@skeletonlabs/skeleton-svelte';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { Combine, Grid3x3 } from 'lucide-svelte';
 import { onMount } from 'svelte';
+import BasemapSetup from '$lib/components/BasemapSetup.svelte';
 import Filters from '$lib/components/Filters.svelte';
 import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
 import {
@@ -52,6 +53,9 @@ let scrollState = $state({ targetIndex: 0, shouldScroll: false });
 
 // Tab state
 let activeTab = $state<string>('occurrences');
+
+// Basemap setup dialog
+let basemapSetupOpen = $state(false);
 
 // Map state preservation
 let mapCenter = $state<[number, number]>([0, 0]);
@@ -379,6 +383,13 @@ onMount(() => {
     unlistenMenu = unlistenFn;
   });
 
+  let unlistenBasemapMenu: (() => void) | undefined;
+  listen('menu-download-basemap', () => {
+    basemapSetupOpen = true;
+  }).then((unlistenFn) => {
+    unlistenBasemapMenu = unlistenFn;
+  });
+
   // Listen for archive open progress events
   type ProgressEvent =
     | { status: 'importing' }
@@ -426,6 +437,7 @@ onMount(() => {
 
   return () => {
     unlistenMenu?.();
+    unlistenBasemapMenu?.();
     unlistenProgress?.();
   };
 });
@@ -611,3 +623,10 @@ onMount(() => {
     </div>
   </div>
 {/if}
+
+<BasemapSetup
+  bind:open={basemapSetupOpen}
+  onClose={() => {
+    basemapSetupOpen = false;
+  }}
+/>

@@ -93,3 +93,14 @@ export function getTileUrlBase(): string {
     navigator.userAgent.toLowerCase().includes('windows');
   return isWindows ? 'http://tiles.localhost' : 'tiles://localhost';
 }
+
+/**
+ * Get the base URL for the basemap custom protocol.
+ * Same pattern as getTileUrlBase but for the basemap:// scheme.
+ */
+export function getBasemapUrlBase(): string {
+  const isWindows =
+    typeof navigator !== 'undefined' &&
+    navigator.userAgent.toLowerCase().includes('windows');
+  return isWindows ? 'http://basemap.localhost' : 'basemap://localhost';
+}
