@@ -1,16 +1,157 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 
+use bytes::{Bytes, BytesMut};
 use futures::stream::{self, StreamExt};
+use pmtiles::reqwest::header::{HeaderValue, RANGE};
+use pmtiles::reqwest::{Method, Request, StatusCode};
 use pmtiles::{
-    AsyncPmTilesReader, HashMapCache, HttpBackend, PmTilesWriter,
-    TileCoord, TileType,
+    AsyncBackend, AsyncPmTilesReader, HashMapCache, PmTilesWriter,
+    PmtError, PmtResult, TileCoord,
 };
 use serde::Serialize;
 use tauri::{Emitter, Manager};
+use tokio::sync::{OnceCell, RwLock};
+use url::Url;
 
 use super::protocol;
+
+/// HTTP backend that downloads data in large fixed-size chunks (4 MB) and
+/// caches them in memory. Nearby reads (e.g. clustered tiles) hit the same
+/// cached chunk, dramatically reducing the number of HTTP round-trips
+/// compared to one range request per tile.
+struct ChunkedHttpBackend {
+    client: pmtiles::reqwest::Client,
+    url: Url,
+    chunks: RwLock<HashMap<usize, Arc<OnceCell<Bytes>>>>,
+    file_size: usize,
+}
+
+const CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4 MB
+
+impl ChunkedHttpBackend {
+    /// Create a new chunked backend. Issues a HEAD request to determine
+    /// the remote file size (needed to clamp the last chunk).
+    async fn try_new(
+        client: pmtiles::reqwest::Client,
+        url: &str,
+    ) -> PmtResult<Self> {
+        let url: Url = url.parse().map_err(|_| {
+            PmtError::Reading(std::io::Error::other(
+                format!("Invalid URL: {url}"),
+            ))
+        })?;
+
+        let response = client
+            .head(url.clone())
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let file_size = response
+            .headers()
+            .get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<usize>().ok())
+            .ok_or_else(|| {
+                PmtError::Reading(std::io::Error::other(
+                    "Server did not return Content-Length",
+                ))
+            })?;
+
+        Ok(Self {
+            client,
+            url,
+            chunks: RwLock::new(HashMap::new()),
+            file_size,
+        })
+    }
+
+    /// Get or download a single chunk. Uses OnceCell to ensure each chunk
+    /// is downloaded exactly once even under concurrent access.
+    async fn get_chunk(&self, chunk_idx: usize) -> PmtResult<Bytes> {
+        // Fast path: check if the OnceCell already exists
+        let cell = {
+            let guard = self.chunks.read().await;
+            guard.get(&chunk_idx).cloned()
+        };
+
+        let cell = match cell {
+            Some(c) => c,
+            None => {
+                let mut guard = self.chunks.write().await;
+                guard
+                    .entry(chunk_idx)
+                    .or_insert_with(|| Arc::new(OnceCell::new()))
+                    .clone()
+            }
+        };
+
+        cell.get_or_try_init(|| async {
+            let start = chunk_idx * CHUNK_SIZE;
+            let end =
+                (start + CHUNK_SIZE).min(self.file_size).saturating_sub(1);
+            let range = format!("bytes={start}-{end}");
+            let range = HeaderValue::try_from(range)?;
+
+            let mut req = Request::new(Method::GET, self.url.clone());
+            req.headers_mut().insert(RANGE, range);
+
+            let response =
+                self.client.execute(req).await?.error_for_status()?;
+            if response.status() != StatusCode::PARTIAL_CONTENT {
+                return Err(PmtError::RangeRequestsUnsupported);
+            }
+            Ok(response.bytes().await?)
+        })
+        .await
+        .cloned()
+    }
+}
+
+impl AsyncBackend for ChunkedHttpBackend {
+    async fn read(
+        &self,
+        offset: usize,
+        length: usize,
+    ) -> PmtResult<Bytes> {
+        let start_chunk = offset / CHUNK_SIZE;
+        let end_chunk = (offset + length - 1) / CHUNK_SIZE;
+
+        if start_chunk == end_chunk {
+            // Common case: read fits within a single chunk
+            let chunk_data = self.get_chunk(start_chunk).await?;
+            let local_offset = offset - start_chunk * CHUNK_SIZE;
+            let available =
+                chunk_data.len().saturating_sub(local_offset).min(length);
+            Ok(chunk_data.slice(
+                local_offset..local_offset + available,
+            ))
+        } else {
+            // Read spans multiple chunks — assemble from each
+            let mut buf = BytesMut::with_capacity(length);
+            for idx in start_chunk..=end_chunk {
+                let chunk_data = self.get_chunk(idx).await?;
+                let chunk_start = idx * CHUNK_SIZE;
+                let local_start = if idx == start_chunk {
+                    offset - chunk_start
+                } else {
+                    0
+                };
+                let local_end = if idx == end_chunk {
+                    (offset + length) - chunk_start
+                } else {
+                    chunk_data.len()
+                };
+                let local_end = local_end.min(chunk_data.len());
+                buf.extend_from_slice(&chunk_data[local_start..local_end]);
+            }
+            Ok(buf.freeze())
+        }
+    }
+}
 
 const PLANET_PMTILES_BASE: &str = "https://build.protomaps.com";
 
@@ -171,7 +312,8 @@ pub async fn download_basemap(
         .map_err(|e| format!("HTTP client error: {e}"))?;
 
     let backend =
-        HttpBackend::try_from(client, &planet_url)
+        ChunkedHttpBackend::try_new(client, &planet_url)
+            .await
             .map_err(|e| {
                 format!("Failed to connect to remote PMTiles: {e}")
             })?;
@@ -185,13 +327,22 @@ pub async fn download_basemap(
     })?;
     let remote_reader = Arc::new(remote_reader);
 
-    // Create local writer
+    // Create local writer, matching source compression so we can
+    // copy raw compressed tile bytes without re-encoding.
+    let source_header = remote_reader.get_header();
+    let source_metadata = remote_reader.get_metadata().await
+        .map_err(|e| format!("Failed to read metadata: {e}"))?;
     let output_file = std::fs::File::create(&tmp_path)
         .map_err(|e| format!("Failed to create output file: {e}"))?;
-    let mut stream_writer = PmTilesWriter::new(TileType::Mvt)
-        .max_zoom(max_zoom)
-        .create(output_file)
-        .map_err(|e| format!("Failed to create PMTiles writer: {e}"))?;
+    let mut stream_writer =
+        PmTilesWriter::new(source_header.tile_type)
+            .tile_compression(source_header.tile_compression)
+            .max_zoom(max_zoom)
+            .metadata(&source_metadata)
+            .create(output_file)
+            .map_err(|e| {
+                format!("Failed to create PMTiles writer: {e}")
+            })?;
 
     let mut tiles_downloaded: u64 = 0;
     let mut bytes_downloaded: u64 = 0;
@@ -222,15 +373,20 @@ pub async fn download_basemap(
         }
     }
 
-    // Fetch tiles concurrently in batches
-    const CONCURRENCY: usize = 32;
+    // High concurrency because the ChunkedHttpBackend deduplicates chunk
+    // downloads via OnceCell. With ~87 tiles per 4 MB chunk, 1024 in-flight
+    // lookups span ~12 chunks, so for typical downloads (zoom 6 ≈ 13 chunks)
+    // nearly all chunks begin downloading immediately. Raw byte copying
+    // (no decompression) means tile processing is fast enough that the
+    // bottleneck is purely network I/O.
+    const CONCURRENCY: usize = 1024;
     let cancel = cancel_flag.clone();
     let reader = remote_reader.clone();
     let mut tile_stream = stream::iter(coords)
         .map(move |coord| {
             let reader = reader.clone();
             async move {
-                (coord, reader.get_tile_decompressed(coord).await)
+                (coord, reader.get_tile(coord).await)
             }
         })
         .buffer_unordered(CONCURRENCY);
@@ -246,7 +402,7 @@ pub async fn download_basemap(
             Ok(Some(tile_data)) => {
                 bytes_downloaded += tile_data.len() as u64;
                 stream_writer
-                    .add_tile(coord, &tile_data)
+                    .add_raw_tile(coord, &tile_data)
                     .map_err(|e| {
                         format!("Failed to write tile: {e}")
                     })?;
