@@ -504,9 +504,12 @@ fn extract_single_file(
 
     let mut archive = zip::ZipArchive::new(file).map_err(ChuckError::ArchiveExtraction)?;
 
+    // Normalize backslashes to forward slashes (ZIP files use forward slashes)
+    let normalized_path = file_path_in_zip.replace('\\', "/");
+
     // Find the file in the archive by name
     let zip_file = archive
-        .by_name(file_path_in_zip)
+        .by_name(&normalized_path)
         .map_err(ChuckError::ArchiveExtraction)?;
 
     // Create parent directories if needed
@@ -1575,6 +1578,59 @@ obs789,34.0522,-118.2437,Pinus coulteri
         // Verify the photo content
         let content = std::fs::read(&cached_path).unwrap();
         assert_eq!(content, photo_data, "Cached photo content should match original");
+
+        // Clean up
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_get_photo_normalizes_backslash_paths() {
+        use std::io::Write;
+
+        // Create a test archive with a photo stored using forward slashes (ZIP standard)
+        let test_name = "get_photo_backslash";
+        let temp_dir = std::env::temp_dir().join(format!("chuck_test_{test_name}"));
+        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let archive_path = temp_dir.join("test.zip");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&archive_path).unwrap());
+        let options: zip::write::FileOptions<()> = zip::write::FileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored)
+            .unix_permissions(0o644);
+
+        // Add meta.xml
+        let meta_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<archive xmlns="http://rs.tdwg.org/dwc/text/">
+  <core rowType="http://rs.tdwg.org/dwc/terms/Occurrence">
+    <files><location>occurrence.csv</location></files>
+    <id index="0"/>
+  </core>
+</archive>"#;
+        zip.start_file("meta.xml", options).unwrap();
+        zip.write_all(meta_xml).unwrap();
+
+        let occurrence_csv = b"id\n1\n";
+        zip.start_file("occurrence.csv", options).unwrap();
+        zip.write_all(occurrence_csv).unwrap();
+
+        // Add a photo file using forward slashes (ZIP standard)
+        let photo_data = b"fake jpeg data for backslash test";
+        zip.start_file("media/2022/03/05/181762695.jpg", options).unwrap();
+        zip.write_all(photo_data).unwrap();
+
+        zip.finish().unwrap();
+
+        let base_dir = temp_dir.join("storage");
+        let archive = Archive::open(&archive_path, &base_dir, |_| {}).unwrap();
+
+        // Request the photo using backslash path (Windows-style)
+        // This simulates what happens when paths from data contain backslashes
+        let cached_path = archive.get_photo(r"media\2022\03\05\181762695.jpg").unwrap();
+        assert!(std::path::Path::new(&cached_path).exists(), "Photo should be extracted");
+
+        let content = std::fs::read(&cached_path).unwrap();
+        assert_eq!(content, photo_data, "Photo content should match");
 
         // Clean up
         std::fs::remove_dir_all(&temp_dir).ok();
