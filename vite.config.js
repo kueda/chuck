@@ -1,5 +1,5 @@
 import tailwindcss from '@tailwindcss/vite';
-import { defineConfig } from 'vite';
+import { defineConfig, searchForWorkspaceRoot } from 'vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 
 const host = process.env.TAURI_DEV_HOST;
@@ -37,6 +37,13 @@ export default defineConfig(async () => ({
         '**/*.db',
         '**/*.sqlite',
         '**/*.sqlite3',
+      ],
+    },
+
+    fs: {
+      allow: [
+        searchForWorkspaceRoot(process.cwd()),
+        'src-tauri/tauri.conf.json',
       ],
     },
   },
