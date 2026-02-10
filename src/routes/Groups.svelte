@@ -162,7 +162,7 @@ $effect(() => {
           >
             <header class="rounded-t-sm">
               <div class="h-[200px] preset-filled-surface-200-800 flex justify-center items-center relative">
-                <MediaItem media={result.photoUrl ? { identifier: result.photoUrl, occurrenceID: '' } : undefined} />
+                <MediaItem multimediaItem={result.photoUrl ? { identifier: result.photoUrl, occurrenceID: '' } : undefined} />
               </div>
             </header>
             <article class="space-y-2 p-3">
