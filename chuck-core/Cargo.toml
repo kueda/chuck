@@ -29,4 +29,5 @@ keyring-storage = ["keyring"]
 
 [dev-dependencies]
 httpmock = "0.7"
+roxmltree = "0.20"
 serial_test = "3.2"

@@ -22,33 +22,41 @@ pub struct Multimedia {
 }
 
 impl Multimedia {
+    /// Row type URI for Simple Multimedia extension
+    pub const ROW_TYPE: &'static str =
+        "http://rs.gbif.org/terms/1.0/Multimedia";
+
+    /// CSV filename for the multimedia extension
+    pub const FILENAME: &'static str = "multimedia.csv";
+
+    /// Fields written to CSV when exporting, paired with their term URIs
+    pub const WRITE_FIELDS: &'static [(&'static str, &'static str)] = &[
+        ("occurrenceID", "http://rs.tdwg.org/dwc/terms/occurrenceID"),
+        ("type", "http://purl.org/dc/terms/type"),
+        ("format", "http://purl.org/dc/terms/format"),
+        ("identifier", "http://purl.org/dc/terms/identifier"),
+        ("references", "http://purl.org/dc/terms/references"),
+        ("title", "http://purl.org/dc/terms/title"),
+        ("description", "http://purl.org/dc/terms/description"),
+        ("created", "http://purl.org/dc/terms/created"),
+        ("creator", "http://purl.org/dc/terms/creator"),
+        ("contributor", "http://purl.org/dc/terms/contributor"),
+        ("publisher", "http://purl.org/dc/terms/publisher"),
+        ("audience", "http://purl.org/dc/terms/audience"),
+        ("source", "http://purl.org/dc/terms/source"),
+        ("license", "http://purl.org/dc/terms/license"),
+        ("rightsHolder", "http://purl.org/dc/terms/rightsHolder"),
+        ("datasetID", "http://rs.tdwg.org/dwc/terms/datasetID"),
+    ];
+
     /// Returns the CSV headers for multimedia records
     pub fn csv_headers() -> Vec<&'static str> {
-        vec![
-            "coreid",
-            "occurrenceID",
-            "type",
-            "format",
-            "identifier",
-            "references",
-            "title",
-            "description",
-            "created",
-            "creator",
-            "contributor",
-            "publisher",
-            "audience",
-            "source",
-            "license",
-            "rightsHolder",
-            "datasetID",
-        ]
+        Self::WRITE_FIELDS.iter().map(|(name, _)| *name).collect()
     }
 
     /// Converts the multimedia record to a CSV record
     pub fn to_csv_record(&self) -> Vec<String> {
         vec![
-            self.coreid.clone().unwrap_or_default(),
             self.occurrence_id.clone(),
             self.r#type.clone().unwrap_or_default(),
             self.format.clone().unwrap_or_default(),

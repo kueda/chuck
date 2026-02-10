@@ -351,13 +351,25 @@ impl Database {
                     log::info!(
                         "Renaming {table_name}.\"{current_name}\" -> \"{term_name}\""
                     );
-                    conn.execute(
+                    let result = conn.execute(
                         &format!(
                             "ALTER TABLE {table_name} RENAME COLUMN \
                              \"{current_name}\" TO \"{term_name}\""
                         ),
                         [],
-                    )?;
+                    );
+                    if let Err(e) = result {
+                        let msg = e.to_string();
+                        if msg.contains("already exists") {
+                            log::warn!(
+                                "Skipping rename {table_name}.\
+                                 \"{current_name}\" -> \"{term_name}\": \
+                                 column already exists"
+                            );
+                        } else {
+                            return Err(e.into());
+                        }
+                    }
                 }
             }
         }
@@ -1981,5 +1993,61 @@ mod tests {
         );
 
         drop(db);
+    }
+
+    #[test]
+    fn test_rename_extension_columns_skips_duplicate_name() {
+        // Old Chuck-generated archives have a "coreid" CSV column that
+        // meta.xml declares as occurrenceID at index 0.  The rename tries
+        // coreid → occurrenceID, but occurrenceID already exists at index 1.
+        // This must not error out.
+        let occurrence_csv =
+            b"occurrenceID,scientificName\n1,Species A\n2,Species B\n";
+        let multimedia_csv =
+            b"coreid,occurrenceID,type,identifier\n\
+              1,1,StillImage,http://example.com/img1.jpg\n\
+              2,2,StillImage,http://example.com/img2.jpg\n";
+
+        let temp_dir = std::env::temp_dir()
+            .join("chuck_test_db_rename_dup");
+        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let occurrence_path = temp_dir.join("occurrence.csv");
+        let multimedia_path = temp_dir.join("multimedia.csv");
+        let db_path = temp_dir.join("test.db");
+
+        std::fs::write(&occurrence_path, occurrence_csv).unwrap();
+        std::fs::write(&multimedia_path, multimedia_csv).unwrap();
+
+        // meta.xml would declare field index 0 as occurrenceID
+        let extensions = vec![ExtensionInfo {
+            row_type: "http://rs.gbif.org/terms/1.0/Multimedia".to_string(),
+            location: multimedia_path,
+            extension: chuck_core::DwcaExtension::SimpleMultimedia,
+            core_id_column: "occurrenceID".to_string(),
+            fields: vec![
+                (0, "occurrenceID".to_string()),
+                (1, "type".to_string()),
+                (2, "identifier".to_string()),
+            ],
+        }];
+
+        let result = Database::create_from_core_files(
+            &[occurrence_path],
+            &extensions,
+            &db_path,
+            "occurrenceID",
+        );
+        // Must succeed, not fail with "Column with name occurrenceID
+        // already exists!"
+        if let Err(e) = &result {
+            panic!(
+                "Opening old-style archive with coreid column should \
+                 not error: {e:#}"
+            );
+        }
+
+        std::fs::remove_dir_all(&temp_dir).ok();
     }
 }

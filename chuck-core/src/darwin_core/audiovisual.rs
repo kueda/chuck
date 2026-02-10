@@ -58,54 +58,62 @@ pub struct Audiovisual {
 }
 
 impl Audiovisual {
+    /// Row type URI for Audiovisual Media Description extension
+    pub const ROW_TYPE: &'static str =
+        "http://rs.tdwg.org/ac/terms/Multimedia";
+
+    /// CSV filename for the audiovisual extension
+    pub const FILENAME: &'static str = "audiovisual.csv";
+
+    /// Fields written to CSV when exporting, paired with their term URIs
+    pub const WRITE_FIELDS: &'static [(&'static str, &'static str)] = &[
+        ("occurrenceID", "http://rs.tdwg.org/dwc/terms/occurrenceID"),
+        ("identifier", "http://purl.org/dc/terms/identifier"),
+        ("type", "http://purl.org/dc/terms/type"),
+        ("title", "http://purl.org/dc/terms/title"),
+        ("modified", "http://purl.org/dc/terms/modified"),
+        ("metadataLanguageLiteral", "http://rs.tdwg.org/ac/terms/metadataLanguageLiteral"),
+        ("available", "http://purl.org/dc/terms/available"),
+        ("rights", "http://purl.org/dc/terms/rights"),
+        ("owner", "http://ns.adobe.com/xap/1.0/rights/Owner"),
+        ("usageTerms", "http://ns.adobe.com/xap/1.0/rights/UsageTerms"),
+        ("credit", "http://ns.adobe.com/photoshop/1.0/Credit"),
+        ("attributionLinkURL", "http://rs.tdwg.org/ac/terms/attributionLinkURL"),
+        ("source", "http://purl.org/dc/terms/source"),
+        ("description", "http://purl.org/dc/terms/description"),
+        ("caption", "http://rs.tdwg.org/ac/terms/caption"),
+        ("comments", "http://rs.tdwg.org/ac/terms/comments"),
+        ("scientificName", "http://rs.tdwg.org/dwc/terms/scientificName"),
+        ("commonName", "http://rs.tdwg.org/ac/terms/commonName"),
+        ("lifeStage", "http://rs.tdwg.org/dwc/terms/lifeStage"),
+        ("partOfOrganism", "http://rs.tdwg.org/ac/terms/partOfOrganism"),
+        ("locationShown", "http://rs.tdwg.org/ac/terms/locationShown"),
+        ("locationCreated", "http://rs.tdwg.org/ac/terms/locationCreated"),
+        ("continent", "http://rs.tdwg.org/dwc/terms/continent"),
+        ("country", "http://rs.tdwg.org/dwc/terms/country"),
+        ("countryCode", "http://rs.tdwg.org/dwc/terms/countryCode"),
+        ("stateProvince", "http://rs.tdwg.org/dwc/terms/stateProvince"),
+        ("locality", "http://rs.tdwg.org/dwc/terms/locality"),
+        ("decimalLatitude", "http://rs.tdwg.org/dwc/terms/decimalLatitude"),
+        ("decimalLongitude", "http://rs.tdwg.org/dwc/terms/decimalLongitude"),
+        ("accessURI", "http://rs.tdwg.org/ac/terms/accessURI"),
+        ("format", "http://purl.org/dc/terms/format"),
+        ("extent", "http://purl.org/dc/terms/extent"),
+        ("pixelXDimension", "http://rs.tdwg.org/ac/terms/pixelXDimension"),
+        ("pixelYDimension", "http://rs.tdwg.org/ac/terms/pixelYDimension"),
+        ("created", "http://purl.org/dc/terms/created"),
+        ("dateTimeOriginal", "http://rs.tdwg.org/ac/terms/dateTimeOriginal"),
+        ("temporalCoverage", "http://purl.org/dc/terms/temporal"),
+    ];
+
     /// Returns the CSV headers for audiovisual records
     pub fn csv_headers() -> Vec<&'static str> {
-        vec![
-            "coreid",
-            "occurrenceID",
-            "identifier",
-            "type",
-            "title",
-            "modified",
-            "metadataLanguageLiteral",
-            "available",
-            "rights",
-            "owner",
-            "usageTerms",
-            "credit",
-            "attributionLinkURL",
-            "source",
-            "description",
-            "caption",
-            "comments",
-            "scientificName",
-            "commonName",
-            "lifeStage",
-            "partOfOrganism",
-            "locationShown",
-            "locationCreated",
-            "continent",
-            "country",
-            "countryCode",
-            "stateProvince",
-            "locality",
-            "decimalLatitude",
-            "decimalLongitude",
-            "accessURI",
-            "format",
-            "extent",
-            "pixelXDimension",
-            "pixelYDimension",
-            "created",
-            "dateTimeOriginal",
-            "temporalCoverage",
-        ]
+        Self::WRITE_FIELDS.iter().map(|(name, _)| *name).collect()
     }
 
     /// Converts the audiovisual record to a CSV record
     pub fn to_csv_record(&self) -> Vec<String> {
         vec![
-            self.coreid.clone().unwrap_or_default(),
             self.occurrence_id.clone(),
             self.identifier.clone().unwrap_or_default(),
             self.r#type.clone().unwrap_or_default(),
