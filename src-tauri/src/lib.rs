@@ -1,10 +1,10 @@
 mod commands;
-mod db;
-mod dwca;
-mod error;
+pub mod db;
+pub mod dwca;
+pub mod error;
 mod photo_cache;
 pub mod tile_server;
-mod search_params;
+pub mod search_params;
 
 use chuck_core::auth::AuthCache;
 use tauri::image::Image;
