@@ -168,7 +168,12 @@ pub fn run() {
             // Remove empty submenus (e.g. Help on macOS)
             for item in menu.items()? {
                 if let Some(submenu) = item.as_submenu()
-                    && submenu.items()?.is_empty()
+                    && (
+                        // Remove empty submenus
+                        submenu.items()?.is_empty()
+                        // Remove Window menu on Linux, which Tauri thinks exists but it doesn't
+                        || cfg!(target_os = "linux") && submenu.text()? == "Window"
+                    )
                 {
                     menu.remove(&item)?;
                 }
