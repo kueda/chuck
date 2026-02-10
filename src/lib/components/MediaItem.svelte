@@ -21,8 +21,10 @@ let containerElement: HTMLDivElement;
 
 const altText = $derived(alt || multimediaItem?.description || '');
 const imageUrl = $derived(
-  (multimediaItem?.identifier?.match(/\.(jpe?g|gif|png|webp)/i) && multimediaItem?.identifier)
-  || (audiovisualItem?.accessURI?.match(/\.(jpe?g|gif|png|webp)/i) && audiovisualItem?.accessURI),
+  (multimediaItem?.identifier?.match(/\.(jpe?g|gif|png|webp)/i) &&
+    multimediaItem?.identifier) ||
+    (audiovisualItem?.accessURI?.match(/\.(jpe?g|gif|png|webp)/i) &&
+      audiovisualItem?.accessURI),
 );
 
 // Check if a path is a local file path (not a URL)
