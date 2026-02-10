@@ -293,12 +293,19 @@ impl Database {
 
             match create_result {
                 Ok(_) => {
-                    log::info!("Created extension table: {} (joins on {})", table_name, ext.core_id_column);
+                    // Rename columns to canonical term names from meta.xml
+                    Self::rename_extension_columns(conn, table_name, &ext.fields)?;
+                    log::info!(
+                        "Created extension table: {} (joins on {})",
+                        table_name, ext.core_id_column
+                    );
                     created_tables.push((ext.extension, ext.core_id_column.clone()));
                 }
                 Err(e) => {
                     let error_msg = e.to_string();
-                    if error_msg.contains("already exists") || error_msg.contains("Table with name") {
+                    if error_msg.contains("already exists")
+                        || error_msg.contains("Table with name")
+                    {
                         log::info!("Extension table already exists: {table_name}");
                         created_tables.push((ext.extension, ext.core_id_column.clone()));
                     } else {
@@ -312,6 +319,50 @@ impl Database {
         }
 
         Ok(created_tables)
+    }
+
+    /// Renames extension table columns from CSV headers to canonical term names
+    /// based on field declarations from meta.xml
+    fn rename_extension_columns(
+        conn: &duckdb::Connection,
+        table_name: &str,
+        fields: &[(usize, String)],
+    ) -> Result<()> {
+        if fields.is_empty() {
+            return Ok(());
+        }
+
+        // Get actual column names by position using PRAGMA table_info
+        let mut stmt = conn.prepare(
+            &format!("PRAGMA table_info('{table_name}')")
+        )?;
+        let columns: Vec<(usize, String)> = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, usize>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        for (field_index, term_name) in fields {
+            if let Some((_, current_name)) = columns
+                .iter()
+                .find(|(idx, _)| idx == field_index)
+            {
+                if current_name != term_name {
+                    log::info!(
+                        "Renaming {table_name}.\"{current_name}\" -> \"{term_name}\""
+                    );
+                    conn.execute(
+                        &format!(
+                            "ALTER TABLE {table_name} RENAME COLUMN \
+                             \"{current_name}\" TO \"{term_name}\""
+                        ),
+                        [],
+                    )?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Opens an existing database with extension metadata (read-only mode)
@@ -773,7 +824,7 @@ impl Database {
                 chuck_core::DwcaExtension::Audiovisual.table_name(),
                 quoted_av_coreid
             ));
-            photo_select = "COALESCE(m.identifier, a.access_uri)".to_string();
+            photo_select = "COALESCE(m.identifier, a.\"accessURI\")".to_string();
         } else if has_multimedia {
             let (_, multimedia_coreid) = self.extension_tables
                 .iter()
@@ -797,14 +848,14 @@ impl Database {
                 chuck_core::DwcaExtension::Audiovisual.table_name(),
                 quoted_av_coreid
             ));
-            photo_select = "a.access_uri".to_string();
+            photo_select = "a.\"accessURI\"".to_string();
         }
 
         // Build final query
         let sql = format!(
             "SELECT DISTINCT ON (agg.value) agg.value, agg.count, {photo_select} as photo_url FROM ({subquery}) agg{joins} ORDER BY count DESC LIMIT {limit}"
         );
-        // log::debug!("sql: {}", sql);
+        // log::debug!("sql: {sql}");
 
         let mut stmt = self.conn.prepare(&sql)?;
 
@@ -1208,6 +1259,7 @@ mod tests {
             location: multimedia_path.clone(),
             extension: chuck_core::DwcaExtension::SimpleMultimedia,
             core_id_column: "occurrenceID".to_string(),
+            fields: vec![],
         }];
 
         // Create database with extensions
@@ -1295,6 +1347,7 @@ mod tests {
             location: multimedia_path,
             extension: chuck_core::DwcaExtension::SimpleMultimedia,
             core_id_column: "occurrenceID".to_string(),
+            fields: vec![],
         }];
 
         // Create database
@@ -1429,6 +1482,7 @@ mod tests {
             location: multimedia_path,
             extension: chuck_core::DwcaExtension::SimpleMultimedia,
             core_id_column: "occurrenceID".to_string(),
+            fields: vec![],
         }];
 
         let db = Database::create_from_core_files(

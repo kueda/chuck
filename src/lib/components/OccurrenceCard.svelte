@@ -4,7 +4,6 @@ import type { Occurrence } from '$lib/types/archive';
 import MediaItem from './MediaItem.svelte';
 
 const { occurrence }: { occurrence: Occurrence } = $props();
-const mediaItem = occurrence?.multimedia?.find((m) => m.identifier);
 </script>
 
 <script lang="ts" module>
@@ -30,7 +29,10 @@ const mediaItem = occurrence?.multimedia?.find((m) => m.identifier);
 >
   <header class="rounded-t-sm">
     <div class="h-[200px] preset-filled-surface-200-800 flex justify-center items-center relative">
-      <MediaItem media={mediaItem} />
+      <MediaItem
+        multimediaItem={occurrence?.multimedia?.find((m) => m.identifier)}
+        audiovisualItem={occurrence?.audiovisual?.find(av => av.accessURI)}
+      />
     </div>
   </header>
   <article class="space-y-2 p-3">

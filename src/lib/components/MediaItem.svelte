@@ -6,10 +6,12 @@ import { fade } from 'svelte/transition';
 import type { Audiovisual, Multimedia } from '$lib/types/archive';
 
 const {
-  media,
+  multimediaItem,
+  audiovisualItem,
   alt,
 }: {
-  media?: Multimedia | Audiovisual;
+  multimediaItem?: Multimedia;
+  audiovisualItem?: Audiovisual;
   alt?: string;
 } = $props();
 
@@ -17,8 +19,13 @@ let imageLoaded = $state(false);
 let mediumSrc = $state('');
 let containerElement: HTMLDivElement;
 
-const altText = $derived(alt || media?.description || '');
-const imageUrl = $derived(media?.identifier);
+const altText = $derived(alt || multimediaItem?.description || '');
+const imageUrl = $derived(
+  (multimediaItem?.identifier?.match(/\.(jpe?g|gif|png|webp)/i) &&
+    multimediaItem?.identifier) ||
+    (audiovisualItem?.accessURI?.match(/\.(jpe?g|gif|png|webp)/i) &&
+      audiovisualItem?.accessURI),
+);
 
 // Check if a path is a local file path (not a URL)
 function isLocalPath(path: string): boolean {

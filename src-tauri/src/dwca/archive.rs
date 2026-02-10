@@ -23,6 +23,9 @@ pub struct ExtensionInfo {
     pub extension: chuck_core::DwcaExtension,
     /// The core ID column name that extensions reference (e.g., "gbifID" or "occurrenceID")
     pub core_id_column: String,
+    /// Field declarations from meta.xml: (column index, term name)
+    /// Used to rename CSV columns to canonical term names during import
+    pub fields: Vec<(usize, String)>,
 }
 
 
@@ -78,6 +81,7 @@ impl Archive {
         extract_archive(archive_path, &storage_dir)?;
 
         let (core_files, core_id_column, extensions) = parse_meta_xml(&storage_dir)?;
+        log::debug!("extensions: {extensions:?}");
 
         // Create database from core files and extensions
         progress_callback("creating_database");
@@ -763,11 +767,27 @@ fn parse_meta_xml(storage_dir: &Path) -> Result<(Vec<PathBuf>, String, Vec<Exten
             let ext_core_id_column = parse_core_id_column(ext_node, "coreid")
                 .ok_or_else(|| ChuckError::NoExtensionCoreId(row_type.to_string()));
 
+            // Extract field declarations: (index, term_name) for each <field>
+            let fields: Vec<(usize, String)> = ext_node
+                .descendants()
+                .filter(|n| n.has_tag_name("field"))
+                .filter_map(|field_node| {
+                    let index = field_node.attribute("index")?
+                        .parse::<usize>().ok()?;
+                    let term = field_node.attribute("term")?;
+                    let term_name = term.rsplit('/')
+                        .next()
+                        .or_else(|| term.rsplit('#').next())?;
+                    Some((index, term_name.to_string()))
+                })
+                .collect();
+
             Some(ExtensionInfo {
                 row_type: row_type.to_string(),
                 location,
                 extension,
-                core_id_column: ext_core_id_column.unwrap()
+                core_id_column: ext_core_id_column.unwrap(),
+                fields,
             })
         })
         .collect();
