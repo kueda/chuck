@@ -218,7 +218,7 @@ pub fn run() {
                         tauri::WebviewUrl::App("offline-basemaps".into())
                     )
                     .title("Offline Basemaps")
-                    .inner_size(700.0, 800.0)
+                    .inner_size(800.0, 600.0)
                     .resizable(true)
                     .build();
 

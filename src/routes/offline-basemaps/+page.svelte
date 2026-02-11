@@ -38,13 +38,15 @@ let downloadTarget = $state<'global' | 'regional' | null>(null);
 let basemaps = $state<BasemapInfo[]>([]);
 
 // Regional download state
-let regionalZoom = $state(12);
+let regionalZoom = $state(15);
 let estimatedTiles = $state<number | null>(null);
 let estimateTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Map state
 let mapContainer = $state<HTMLDivElement>();
 let map = $state<maplibregl.Map | null>(null);
+const INITIAL_ZOOM = 2;
+let zoom = $state(INITIAL_ZOOM);
 
 const ZOOM_ESTIMATES: Record<number, string> = {
   3: '~2 MB',
@@ -229,7 +231,7 @@ function initMap() {
     container: mapContainer,
     style: buildMapStyle(false),
     center: [0, 20],
-    zoom: 2,
+    zoom: INITIAL_ZOOM,
   });
 
   map.addControl(new maplibregl.NavigationControl(), 'top-right');
@@ -268,6 +270,7 @@ function initMap() {
 
   map.on('moveend', () => {
     updateTileEstimate();
+    if (map) zoom = map.getZoom();
   });
 }
 
@@ -317,124 +320,141 @@ onMount(() => {
 });
 </script>
 
-<div class="p-6 max-w-2xl mx-auto">
-  <h1 class="h3 mb-4">Offline Basemaps</h1>
+<div class="p-6 mx-auto">
+  <header>
+    <h1 class="h3 mb-4">Offline Basemaps</h1>
+  </header>
 
-  <!-- Downloaded basemaps list -->
-  {#if basemaps.length > 0}
-    <div class="mb-6">
-      <h3 class="text-sm font-medium mb-2">
-        Downloaded basemaps
-      </h3>
-      <div class="space-y-2">
-        {#each basemaps as bm}
-          <div
-            class="flex items-center justify-between p-2
-              bg-surface-200 dark:bg-surface-800
-              rounded text-sm"
-          >
-            <div class="min-w-0 flex-1">
-              <span class="font-medium">{bm.name}</span>
-              <span class="text-surface-500 ml-2">
-                zoom 0&ndash;{bm.maxZoom}
-                &mdash; {formatBytes(bm.fileSize)}
-              </span>
-              {#if bm.bounds}
-                <div class="text-xs text-surface-500">
-                  {formatBounds(bm.bounds)}
+  <div class="flex flex-row gap-8">
+    <aside class="w-[300px]">
+      <!-- Downloaded basemaps list -->
+      {#if basemaps.length == 0}
+        <p class="p-2 text-center text-gray-500">
+          No basemaps downloaded
+        </p>
+      {:else}
+        <div class="mb-6">
+          <h3 class="text-sm font-medium mb-2">
+            Downloaded basemaps
+          </h3>
+          <div class="space-y-2">
+            {#each basemaps as bm}
+              <div
+                class="card flex items-center justify-between p-2
+                  bg-surface-100 dark:bg-surface-900
+                  rounded text-sm"
+              >
+                <div class="min-w-0 flex-1">
+                  <span class="font-medium">{bm.name}</span>
+                  <span class="text-surface-500 ml-2">
+                    zoom 0&ndash;{bm.maxZoom}
+                    &mdash; {formatBytes(bm.fileSize)}
+                  </span>
+                  {#if bm.bounds}
+                    <div class="text-xs text-surface-500">
+                      {formatBounds(bm.bounds)}
+                    </div>
+                  {/if}
                 </div>
-              {/if}
-            </div>
-            <button
-              type="button"
-              class="btn btn-sm preset-tonal ml-2
-                flex-shrink-0"
-              onclick={() => handleDelete(bm.id)}
-              title="Delete"
-            >
-              <Trash2 size={14} />
-            </button>
+                <button
+                  type="button"
+                  class="btn btn-sm preset-filled-surface-500 ml-2
+                    flex-shrink-0"
+                  onclick={() => handleDelete(bm.id)}
+                  title="Delete"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            {/each}
           </div>
-        {/each}
-      </div>
-    </div>
-  {/if}
+        </div>
+      {/if}
+    </aside>
 
-  <!-- Global basemap section -->
-  <div class="mb-6">
-    <h3 class="text-sm font-medium mb-2">
-      Global basemap
-    </h3>
-    <p class="text-xs text-surface-500 mb-2">
-      Low-zoom tiles for the entire planet. Provides
-      country-level context everywhere.
-    </p>
-    <div class="flex items-end gap-2">
-      <label class="flex-1">
-        <span class="text-xs">Max zoom</span>
-        <select
-          class="select mt-1 w-full"
-          bind:value={selectedZoom}
-        >
-          {#each Object.entries(ZOOM_ESTIMATES) as [zoom, size]}
-            <option value={Number(zoom)}>
-              Zoom {zoom} &mdash; {size}
-            </option>
-          {/each}
-        </select>
-      </label>
-      <button
-        type="button"
-        class="btn preset-filled"
-        onclick={startGlobalDownload}
+    <main class="flex-2">
+      <!-- Global basemap section -->
+      <div
+        class={{
+          "mb-6": true,
+          "hidden": hasGlobal,
+          "card p-4 shadow-md border-1 border-surface-500 rounded": true
+        }}
       >
-        {hasGlobal ? 'Re-download' : 'Download'}
-      </button>
-    </div>
-  </div>
-
-  <!-- Regional basemap section -->
-  <div>
-    <h3 class="text-sm font-medium mb-2">
-      Regional basemap
-    </h3>
-    <p class="text-xs text-surface-500 mb-2">
-      Pan and zoom the map to the area you want, then
-      download high-zoom tiles for that region.
-    </p>
-
-    <!-- Embedded map -->
-    <div
-      bind:this={mapContainer}
-      class="w-full h-[300px] rounded border mb-3"
-    ></div>
-
-    <div class="flex items-end gap-2">
-      <label class="flex-none">
-        <span class="text-xs">Max zoom</span>
-        <select
-          class="select mt-1"
-          bind:value={regionalZoom}
-        >
-          {#each REGIONAL_ZOOM_OPTIONS as zoom}
-            <option value={zoom}>Zoom {zoom}</option>
-          {/each}
-        </select>
-      </label>
-      <div class="flex-1 text-xs text-surface-500 pb-2">
-        {#if estimatedTiles !== null}
-          ~{estimatedTiles.toLocaleString()} tiles
-        {/if}
+        <h3 class="text-sm font-medium mb-2">
+          Global basemap
+        </h3>
+        <p class="text-xs text-surface-500 mb-2">
+          Overview map for the entire planet. Higher zooms provide more detail.
+        </p>
+        <div class="flex items-end gap-2">
+          <label class="flex-1">
+            <span class="text-xs">Max zoom</span>
+            <select
+              class="select mt-1 w-full"
+              bind:value={selectedZoom}
+            >
+              {#each Object.entries(ZOOM_ESTIMATES) as [zoom, size]}
+                <option value={Number(zoom)}>
+                  Zoom {zoom} &mdash; {size}
+                </option>
+              {/each}
+            </select>
+          </label>
+          <button
+            type="button"
+            class="btn preset-filled"
+            onclick={startGlobalDownload}
+          >
+            {hasGlobal ? 'Re-download' : 'Download'}
+          </button>
+        </div>
       </div>
-      <button
-        type="button"
-        class="btn preset-filled flex-none"
-        onclick={startRegionalDownload}
-        disabled={!map}
-      >
-        Download this area
-      </button>
-    </div>
+
+      <!-- Regional basemap section -->
+      <div>
+        <h3 class="text-sm font-medium mb-2">
+          Regional basemap
+        </h3>
+        <p class="text-xs text-surface-500 mb-2">
+          Pan and zoom the map to the area you want, then
+          download the detailed map for that area. Higher zooms provide more detail.
+        </p>
+
+        <!-- Embedded map -->
+        <div
+          bind:this={mapContainer}
+          class="w-full h-[300px] rounded border mb-3"
+        ></div>
+
+        <div class="flex items-end gap-2">
+          <label class="flex-none">
+            <span class="text-xs">Max zoom (Map: {Math.round(zoom)})</span>
+            <select
+              class="select mt-1"
+              bind:value={regionalZoom}
+            >
+              {#each REGIONAL_ZOOM_OPTIONS as zoom}
+                <option value={zoom}>Zoom {zoom}</option>
+              {/each}
+            </select>
+          </label>
+          <div class="flex-1 text-xs text-surface-500 pb-2">
+            {#if estimatedTiles !== null}
+              ~{estimatedTiles.toLocaleString()} tiles
+            {/if}
+          </div>
+          <button
+            type="button"
+            class="btn preset-filled flex-none"
+            onclick={startRegionalDownload}
+            disabled={!map}
+          >
+            Download this area
+          </button>
+        </div>
+      </div>
+    </main>
   </div>
 </div>
 
