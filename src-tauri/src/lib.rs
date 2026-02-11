@@ -36,8 +36,10 @@ pub fn run() {
             commands::inat_auth::inat_get_auth_status,
             commands::inat_auth::inat_sign_out,
             commands::inat_auth::inat_get_jwt,
-            basemap::commands::get_basemap_status,
+            basemap::commands::list_basemaps,
             basemap::commands::download_basemap,
+            basemap::commands::download_regional_basemap,
+            basemap::commands::estimate_regional_tiles,
             basemap::commands::cancel_basemap_download,
             basemap::commands::delete_basemap,
         ])

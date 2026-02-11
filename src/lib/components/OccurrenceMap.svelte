@@ -3,7 +3,7 @@ import maplibregl from 'maplibre-gl';
 import { onDestroy, onMount } from 'svelte';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { buildMapStyle } from '$lib/mapStyle';
-import { invoke } from '$lib/tauri-api';
+import { listBasemaps } from '$lib/tauri-api';
 
 interface Props {
   latitude: number;
@@ -21,8 +21,8 @@ onMount(async () => {
   // Check if offline basemap is available
   let hasBasemap = false;
   try {
-    const status = await invoke<{ downloaded: boolean }>('get_basemap_status');
-    hasBasemap = status.downloaded;
+    const basemaps = await listBasemaps();
+    hasBasemap = basemaps.length > 0;
   } catch {
     hasBasemap = false;
   }

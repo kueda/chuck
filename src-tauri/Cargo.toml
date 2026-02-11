@@ -38,6 +38,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 thiserror = "2.0"
 tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4"] }
 zip = "6.0.0"
 mvt = "0.8"
 tile-grid = "0.6"
@@ -45,4 +46,4 @@ geozero = { version = "0.13", features = ["with-mvt"] }
 pointy = "0.4"
 url = "2.5.7"
 filetime = "0.2"
-pmtiles = { version = "0.19", features = ["mmap-async-tokio", "http-async", "write", "reqwest-rustls"] }
+pmtiles = { version = "0.19", default-features = false, features = ["mmap-async-tokio", "http-async", "write", "reqwest-rustls"] }

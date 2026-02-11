@@ -6,7 +6,7 @@ import { createDrawerHandlers, type DrawerState } from '$lib/utils/drawerState';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { onDestroy, onMount } from 'svelte';
 import { buildMapStyle } from '$lib/mapStyle';
-import { getTileUrlBase, invoke } from '$lib/tauri-api';
+import { getTileUrlBase, invoke, listBasemaps } from '$lib/tauri-api';
 import type { Occurrence } from '$lib/types/archive';
 import type { SearchParams } from '$lib/utils/filterCategories';
 
@@ -98,8 +98,8 @@ $effect(() => {
 onMount(async () => {
   // Check if offline basemap is available
   try {
-    const status = await invoke<{ downloaded: boolean }>('get_basemap_status');
-    hasBasemap = status.downloaded;
+    const basemaps = await listBasemaps();
+    hasBasemap = basemaps.length > 0;
   } catch {
     hasBasemap = false;
   }

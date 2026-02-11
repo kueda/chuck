@@ -1,7 +1,21 @@
 <script lang="ts">
 import { Dialog, Portal, Progress } from '@skeletonlabs/skeleton-svelte';
-import { onMount } from 'svelte';
-import { invoke, listen } from '$lib/tauri-api';
+import { Trash2 } from 'lucide-svelte';
+import maplibregl from 'maplibre-gl';
+import { onMount, tick } from 'svelte';
+import { buildMapStyle } from '$lib/mapStyle';
+import {
+  type BasemapInfo,
+  type Bounds,
+  deleteBasemap,
+  downloadRegionalBasemap,
+  estimateRegionalTiles,
+  invoke,
+  listBasemaps,
+  listen,
+} from '$lib/tauri-api';
+
+import 'maplibre-gl/dist/maplibre-gl.css';
 
 interface Props {
   open: boolean;
@@ -18,17 +32,26 @@ type Phase =
   | 'complete'
   | 'error';
 
+// Global download state
 let selectedZoom = $state(6);
 let phase = $state<Phase>('idle');
 let tilesDownloaded = $state(0);
 let tilesTotal = $state(0);
 let bytesDownloaded = $state(0);
 let errorMessage = $state('');
-let existingStatus = $state<{
-  downloaded: boolean;
-  maxZoom?: number;
-  fileSize?: number;
-} | null>(null);
+let downloadTarget = $state<'global' | 'regional' | null>(null);
+
+// Basemap list
+let basemaps = $state<BasemapInfo[]>([]);
+
+// Regional download state
+let regionalZoom = $state(12);
+let estimatedTiles = $state<number | null>(null);
+let estimateTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Map state
+let mapContainer = $state<HTMLDivElement>();
+let map = $state<maplibregl.Map | null>(null);
 
 const ZOOM_ESTIMATES: Record<number, string> = {
   3: '~2 MB',
@@ -43,6 +66,8 @@ const ZOOM_ESTIMATES: Record<number, string> = {
   12: '~8 GB',
 };
 
+const REGIONAL_ZOOM_OPTIONS = [7, 8, 9, 10, 11, 12, 13, 14, 15];
+
 const downloading = $derived(
   phase === 'connecting' || phase === 'downloading' || phase === 'finalizing',
 );
@@ -54,6 +79,8 @@ const progressPercent = $derived.by(() => {
   return undefined;
 });
 
+const hasGlobal = $derived(basemaps.some((b) => b.id === 'global'));
+
 function formatBytes(bytes: number): string {
   if (bytes < 1_000) return `${bytes} bytes`;
   if (bytes < 1_000_000) return `${(bytes / 1_000).toFixed(1)} KB`;
@@ -63,19 +90,23 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
 }
 
-async function checkStatus() {
+function formatBounds(bounds: Bounds): string {
+  return (
+    `${bounds.minLat.toFixed(1)}, ${bounds.minLon.toFixed(1)}` +
+    ` to ${bounds.maxLat.toFixed(1)}, ${bounds.maxLon.toFixed(1)}`
+  );
+}
+
+async function refreshBasemaps() {
   try {
-    existingStatus = await invoke<{
-      downloaded: boolean;
-      maxZoom?: number;
-      fileSize?: number;
-    }>('get_basemap_status');
+    basemaps = await listBasemaps();
   } catch {
-    existingStatus = null;
+    basemaps = [];
   }
 }
 
-async function startDownload() {
+async function startGlobalDownload() {
+  downloadTarget = 'global';
   phase = 'connecting';
   tilesDownloaded = 0;
   tilesTotal = 0;
@@ -85,7 +116,7 @@ async function startDownload() {
   try {
     await invoke('download_basemap', { maxZoom: selectedZoom });
     phase = 'complete';
-    await checkStatus();
+    await refreshBasemaps();
   } catch (e) {
     if (String(e).includes('cancelled')) {
       phase = 'idle';
@@ -94,6 +125,40 @@ async function startDownload() {
       errorMessage = String(e);
     }
   }
+  downloadTarget = null;
+}
+
+async function startRegionalDownload() {
+  if (!map) return;
+  const mapBounds = map.getBounds();
+  const bounds: Bounds = {
+    minLon: mapBounds.getWest(),
+    minLat: mapBounds.getSouth(),
+    maxLon: mapBounds.getEast(),
+    maxLat: mapBounds.getNorth(),
+  };
+
+  downloadTarget = 'regional';
+  phase = 'connecting';
+  tilesDownloaded = 0;
+  tilesTotal = 0;
+  bytesDownloaded = 0;
+  errorMessage = '';
+
+  try {
+    await downloadRegionalBasemap(bounds, regionalZoom);
+    phase = 'complete';
+    await refreshBasemaps();
+    updateRegionalBoundsOverlay();
+  } catch (e) {
+    if (String(e).includes('cancelled')) {
+      phase = 'idle';
+    } else {
+      phase = 'error';
+      errorMessage = String(e);
+    }
+  }
+  downloadTarget = null;
 }
 
 async function cancelDownload() {
@@ -104,17 +169,131 @@ async function cancelDownload() {
   }
 }
 
-async function deleteBasemap() {
+async function handleDelete(id: string) {
   try {
-    await invoke('delete_basemap');
-    await checkStatus();
+    await deleteBasemap(id);
+    await refreshBasemaps();
+    updateRegionalBoundsOverlay();
   } catch (e) {
     errorMessage = String(e);
   }
 }
 
+function updateTileEstimate() {
+  if (estimateTimer) clearTimeout(estimateTimer);
+  estimateTimer = setTimeout(async () => {
+    if (!map) return;
+    const mapBounds = map.getBounds();
+    const bounds: Bounds = {
+      minLon: mapBounds.getWest(),
+      minLat: mapBounds.getSouth(),
+      maxLon: mapBounds.getEast(),
+      maxLat: mapBounds.getNorth(),
+    };
+    try {
+      const result = await estimateRegionalTiles(bounds, regionalZoom);
+      estimatedTiles = result.tiles;
+    } catch {
+      estimatedTiles = null;
+    }
+  }, 300);
+}
+
+function updateRegionalBoundsOverlay() {
+  if (!map) return;
+  if (!map.getSource('regional-bounds')) return;
+
+  const features = basemaps
+    .filter((b): b is BasemapInfo & { bounds: Bounds } => b.bounds !== null)
+    .map((b) => ({
+      type: 'Feature' as const,
+      properties: { name: b.name },
+      geometry: {
+        type: 'Polygon' as const,
+        coordinates: [
+          [
+            [b.bounds.minLon, b.bounds.minLat],
+            [b.bounds.maxLon, b.bounds.minLat],
+            [b.bounds.maxLon, b.bounds.maxLat],
+            [b.bounds.minLon, b.bounds.maxLat],
+            [b.bounds.minLon, b.bounds.minLat],
+          ],
+        ],
+      },
+    }));
+
+  (map.getSource('regional-bounds') as maplibregl.GeoJSONSource).setData({
+    type: 'FeatureCollection',
+    features,
+  });
+}
+
+function initMap() {
+  if (!mapContainer) return;
+  destroyMap();
+
+  map = new maplibregl.Map({
+    container: mapContainer,
+    style: buildMapStyle(false),
+    center: [0, 20],
+    zoom: 2,
+  });
+
+  map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+  map.on('load', () => {
+    if (!map) return;
+
+    map.addSource('regional-bounds', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+
+    map.addLayer({
+      id: 'regional-bounds-fill',
+      type: 'fill',
+      source: 'regional-bounds',
+      paint: {
+        'fill-color': '#3b82f6',
+        'fill-opacity': 0.15,
+      },
+    });
+
+    map.addLayer({
+      id: 'regional-bounds-outline',
+      type: 'line',
+      source: 'regional-bounds',
+      paint: {
+        'line-color': '#3b82f6',
+        'line-width': 2,
+      },
+    });
+
+    updateRegionalBoundsOverlay();
+    updateTileEstimate();
+  });
+
+  map.on('moveend', () => {
+    updateTileEstimate();
+  });
+}
+
+function destroyMap() {
+  if (map) {
+    map.remove();
+    map = null;
+  }
+}
+
+// Re-estimate when zoom changes
+$effect(() => {
+  // Trigger on regionalZoom change
+  void regionalZoom;
+  if (map) updateTileEstimate();
+});
+
 onMount(() => {
-  checkStatus();
+  refreshBasemaps();
 
   const unlistenPromise = listen<{
     tilesDownloaded: number;
@@ -137,8 +316,20 @@ onMount(() => {
   });
 
   return () => {
+    destroyMap();
     unlistenPromise.then((fn) => fn());
+    if (estimateTimer) clearTimeout(estimateTimer);
   };
+});
+
+// Initialize/destroy map when dialog state changes
+$effect(() => {
+  if (open && !downloading && phase !== 'error') {
+    refreshBasemaps();
+    tick().then(() => initMap());
+  } else {
+    destroyMap();
+  }
 });
 </script>
 
@@ -157,80 +348,33 @@ onMount(() => {
       class="fixed inset-0 z-50 flex items-center justify-center p-4"
     >
       <Dialog.Content
-        class="bg-surface-50 dark:bg-surface-900 rounded-lg p-6 max-w-md w-full shadow-xl"
+        class="bg-surface-50 dark:bg-surface-900 rounded-lg p-6
+          max-w-2xl w-full shadow-xl max-h-[90vh] overflow-y-auto"
       >
-        <h2 class="text-xl font-bold mb-4">Offline Basemap</h2>
-
-        {#if existingStatus?.downloaded}
-          <div class="mb-4 p-3 bg-surface-200 dark:bg-surface-800 rounded">
-            <p class="text-sm">
-              Basemap downloaded
-              {#if existingStatus.maxZoom !== undefined}
-                (zoom 0&ndash;{existingStatus.maxZoom})
-              {/if}
-              {#if existingStatus.fileSize}
-                &mdash; {formatBytes(existingStatus.fileSize)}
-              {/if}
-            </p>
-          </div>
-        {/if}
-
-        {#if phase === 'idle' || phase === 'complete'}
-          <p class="text-sm mb-4">
-            Download a vector basemap for offline use. The map will
-            render without an internet connection.
-          </p>
-
-          <label class="block mb-4">
-            <span class="text-sm font-medium">Maximum zoom level</span>
-            <select
-              class="select mt-1 w-full"
-              bind:value={selectedZoom}
-            >
-              {#each Object.entries(ZOOM_ESTIMATES) as [zoom, size]}
-                <option value={Number(zoom)}>
-                  Zoom {zoom} &mdash; {size}
-                </option>
-              {/each}
-            </select>
-            <span class="text-xs text-surface-500 mt-1 block">
-              Higher zoom = more detail but larger download.
-              Zoom 6 covers the whole planet at country level.
-            </span>
-          </label>
-
-          <div class="flex gap-2">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-bold">Offline Basemaps</h2>
+          {#if !downloading}
             <button
               type="button"
-              class="btn preset-filled flex-1"
-              onclick={startDownload}
-            >
-              {existingStatus?.downloaded
-                ? 'Re-download'
-                : 'Download'}
-            </button>
-            {#if existingStatus?.downloaded}
-              <button
-                type="button"
-                class="btn preset-tonal"
-                onclick={deleteBasemap}
-              >
-                Delete
-              </button>
-            {/if}
-            <button
-              type="button"
-              class="btn preset-tonal"
+              class="btn preset-tonal btn-sm"
               onclick={() => {
                 open = false;
                 onClose();
               }}
             >
-              {existingStatus?.downloaded ? 'Close' : 'Skip'}
+              Close
             </button>
-          </div>
-        {:else if downloading}
+          {/if}
+        </div>
+
+        {#if downloading}
+          <!-- Download progress -->
           <div class="mb-4">
+            <div class="text-sm mb-1 font-medium">
+              {downloadTarget === 'regional'
+                ? 'Regional download'
+                : 'Global download'}
+            </div>
             <div class="text-sm mb-2">
               {#if phase === 'connecting'}
                 Connecting to Protomaps...
@@ -261,28 +405,138 @@ onMount(() => {
             Cancel
           </button>
         {:else if phase === 'error'}
-          <div class="mb-4 p-3 bg-error-100 dark:bg-error-900 rounded">
+          <div
+            class="mb-4 p-3 bg-error-100 dark:bg-error-900 rounded"
+          >
             <p class="text-sm text-error-700 dark:text-error-300">
               {errorMessage}
             </p>
           </div>
-          <div class="flex gap-2">
-            <button
-              type="button"
-              class="btn preset-filled flex-1"
-              onclick={startDownload}
-            >
-              Retry
-            </button>
-            <button
-              type="button"
-              class="btn preset-tonal"
-              onclick={() => {
-                phase = 'idle';
-              }}
-            >
-              Back
-            </button>
+          <button
+            type="button"
+            class="btn preset-filled"
+            onclick={() => {
+              phase = 'idle';
+            }}
+          >
+            Back
+          </button>
+        {:else}
+          <!-- Downloaded basemaps list -->
+          {#if basemaps.length > 0}
+            <div class="mb-6">
+              <h3 class="text-sm font-medium mb-2">
+                Downloaded basemaps
+              </h3>
+              <div class="space-y-2">
+                {#each basemaps as bm}
+                  <div
+                    class="flex items-center justify-between p-2
+                      bg-surface-200 dark:bg-surface-800
+                      rounded text-sm"
+                  >
+                    <div class="min-w-0 flex-1">
+                      <span class="font-medium">{bm.name}</span>
+                      <span class="text-surface-500 ml-2">
+                        zoom 0&ndash;{bm.maxZoom}
+                        &mdash; {formatBytes(bm.fileSize)}
+                      </span>
+                      {#if bm.bounds}
+                        <div class="text-xs text-surface-500">
+                          {formatBounds(bm.bounds)}
+                        </div>
+                      {/if}
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-sm preset-tonal ml-2
+                        flex-shrink-0"
+                      onclick={() => handleDelete(bm.id)}
+                      title="Delete"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
+          <!-- Global basemap section -->
+          <div class="mb-6">
+            <h3 class="text-sm font-medium mb-2">
+              Global basemap
+            </h3>
+            <p class="text-xs text-surface-500 mb-2">
+              Low-zoom tiles for the entire planet. Provides
+              country-level context everywhere.
+            </p>
+            <div class="flex items-end gap-2">
+              <label class="flex-1">
+                <span class="text-xs">Max zoom</span>
+                <select
+                  class="select mt-1 w-full"
+                  bind:value={selectedZoom}
+                >
+                  {#each Object.entries(ZOOM_ESTIMATES) as [zoom, size]}
+                    <option value={Number(zoom)}>
+                      Zoom {zoom} &mdash; {size}
+                    </option>
+                  {/each}
+                </select>
+              </label>
+              <button
+                type="button"
+                class="btn preset-filled"
+                onclick={startGlobalDownload}
+              >
+                {hasGlobal ? 'Re-download' : 'Download'}
+              </button>
+            </div>
+          </div>
+
+          <!-- Regional basemap section -->
+          <div>
+            <h3 class="text-sm font-medium mb-2">
+              Regional basemap
+            </h3>
+            <p class="text-xs text-surface-500 mb-2">
+              Pan and zoom the map to the area you want, then
+              download high-zoom tiles for that region.
+            </p>
+
+            <!-- Embedded map -->
+            <div
+              bind:this={mapContainer}
+              class="w-full h-[300px] rounded border mb-3"
+            ></div>
+
+            <div class="flex items-end gap-2">
+              <label class="flex-none">
+                <span class="text-xs">Max zoom</span>
+                <select
+                  class="select mt-1"
+                  bind:value={regionalZoom}
+                >
+                  {#each REGIONAL_ZOOM_OPTIONS as zoom}
+                    <option value={zoom}>Zoom {zoom}</option>
+                  {/each}
+                </select>
+              </label>
+              <div class="flex-1 text-xs text-surface-500 pb-2">
+                {#if estimatedTiles !== null}
+                  ~{estimatedTiles.toLocaleString()} tiles
+                {/if}
+              </div>
+              <button
+                type="button"
+                class="btn preset-filled flex-none"
+                onclick={startRegionalDownload}
+                disabled={!map}
+              >
+                Download this area
+              </button>
+            </div>
           </div>
         {/if}
       </Dialog.Content>

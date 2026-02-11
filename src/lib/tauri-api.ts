@@ -82,6 +82,55 @@ export async function listen<T>(
   return tauriListen(event, handler);
 }
 
+// Basemap types matching the Rust structs
+
+export interface Bounds {
+  minLon: number;
+  minLat: number;
+  maxLon: number;
+  maxLat: number;
+}
+
+export interface BasemapInfo {
+  id: string;
+  name: string;
+  maxZoom: number;
+  bounds: Bounds | null;
+  downloadDate: string;
+  sourceUrl: string;
+  fileSize: number;
+}
+
+export async function listBasemaps(): Promise<BasemapInfo[]> {
+  return invoke<BasemapInfo[]>('list_basemaps');
+}
+
+export async function deleteBasemap(id: string): Promise<void> {
+  return invoke('delete_basemap', { id });
+}
+
+export async function downloadRegionalBasemap(
+  bounds: Bounds,
+  maxZoom: number,
+  name?: string,
+): Promise<void> {
+  return invoke('download_regional_basemap', {
+    bounds,
+    maxZoom,
+    name,
+  });
+}
+
+export async function estimateRegionalTiles(
+  bounds: Bounds,
+  maxZoom: number,
+): Promise<{ tiles: number }> {
+  return invoke<{ tiles: number }>('estimate_regional_tiles', {
+    bounds,
+    maxZoom,
+  });
+}
+
 /**
  * Get the base URL for the tiles custom protocol.
  * On Windows, WebView2 requires http://tiles.localhost/ format.

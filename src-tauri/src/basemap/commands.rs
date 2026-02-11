@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 
@@ -12,11 +11,13 @@ use pmtiles::{
     PmtError, PmtResult, TileCoord,
 };
 use serde::Serialize;
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
 use tokio::sync::{OnceCell, RwLock};
 use url::Url;
 
-use super::protocol;
+use super::protocol::{
+    self, BasemapInfo, Bounds, IndexEntry,
+};
 
 /// HTTP backend that downloads data in large fixed-size chunks (4 MB) and
 /// caches them in memory. Nearby reads (e.g. clustered tiles) hit the same
@@ -188,14 +189,6 @@ static CANCEL_FLAG: LazyLock<Arc<AtomicBool>> =
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BasemapStatus {
-    pub downloaded: bool,
-    pub max_zoom: Option<u8>,
-    pub file_size: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct DownloadProgress {
     pub tiles_downloaded: u64,
     pub tiles_total: u64,
@@ -203,109 +196,17 @@ pub struct DownloadProgress {
     pub phase: String,
 }
 
-fn basemap_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    protocol::basemap_path(app)
-}
-
-fn basemap_metadata_path(
-    app: &tauri::AppHandle,
-) -> Result<PathBuf, String> {
-    let base_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| e.to_string())?;
-    Ok(base_dir.join("basemap_metadata.json"))
-}
-
-#[derive(Debug, Clone, Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct BasemapMetadata {
-    max_zoom: u8,
-    download_date: String,
-    source_url: String,
-}
-
-#[tauri::command]
-pub async fn get_basemap_status(
-    app: tauri::AppHandle,
-) -> Result<BasemapStatus, String> {
-    let path = basemap_path(&app)?;
-    if !path.exists() {
-        return Ok(BasemapStatus {
-            downloaded: false,
-            max_zoom: None,
-            file_size: None,
-        });
-    }
-
-    let file_size = std::fs::metadata(&path).map(|m| m.len()).ok();
-
-    let max_zoom = match basemap_metadata_path(&app) {
-        Ok(meta_path) if meta_path.exists() => {
-            std::fs::read_to_string(&meta_path)
-                .ok()
-                .and_then(|s| {
-                    serde_json::from_str::<BasemapMetadata>(&s).ok()
-                })
-                .map(|m| m.max_zoom)
-        }
-        _ => None,
-    };
-
-    Ok(BasemapStatus {
-        downloaded: true,
-        max_zoom,
-        file_size,
-    })
-}
-
-/// Count total tiles across zoom levels 0 through max_zoom.
-fn count_tiles(max_zoom: u8) -> u64 {
-    (0..=max_zoom as u32).map(|z| 4u64.pow(z)).sum()
-}
-
-#[tauri::command]
-pub async fn download_basemap(
-    app: tauri::AppHandle,
-    max_zoom: u8,
-) -> Result<(), String> {
-    if max_zoom > 15 {
-        return Err("Max zoom cannot exceed 15".to_string());
-    }
-
-    CANCEL_FLAG.store(false, Ordering::SeqCst);
-
-    let path = basemap_path(&app)?;
-    let meta_path = basemap_metadata_path(&app)?;
-
-    // Ensure parent directory exists
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create directory: {e}"))?;
-    }
-
-    // Use a temporary path during download
-    let tmp_path = path.with_extension("pmtiles.tmp");
-
-    let cancel_flag = CANCEL_FLAG.clone();
-    let tiles_total = count_tiles(max_zoom);
-
-    app.emit(
-        "basemap-download-progress",
-        DownloadProgress {
-            tiles_downloaded: 0,
-            tiles_total,
-            bytes_downloaded: 0,
-            phase: "connecting".to_string(),
-        },
-    )
-    .ok();
-
-    // Discover the latest available Protomaps build
+/// Open a remote PMTiles reader for the latest Protomaps build.
+async fn open_remote_reader() -> Result<
+    (
+        Arc<AsyncPmTilesReader<ChunkedHttpBackend, HashMapCache>>,
+        String,
+    ),
+    String,
+> {
     let planet_url = discover_planet_url().await?;
     log::debug!("got planet_url: {planet_url}");
 
-    // Open remote PMTiles file using the pmtiles crate's re-exported reqwest
     let client = pmtiles::reqwest::Client::builder()
         .user_agent("Chuck/0.1")
         .build()
@@ -317,7 +218,7 @@ pub async fn download_basemap(
             .map_err(|e| {
                 format!("Failed to connect to remote PMTiles: {e}")
             })?;
-    let remote_reader = AsyncPmTilesReader::try_from_cached_source(
+    let reader = AsyncPmTilesReader::try_from_cached_source(
         backend,
         HashMapCache::default(),
     )
@@ -325,25 +226,45 @@ pub async fn download_basemap(
     .map_err(|e| {
         format!("Failed to read remote PMTiles header: {e}")
     })?;
-    let remote_reader = Arc::new(remote_reader);
 
-    // Create local writer, matching source compression so we can
-    // copy raw compressed tile bytes without re-encoding.
+    Ok((Arc::new(reader), planet_url))
+}
+
+/// Download tiles from a remote reader into a local PMTiles file.
+async fn download_tiles(
+    app: &tauri::AppHandle,
+    remote_reader: &Arc<
+        AsyncPmTilesReader<ChunkedHttpBackend, HashMapCache>,
+    >,
+    coords: Vec<TileCoord>,
+    tmp_path: &std::path::Path,
+    final_path: &std::path::Path,
+    writer_config: WriterConfig,
+) -> Result<(u64, u64), String> {
     let source_header = remote_reader.get_header();
     let source_metadata = remote_reader.get_metadata().await
         .map_err(|e| format!("Failed to read metadata: {e}"))?;
-    let output_file = std::fs::File::create(&tmp_path)
-        .map_err(|e| format!("Failed to create output file: {e}"))?;
-    let mut stream_writer =
-        PmTilesWriter::new(source_header.tile_type)
-            .tile_compression(source_header.tile_compression)
-            .max_zoom(max_zoom)
-            .metadata(&source_metadata)
-            .create(output_file)
-            .map_err(|e| {
-                format!("Failed to create PMTiles writer: {e}")
-            })?;
 
+    let output_file = std::fs::File::create(tmp_path)
+        .map_err(|e| format!("Failed to create output file: {e}"))?;
+
+    let mut builder = PmTilesWriter::new(source_header.tile_type)
+        .tile_compression(source_header.tile_compression)
+        .max_zoom(writer_config.max_zoom)
+        .metadata(&source_metadata);
+
+    if let Some(b) = &writer_config.bounds {
+        builder = builder.bounds(
+            b.min_lon, b.min_lat, b.max_lon, b.max_lat,
+        );
+    }
+
+    let mut stream_writer =
+        builder.create(output_file).map_err(|e| {
+            format!("Failed to create PMTiles writer: {e}")
+        })?;
+
+    let tiles_total = coords.len() as u64;
     let mut tiles_downloaded: u64 = 0;
     let mut bytes_downloaded: u64 = 0;
 
@@ -357,6 +278,195 @@ pub async fn download_basemap(
         },
     )
     .ok();
+
+    // High concurrency because the ChunkedHttpBackend deduplicates
+    // chunk downloads via OnceCell.
+    const CONCURRENCY: usize = 1024;
+    let cancel = CANCEL_FLAG.clone();
+    let reader = remote_reader.clone();
+    let mut tile_stream = stream::iter(coords)
+        .map(move |coord| {
+            let reader = reader.clone();
+            async move {
+                (coord, reader.get_tile(coord).await)
+            }
+        })
+        .buffer_unordered(CONCURRENCY);
+
+    while let Some((coord, result)) = tile_stream.next().await {
+        if cancel.load(Ordering::SeqCst) {
+            drop(stream_writer);
+            std::fs::remove_file(tmp_path).ok();
+            return Err("Download cancelled".to_string());
+        }
+
+        match result {
+            Ok(Some(tile_data)) => {
+                bytes_downloaded += tile_data.len() as u64;
+                stream_writer
+                    .add_raw_tile(coord, &tile_data)
+                    .map_err(|e| {
+                        format!("Failed to write tile: {e}")
+                    })?;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                log::warn!("Failed to fetch tile {coord:?}: {e}");
+            }
+        }
+
+        tiles_downloaded += 1;
+
+        if tiles_downloaded % 100 == 0 || tiles_downloaded == 1 {
+            app.emit(
+                "basemap-download-progress",
+                DownloadProgress {
+                    tiles_downloaded,
+                    tiles_total,
+                    bytes_downloaded,
+                    phase: "downloading".to_string(),
+                },
+            )
+            .ok();
+        }
+    }
+
+    app.emit(
+        "basemap-download-progress",
+        DownloadProgress {
+            tiles_downloaded,
+            tiles_total,
+            bytes_downloaded,
+            phase: "finalizing".to_string(),
+        },
+    )
+    .ok();
+
+    stream_writer
+        .finalize()
+        .map_err(|e| format!("Failed to finalize PMTiles: {e}"))?;
+
+    std::fs::rename(tmp_path, final_path)
+        .map_err(|e| format!("Failed to move basemap file: {e}"))?;
+
+    Ok((tiles_downloaded, bytes_downloaded))
+}
+
+struct WriterConfig {
+    max_zoom: u8,
+    bounds: Option<Bounds>,
+}
+
+/// Count total tiles across zoom levels 0 through max_zoom.
+fn count_tiles(max_zoom: u8) -> u64 {
+    (0..=max_zoom as u32).map(|z| 4u64.pow(z)).sum()
+}
+
+/// Enumerate all tile coordinates within a bounding box up to max_zoom.
+fn tiles_in_bounds(
+    bounds: &Bounds,
+    max_zoom: u8,
+) -> Vec<TileCoord> {
+    let mut coords = Vec::new();
+    for z in 0..=max_zoom {
+        let n = (1u64 << z) as f64;
+
+        let x_min = ((bounds.min_lon + 180.0) / 360.0 * n)
+            .floor() as u32;
+        let x_max = ((bounds.max_lon + 180.0) / 360.0 * n)
+            .floor()
+            .min(n - 1.0) as u32;
+
+        let y_min = lat_to_tile_y(bounds.max_lat, z);
+        let y_max = lat_to_tile_y(bounds.min_lat, z);
+
+        for x in x_min..=x_max {
+            for y in y_min..=y_max {
+                if let Ok(coord) = TileCoord::new(z, x, y) {
+                    coords.push(coord);
+                }
+            }
+        }
+    }
+    coords
+}
+
+/// Convert latitude to tile Y coordinate at a given zoom level.
+fn lat_to_tile_y(lat_deg: f64, zoom: u8) -> u32 {
+    let n = (1u64 << zoom) as f64;
+    let lat_rad = lat_deg.to_radians();
+    let y = (1.0 - lat_rad.tan().asinh() / std::f64::consts::PI)
+        / 2.0
+        * n;
+    (y.floor() as u32).min((n as u32).saturating_sub(1))
+}
+
+/// Update the index.json, adding or replacing an entry by id.
+fn upsert_index_entry(
+    app: &tauri::AppHandle,
+    entry: IndexEntry,
+) -> Result<(), String> {
+    let mut entries = protocol::load_index(app)?;
+    if let Some(existing) = entries.iter_mut().find(|e| e.id == entry.id)
+    {
+        *existing = entry;
+    } else {
+        entries.push(entry);
+    }
+    protocol::save_index(app, &entries)
+}
+
+/// Remove an entry from index.json by id.
+fn remove_index_entry(
+    app: &tauri::AppHandle,
+    id: &str,
+) -> Result<(), String> {
+    let entries = protocol::load_index(app)?;
+    let filtered: Vec<_> =
+        entries.into_iter().filter(|e| e.id != id).collect();
+    protocol::save_index(app, &filtered)
+}
+
+#[tauri::command]
+pub async fn list_basemaps(
+    app: tauri::AppHandle,
+) -> Result<Vec<BasemapInfo>, String> {
+    protocol::migrate_legacy_basemap(&app)?;
+    protocol::list_basemaps(&app).await
+}
+
+#[tauri::command]
+pub async fn download_basemap(
+    app: tauri::AppHandle,
+    max_zoom: u8,
+) -> Result<(), String> {
+    if max_zoom > 15 {
+        return Err("Max zoom cannot exceed 15".to_string());
+    }
+
+    CANCEL_FLAG.store(false, Ordering::SeqCst);
+
+    let dir = protocol::basemaps_dir(&app)?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Failed to create basemaps dir: {e}"))?;
+
+    let path = dir.join("global.pmtiles");
+    let tmp_path = dir.join("global.pmtiles.tmp");
+
+    let tiles_total = count_tiles(max_zoom);
+
+    app.emit(
+        "basemap-download-progress",
+        DownloadProgress {
+            tiles_downloaded: 0,
+            tiles_total,
+            bytes_downloaded: 0,
+            phase: "connecting".to_string(),
+        },
+    )
+    .ok();
+
+    let (remote_reader, planet_url) = open_remote_reader().await?;
 
     // Build list of all tile coordinates up to max_zoom
     let mut coords = Vec::with_capacity(tiles_total as usize);
@@ -373,97 +483,27 @@ pub async fn download_basemap(
         }
     }
 
-    // High concurrency because the ChunkedHttpBackend deduplicates chunk
-    // downloads via OnceCell. With ~87 tiles per 4 MB chunk, 1024 in-flight
-    // lookups span ~12 chunks, so for typical downloads (zoom 6 ≈ 13 chunks)
-    // nearly all chunks begin downloading immediately. Raw byte copying
-    // (no decompression) means tile processing is fast enough that the
-    // bottleneck is purely network I/O.
-    const CONCURRENCY: usize = 1024;
-    let cancel = cancel_flag.clone();
-    let reader = remote_reader.clone();
-    let mut tile_stream = stream::iter(coords)
-        .map(move |coord| {
-            let reader = reader.clone();
-            async move {
-                (coord, reader.get_tile(coord).await)
-            }
-        })
-        .buffer_unordered(CONCURRENCY);
-
-    while let Some((coord, result)) = tile_stream.next().await {
-        if cancel.load(Ordering::SeqCst) {
-            drop(stream_writer);
-            std::fs::remove_file(&tmp_path).ok();
-            return Err("Download cancelled".to_string());
-        }
-
-        match result {
-            Ok(Some(tile_data)) => {
-                bytes_downloaded += tile_data.len() as u64;
-                stream_writer
-                    .add_raw_tile(coord, &tile_data)
-                    .map_err(|e| {
-                        format!("Failed to write tile: {e}")
-                    })?;
-            }
-            Ok(None) => {
-                // No tile at this coordinate (e.g., ocean)
-            }
-            Err(e) => {
-                log::warn!("Failed to fetch tile {coord:?}: {e}");
-            }
-        }
-
-        tiles_downloaded += 1;
-
-        // Emit progress every 100 tiles or on first tile
-        if tiles_downloaded % 100 == 0 || tiles_downloaded == 1 {
-            app.emit(
-                "basemap-download-progress",
-                DownloadProgress {
-                    tiles_downloaded,
-                    tiles_total,
-                    bytes_downloaded,
-                    phase: "downloading".to_string(),
-                },
-            )
-            .ok();
-        }
-    }
-
-    // Finalize the PMTiles file
-    app.emit(
-        "basemap-download-progress",
-        DownloadProgress {
-            tiles_downloaded,
-            tiles_total,
-            bytes_downloaded,
-            phase: "finalizing".to_string(),
-        },
+    let (tiles_downloaded, bytes_downloaded) = download_tiles(
+        &app,
+        &remote_reader,
+        coords,
+        &tmp_path,
+        &path,
+        WriterConfig { max_zoom, bounds: None },
     )
-    .ok();
+    .await?;
 
-    stream_writer
-        .finalize()
-        .map_err(|e| format!("Failed to finalize PMTiles file: {e}"))?;
+    // Update index
+    upsert_index_entry(
+        &app,
+        IndexEntry {
+            id: "global".into(),
+            name: "Global".into(),
+            download_date: chrono::Utc::now().to_rfc3339(),
+            source_url: planet_url,
+        },
+    )?;
 
-    // Move temp file to final location
-    std::fs::rename(&tmp_path, &path)
-        .map_err(|e| format!("Failed to move basemap file: {e}"))?;
-
-    // Save metadata
-    let metadata = BasemapMetadata {
-        max_zoom,
-        download_date: chrono::Utc::now().to_rfc3339(),
-        source_url: planet_url.clone(),
-    };
-    let meta_json = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| format!("Failed to serialize metadata: {e}"))?;
-    std::fs::write(&meta_path, meta_json)
-        .map_err(|e| format!("Failed to write metadata: {e}"))?;
-
-    // Reset the reader cache so next tile request picks up the new file
     protocol::reset_reader_cache().await;
 
     app.emit(
@@ -481,6 +521,108 @@ pub async fn download_basemap(
 }
 
 #[tauri::command]
+pub async fn download_regional_basemap(
+    app: tauri::AppHandle,
+    bounds: Bounds,
+    max_zoom: u8,
+    name: Option<String>,
+) -> Result<(), String> {
+    if max_zoom > 15 {
+        return Err("Max zoom cannot exceed 15".to_string());
+    }
+
+    CANCEL_FLAG.store(false, Ordering::SeqCst);
+
+    let dir = protocol::basemaps_dir(&app)?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Failed to create basemaps dir: {e}"))?;
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let path = dir.join(format!("{id}.pmtiles"));
+    let tmp_path = dir.join(format!("{id}.pmtiles.tmp"));
+
+    let coords = tiles_in_bounds(&bounds, max_zoom);
+    let tiles_total = coords.len() as u64;
+
+    app.emit(
+        "basemap-download-progress",
+        DownloadProgress {
+            tiles_downloaded: 0,
+            tiles_total,
+            bytes_downloaded: 0,
+            phase: "connecting".to_string(),
+        },
+    )
+    .ok();
+
+    let (remote_reader, planet_url) = open_remote_reader().await?;
+
+    let display_name = name.unwrap_or_else(|| {
+        format!(
+            "{:.1},{:.1} to {:.1},{:.1}",
+            bounds.min_lat, bounds.min_lon,
+            bounds.max_lat, bounds.max_lon,
+        )
+    });
+
+    let (tiles_downloaded, bytes_downloaded) = download_tiles(
+        &app,
+        &remote_reader,
+        coords,
+        &tmp_path,
+        &path,
+        WriterConfig {
+            max_zoom,
+            bounds: Some(bounds),
+        },
+    )
+    .await?;
+
+    upsert_index_entry(
+        &app,
+        IndexEntry {
+            id,
+            name: display_name,
+            download_date: chrono::Utc::now().to_rfc3339(),
+            source_url: planet_url,
+        },
+    )?;
+
+    protocol::reset_reader_cache().await;
+
+    app.emit(
+        "basemap-download-progress",
+        DownloadProgress {
+            tiles_downloaded,
+            tiles_total,
+            bytes_downloaded,
+            phase: "complete".to_string(),
+        },
+    )
+    .ok();
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TileEstimate {
+    pub tiles: u64,
+}
+
+#[tauri::command]
+pub fn estimate_regional_tiles(
+    bounds: Bounds,
+    max_zoom: u8,
+) -> Result<TileEstimate, String> {
+    if max_zoom > 15 {
+        return Err("Max zoom cannot exceed 15".to_string());
+    }
+    let count = tiles_in_bounds(&bounds, max_zoom).len() as u64;
+    Ok(TileEstimate { tiles: count })
+}
+
+#[tauri::command]
 pub fn cancel_basemap_download() -> Result<(), String> {
     CANCEL_FLAG.store(true, Ordering::SeqCst);
     Ok(())
@@ -489,19 +631,95 @@ pub fn cancel_basemap_download() -> Result<(), String> {
 #[tauri::command]
 pub async fn delete_basemap(
     app: tauri::AppHandle,
+    id: String,
 ) -> Result<(), String> {
-    let path = basemap_path(&app)?;
+    let dir = protocol::basemaps_dir(&app)?;
+    let filename = if id == "global" {
+        "global.pmtiles".to_string()
+    } else {
+        format!("{id}.pmtiles")
+    };
+    let path = dir.join(&filename);
+
+    // Reset reader cache first so no file handles remain
+    protocol::reset_reader_cache().await;
+
     if path.exists() {
-        // Reset reader cache first so no file handles remain
-        protocol::reset_reader_cache().await;
         std::fs::remove_file(&path)
             .map_err(|e| format!("Failed to delete basemap: {e}"))?;
     }
 
-    let meta_path = basemap_metadata_path(&app)?;
-    if meta_path.exists() {
-        std::fs::remove_file(&meta_path).ok();
-    }
+    remove_index_entry(&app, &id)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_count_tiles() {
+        assert_eq!(count_tiles(0), 1);
+        assert_eq!(count_tiles(1), 5);
+        assert_eq!(count_tiles(2), 21);
+        assert_eq!(count_tiles(6), 5461);
+    }
+
+    #[test]
+    fn test_lat_to_tile_y() {
+        // Zoom 0: whole world is one tile
+        assert_eq!(lat_to_tile_y(85.0, 0), 0);
+        assert_eq!(lat_to_tile_y(-85.0, 0), 0);
+
+        // Zoom 1: 2x2 grid
+        assert_eq!(lat_to_tile_y(45.0, 1), 0);
+        assert_eq!(lat_to_tile_y(-45.0, 1), 1);
+    }
+
+    #[test]
+    fn test_tiles_in_bounds() {
+        // Small bbox at zoom 0 should yield 1 tile
+        let bounds = Bounds {
+            min_lon: -10.0,
+            min_lat: -10.0,
+            max_lon: 10.0,
+            max_lat: 10.0,
+        };
+        let tiles = tiles_in_bounds(&bounds, 0);
+        assert_eq!(tiles.len(), 1);
+
+        // At zoom 1, a bbox around the equator/prime meridian
+        // should cover 4 tiles (all quadrants)
+        let tiles = tiles_in_bounds(&bounds, 1);
+        // zoom 0: 1 tile, zoom 1: 4 tiles = 5 total
+        assert_eq!(tiles.len(), 5);
+    }
+
+    #[test]
+    fn test_tiles_in_bounds_regional() {
+        // A small region (roughly San Francisco area)
+        let bounds = Bounds {
+            min_lon: -122.5,
+            min_lat: 37.7,
+            max_lon: -122.3,
+            max_lat: 37.8,
+        };
+        let tiles = tiles_in_bounds(&bounds, 10);
+        // Should have tiles at each zoom level
+        assert!(tiles.len() > 10);
+        // At zoom 10, SF is roughly 1-2 tiles wide
+        let zoom_10_tiles: Vec<_> = tiles
+            .iter()
+            .filter(|t| t.z() == 10)
+            .collect();
+        assert!(
+            !zoom_10_tiles.is_empty(),
+            "Should have tiles at zoom 10"
+        );
+        assert!(
+            zoom_10_tiles.len() <= 4,
+            "Small area should have few tiles at zoom 10"
+        );
+    }
 }
