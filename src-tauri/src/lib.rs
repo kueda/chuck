@@ -212,7 +212,21 @@ pub fn run() {
                         log::error!("Failed to open iNat download window: {e}");
                     }
                 } else if event.id() == "download-basemap" {
-                    app.emit("menu-download-basemap", ()).unwrap();
+                    let window = tauri::WebviewWindowBuilder::new(
+                        app,
+                        "offline-basemaps",
+                        tauri::WebviewUrl::App("offline-basemaps".into())
+                    )
+                    .title("Offline Basemaps")
+                    .inner_size(700.0, 800.0)
+                    .resizable(true)
+                    .build();
+
+                    if let Err(e) = window {
+                        log::error!(
+                            "Failed to open offline basemaps window: {e}"
+                        );
+                    }
                 } else if event.id() == "show-metadata" {
                     // Open new window for archive metadata
                     let window = tauri::WebviewWindowBuilder::new(

@@ -1,8 +1,8 @@
 <script lang="ts">
-import { Dialog, Portal, Progress } from '@skeletonlabs/skeleton-svelte';
+import { Progress } from '@skeletonlabs/skeleton-svelte';
 import { Trash2 } from 'lucide-svelte';
 import maplibregl from 'maplibre-gl';
-import { onMount, tick } from 'svelte';
+import { onMount } from 'svelte';
 import { buildMapStyle } from '$lib/mapStyle';
 import {
   type BasemapInfo,
@@ -16,13 +16,6 @@ import {
 } from '$lib/tauri-api';
 
 import 'maplibre-gl/dist/maplibre-gl.css';
-
-interface Props {
-  open: boolean;
-  onClose: () => void;
-}
-
-let { open = $bindable(), onClose }: Props = $props();
 
 type Phase =
   | 'idle'
@@ -294,6 +287,7 @@ $effect(() => {
 
 onMount(() => {
   refreshBasemaps();
+  initMap();
 
   const unlistenPromise = listen<{
     tilesDownloaded: number;
@@ -321,225 +315,191 @@ onMount(() => {
     if (estimateTimer) clearTimeout(estimateTimer);
   };
 });
-
-// Initialize/destroy map when dialog state changes
-$effect(() => {
-  if (open && !downloading && phase !== 'error') {
-    refreshBasemaps();
-    tick().then(() => initMap());
-  } else {
-    destroyMap();
-  }
-});
 </script>
 
-<Dialog
-  {open}
-  onOpenChange={(details) => {
-    if (!details.open && !downloading) {
-      open = false;
-      onClose();
-    }
-  }}
->
-  <Portal>
-    <Dialog.Backdrop class="fixed inset-0 z-50 bg-black/50" />
-    <Dialog.Positioner
-      class="fixed inset-0 z-50 flex items-center justify-center p-4"
-    >
-      <Dialog.Content
-        class="bg-surface-50 dark:bg-surface-900 rounded-lg p-6
-          max-w-2xl w-full shadow-xl max-h-[90vh] overflow-y-auto"
-      >
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="text-xl font-bold">Offline Basemaps</h2>
-          {#if !downloading}
-            <button
-              type="button"
-              class="btn preset-tonal btn-sm"
-              onclick={() => {
-                open = false;
-                onClose();
-              }}
-            >
-              Close
-            </button>
-          {/if}
-        </div>
+<div class="p-6 max-w-2xl mx-auto">
+  <h1 class="h3 mb-4">Offline Basemaps</h1>
 
-        {#if downloading}
-          <!-- Download progress -->
-          <div class="mb-4">
-            <div class="text-sm mb-1 font-medium">
-              {downloadTarget === 'regional'
-                ? 'Regional download'
-                : 'Global download'}
-            </div>
-            <div class="text-sm mb-2">
-              {#if phase === 'connecting'}
-                Connecting to Protomaps...
-              {:else if phase === 'downloading'}
-                Downloading tiles...
-                {tilesDownloaded.toLocaleString()}/{tilesTotal.toLocaleString()}
-                ({formatBytes(bytesDownloaded)})
-              {:else if phase === 'finalizing'}
-                Finalizing basemap file...
+  <!-- Downloaded basemaps list -->
+  {#if basemaps.length > 0}
+    <div class="mb-6">
+      <h3 class="text-sm font-medium mb-2">
+        Downloaded basemaps
+      </h3>
+      <div class="space-y-2">
+        {#each basemaps as bm}
+          <div
+            class="flex items-center justify-between p-2
+              bg-surface-200 dark:bg-surface-800
+              rounded text-sm"
+          >
+            <div class="min-w-0 flex-1">
+              <span class="font-medium">{bm.name}</span>
+              <span class="text-surface-500 ml-2">
+                zoom 0&ndash;{bm.maxZoom}
+                &mdash; {formatBytes(bm.fileSize)}
+              </span>
+              {#if bm.bounds}
+                <div class="text-xs text-surface-500">
+                  {formatBounds(bm.bounds)}
+                </div>
               {/if}
             </div>
-            <Progress
-              value={phase === 'downloading'
-                ? progressPercent
-                : undefined}
-              class="w-full"
+            <button
+              type="button"
+              class="btn btn-sm preset-tonal ml-2
+                flex-shrink-0"
+              onclick={() => handleDelete(bm.id)}
+              title="Delete"
             >
-              <Progress.Track>
-                <Progress.Range />
-              </Progress.Track>
-            </Progress>
+              <Trash2 size={14} />
+            </button>
           </div>
-          <button
-            type="button"
-            class="btn preset-tonal w-full"
-            onclick={cancelDownload}
-          >
-            Cancel
-          </button>
-        {:else if phase === 'error'}
-          <div
-            class="mb-4 p-3 bg-error-100 dark:bg-error-900 rounded"
-          >
-            <p class="text-sm text-error-700 dark:text-error-300">
-              {errorMessage}
-            </p>
-          </div>
-          <button
-            type="button"
-            class="btn preset-filled"
-            onclick={() => {
-              phase = 'idle';
-            }}
-          >
-            Back
-          </button>
-        {:else}
-          <!-- Downloaded basemaps list -->
-          {#if basemaps.length > 0}
-            <div class="mb-6">
-              <h3 class="text-sm font-medium mb-2">
-                Downloaded basemaps
-              </h3>
-              <div class="space-y-2">
-                {#each basemaps as bm}
-                  <div
-                    class="flex items-center justify-between p-2
-                      bg-surface-200 dark:bg-surface-800
-                      rounded text-sm"
-                  >
-                    <div class="min-w-0 flex-1">
-                      <span class="font-medium">{bm.name}</span>
-                      <span class="text-surface-500 ml-2">
-                        zoom 0&ndash;{bm.maxZoom}
-                        &mdash; {formatBytes(bm.fileSize)}
-                      </span>
-                      {#if bm.bounds}
-                        <div class="text-xs text-surface-500">
-                          {formatBounds(bm.bounds)}
-                        </div>
-                      {/if}
-                    </div>
-                    <button
-                      type="button"
-                      class="btn btn-sm preset-tonal ml-2
-                        flex-shrink-0"
-                      onclick={() => handleDelete(bm.id)}
-                      title="Delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                {/each}
-              </div>
-            </div>
-          {/if}
+        {/each}
+      </div>
+    </div>
+  {/if}
 
-          <!-- Global basemap section -->
-          <div class="mb-6">
-            <h3 class="text-sm font-medium mb-2">
-              Global basemap
-            </h3>
-            <p class="text-xs text-surface-500 mb-2">
-              Low-zoom tiles for the entire planet. Provides
-              country-level context everywhere.
-            </p>
-            <div class="flex items-end gap-2">
-              <label class="flex-1">
-                <span class="text-xs">Max zoom</span>
-                <select
-                  class="select mt-1 w-full"
-                  bind:value={selectedZoom}
-                >
-                  {#each Object.entries(ZOOM_ESTIMATES) as [zoom, size]}
-                    <option value={Number(zoom)}>
-                      Zoom {zoom} &mdash; {size}
-                    </option>
-                  {/each}
-                </select>
-              </label>
-              <button
-                type="button"
-                class="btn preset-filled"
-                onclick={startGlobalDownload}
-              >
-                {hasGlobal ? 'Re-download' : 'Download'}
-              </button>
-            </div>
-          </div>
+  <!-- Global basemap section -->
+  <div class="mb-6">
+    <h3 class="text-sm font-medium mb-2">
+      Global basemap
+    </h3>
+    <p class="text-xs text-surface-500 mb-2">
+      Low-zoom tiles for the entire planet. Provides
+      country-level context everywhere.
+    </p>
+    <div class="flex items-end gap-2">
+      <label class="flex-1">
+        <span class="text-xs">Max zoom</span>
+        <select
+          class="select mt-1 w-full"
+          bind:value={selectedZoom}
+        >
+          {#each Object.entries(ZOOM_ESTIMATES) as [zoom, size]}
+            <option value={Number(zoom)}>
+              Zoom {zoom} &mdash; {size}
+            </option>
+          {/each}
+        </select>
+      </label>
+      <button
+        type="button"
+        class="btn preset-filled"
+        onclick={startGlobalDownload}
+      >
+        {hasGlobal ? 'Re-download' : 'Download'}
+      </button>
+    </div>
+  </div>
 
-          <!-- Regional basemap section -->
-          <div>
-            <h3 class="text-sm font-medium mb-2">
-              Regional basemap
-            </h3>
-            <p class="text-xs text-surface-500 mb-2">
-              Pan and zoom the map to the area you want, then
-              download high-zoom tiles for that region.
-            </p>
+  <!-- Regional basemap section -->
+  <div>
+    <h3 class="text-sm font-medium mb-2">
+      Regional basemap
+    </h3>
+    <p class="text-xs text-surface-500 mb-2">
+      Pan and zoom the map to the area you want, then
+      download high-zoom tiles for that region.
+    </p>
 
-            <!-- Embedded map -->
-            <div
-              bind:this={mapContainer}
-              class="w-full h-[300px] rounded border mb-3"
-            ></div>
+    <!-- Embedded map -->
+    <div
+      bind:this={mapContainer}
+      class="w-full h-[300px] rounded border mb-3"
+    ></div>
 
-            <div class="flex items-end gap-2">
-              <label class="flex-none">
-                <span class="text-xs">Max zoom</span>
-                <select
-                  class="select mt-1"
-                  bind:value={regionalZoom}
-                >
-                  {#each REGIONAL_ZOOM_OPTIONS as zoom}
-                    <option value={zoom}>Zoom {zoom}</option>
-                  {/each}
-                </select>
-              </label>
-              <div class="flex-1 text-xs text-surface-500 pb-2">
-                {#if estimatedTiles !== null}
-                  ~{estimatedTiles.toLocaleString()} tiles
-                {/if}
-              </div>
-              <button
-                type="button"
-                class="btn preset-filled flex-none"
-                onclick={startRegionalDownload}
-                disabled={!map}
-              >
-                Download this area
-              </button>
-            </div>
-          </div>
+    <div class="flex items-end gap-2">
+      <label class="flex-none">
+        <span class="text-xs">Max zoom</span>
+        <select
+          class="select mt-1"
+          bind:value={regionalZoom}
+        >
+          {#each REGIONAL_ZOOM_OPTIONS as zoom}
+            <option value={zoom}>Zoom {zoom}</option>
+          {/each}
+        </select>
+      </label>
+      <div class="flex-1 text-xs text-surface-500 pb-2">
+        {#if estimatedTiles !== null}
+          ~{estimatedTiles.toLocaleString()} tiles
         {/if}
-      </Dialog.Content>
-    </Dialog.Positioner>
-  </Portal>
-</Dialog>
+      </div>
+      <button
+        type="button"
+        class="btn preset-filled flex-none"
+        onclick={startRegionalDownload}
+        disabled={!map}
+      >
+        Download this area
+      </button>
+    </div>
+  </div>
+</div>
+
+{#if downloading || phase === 'error'}
+  <div
+    class="fixed inset-0 bg-black/50 flex items-center
+      justify-center z-50"
+  >
+    <div
+      class="bg-surface-50 dark:bg-surface-900 rounded-lg
+        p-6 max-w-md w-full mx-4 shadow-xl"
+    >
+      {#if downloading}
+        <div class="text-sm mb-1 font-medium">
+          {downloadTarget === 'regional'
+            ? 'Regional download'
+            : 'Global download'}
+        </div>
+        <div class="text-sm mb-3">
+          {#if phase === 'connecting'}
+            Connecting to Protomaps...
+          {:else if phase === 'downloading'}
+            Downloading tiles...
+            {tilesDownloaded.toLocaleString()}/{tilesTotal.toLocaleString()}
+            ({formatBytes(bytesDownloaded)})
+          {:else if phase === 'finalizing'}
+            Finalizing basemap file...
+          {/if}
+        </div>
+        <Progress
+          value={phase === 'downloading'
+            ? progressPercent
+            : undefined}
+          class="w-full mb-4"
+        >
+          <Progress.Track>
+            <Progress.Range />
+          </Progress.Track>
+        </Progress>
+        <button
+          type="button"
+          class="btn preset-tonal w-full"
+          onclick={cancelDownload}
+        >
+          Cancel
+        </button>
+      {:else}
+        <div
+          class="mb-4 p-3 bg-error-100 dark:bg-error-900
+            rounded"
+        >
+          <p class="text-sm text-error-700 dark:text-error-300">
+            {errorMessage}
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn preset-filled w-full"
+          onclick={() => {
+            phase = 'idle';
+          }}
+        >
+          Dismiss
+        </button>
+      {/if}
+    </div>
+  </div>
+{/if}
