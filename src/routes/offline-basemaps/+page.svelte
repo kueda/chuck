@@ -232,9 +232,15 @@ function initMap() {
     style: buildMapStyle(false),
     center: [0, 20],
     zoom: INITIAL_ZOOM,
+    pitchWithRotate: false,
+    dragRotate: false,
+    touchPitch: false,
   });
 
-  map.addControl(new maplibregl.NavigationControl(), 'top-right');
+  map.addControl(
+    new maplibregl.NavigationControl({ showCompass: false }),
+    'top-right',
+  );
 
   map.on('load', () => {
     if (!map) return;
