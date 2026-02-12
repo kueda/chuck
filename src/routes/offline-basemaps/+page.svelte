@@ -78,6 +78,9 @@ const progressPercent = $derived.by(() => {
 });
 
 const hasGlobal = $derived(basemaps.some((b) => b.id === 'global'));
+const totalDiskUsage = $derived(
+  basemaps.reduce((sum, b) => sum + b.fileSize, 0),
+);
 
 function formatBytes(bytes: number): string {
   if (bytes < 1_000) return `${bytes} bytes`;
@@ -397,6 +400,9 @@ onMount(() => {
                 </button>
               </div>
             {/each}
+          </div>
+          <div class="text-xs text-surface-500 mt-2 text-right">
+            Total: {formatBytes(totalDiskUsage)}
           </div>
         </div>
       {/if}
