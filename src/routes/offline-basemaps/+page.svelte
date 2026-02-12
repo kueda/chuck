@@ -18,6 +18,11 @@ import {
 
 import 'maplibre-gl/dist/maplibre-gl.css';
 
+function autoFocus(node: HTMLElement) {
+  // focusVisible is supported in modern browsers but not yet in TS DOM types
+  node.focus({ focusVisible: true } as FocusOptions);
+}
+
 type Phase =
   | 'idle'
   | 'connecting'
@@ -43,6 +48,7 @@ let regionalZoom = $state(15);
 let estimatedSize = $state<number | null>(null);
 let estimateTimer: ReturnType<typeof setTimeout> | null = null;
 let regionName = $state('');
+let geocoding = $state(false);
 let geocodeTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Map state
@@ -212,14 +218,18 @@ function updateRegionName() {
   if (geocodeTimer) clearTimeout(geocodeTimer);
   geocodeTimer = setTimeout(async () => {
     if (!map) return;
+    geocoding = true;
+    regionName = '';
     const center = map.getCenter();
     const z = Math.round(map.getZoom());
     try {
       regionName = await reverseGeocode(center.lat, center.lng, z);
     } catch {
       // Silently ignore — user can type a name manually
+    } finally {
+      geocoding = false;
     }
-  }, 1000);
+  }, 800);
 }
 
 function zoomToBounds(bounds: Bounds | null) {
@@ -494,7 +504,8 @@ onMount(() => {
             type="text"
             class="input mt-1 w-full"
             bind:value={regionName}
-            placeholder="e.g. San Francisco"
+            disabled={geocoding}
+            placeholder={geocoding ? 'Loading...' : 'e.g. San Francisco'}
           />
         </label>
 
@@ -530,9 +541,11 @@ onMount(() => {
 </div>
 
 {#if confirmDeleteId}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="fixed inset-0 bg-black/50 flex items-center
       justify-center z-50"
+    onkeydown={(e) => { if (e.key === 'Escape') confirmDeleteId = null; }}
   >
     <div
       class="bg-surface-50 dark:bg-surface-900 rounded-lg
@@ -546,6 +559,7 @@ onMount(() => {
           type="button"
           class="btn preset-tonal"
           onclick={() => (confirmDeleteId = null)}
+          use:autoFocus
         >
           Cancel
         </button>
