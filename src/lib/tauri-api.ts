@@ -129,11 +129,11 @@ export async function reverseGeocode(
   return invoke<string>('reverse_geocode', { lat, lon, zoom });
 }
 
-export async function estimateRegionalTiles(
+export async function estimateRegionalSize(
   bounds: Bounds,
   maxZoom: number,
-): Promise<{ tiles: number }> {
-  return invoke<{ tiles: number }>('estimate_regional_tiles', {
+): Promise<{ estimatedBytes: number }> {
+  return invoke<{ estimatedBytes: number }>('estimate_regional_size', {
     bounds,
     maxZoom,
   });
