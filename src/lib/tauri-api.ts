@@ -121,11 +121,11 @@ export async function downloadRegionalBasemap(
   });
 }
 
-export async function estimateRegionalTiles(
+export async function estimateRegionalSize(
   bounds: Bounds,
   maxZoom: number,
-): Promise<{ tiles: number }> {
-  return invoke<{ tiles: number }>('estimate_regional_tiles', {
+): Promise<{ estimatedBytes: number }> {
+  return invoke<{ estimatedBytes: number }>('estimate_regional_size', {
     bounds,
     maxZoom,
   });

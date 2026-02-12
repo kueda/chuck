@@ -39,7 +39,7 @@ pub fn run() {
             basemap::commands::list_basemaps,
             basemap::commands::download_basemap,
             basemap::commands::download_regional_basemap,
-            basemap::commands::estimate_regional_tiles,
+            basemap::commands::estimate_regional_size,
             basemap::commands::cancel_basemap_download,
             basemap::commands::delete_basemap,
         ])
