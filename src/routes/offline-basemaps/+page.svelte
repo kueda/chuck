@@ -1,6 +1,6 @@
 <script lang="ts">
 import { Progress } from '@skeletonlabs/skeleton-svelte';
-import { Trash2 } from 'lucide-svelte';
+import { Trash2, ZoomIn } from 'lucide-svelte';
 import maplibregl from 'maplibre-gl';
 import { onMount } from 'svelte';
 import { buildMapStyle } from '$lib/mapStyle';
@@ -218,6 +218,17 @@ function updateRegionName() {
   }, 1000);
 }
 
+function zoomToBounds(bounds: Bounds | null) {
+  if (!map || !bounds) return;
+  map.fitBounds(
+    [
+      [bounds.minLon, bounds.minLat],
+      [bounds.maxLon, bounds.maxLat],
+    ],
+    { padding: 40, linear: true },
+  );
+}
+
 function updateRegionalBoundsOverlay() {
   if (!map) return;
   if (!map.getSource('regional-bounds')) return;
@@ -373,31 +384,46 @@ onMount(() => {
           <div class="space-y-2">
             {#each basemaps as bm}
               <div
-                class="card flex items-center justify-between p-2
+                class="card flex items-stretch p-2
                   bg-surface-100 dark:bg-surface-900
-                  rounded text-sm"
+                  rounded text-sm gap-2"
               >
-                <div class="min-w-0 flex-1">
-                  <span class="font-medium">{bm.name}</span>
-                  <span class="text-surface-500 ml-2">
-                    zoom 0&ndash;{bm.maxZoom}
-                    &mdash; {formatBytes(bm.fileSize)}
-                  </span>
-                  {#if bm.bounds}
-                    <div class="text-xs text-surface-500">
-                      {formatBounds(bm.bounds)}
+                <div class="flex flex-col w-full gap-2">
+                  <div class="font-medium">{bm.name}</div>
+                  <div>
+                    <div class="text-surface-500">
+                      Zoom 0&ndash;{bm.maxZoom}
+                      ({formatBytes(bm.fileSize)})
                     </div>
+                    {#if bm.bounds}
+                      <div class="text-xs text-surface-500">
+                        {formatBounds(bm.bounds)}
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+                <div class="flex flex-col-reverse justify-between justify-items-end flex-rev gap-2">
+                  <button
+                    type="button"
+                    class="btn btn-sm preset-filled-warning-100-900 ml-2
+                      flex-shrink-0"
+                    onclick={() => handleDelete(bm.id)}
+                    title="Delete"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                  {#if bm.bounds}
+                    <button
+                      type="button"
+                      class="btn btn-sm preset-filled-surface-500 ml-2
+                        flex-shrink-0"
+                      onclick={() => zoomToBounds(bm.bounds)}
+                      title="Zoom to extent"
+                    >
+                      <ZoomIn size={14} />
+                    </button>
                   {/if}
                 </div>
-                <button
-                  type="button"
-                  class="btn btn-sm preset-filled-surface-500 ml-2
-                    flex-shrink-0"
-                  onclick={() => handleDelete(bm.id)}
-                  title="Delete"
-                >
-                  <Trash2 size={14} />
-                </button>
               </div>
             {/each}
           </div>
