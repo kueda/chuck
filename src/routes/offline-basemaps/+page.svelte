@@ -9,7 +9,7 @@ import {
   type Bounds,
   deleteBasemap,
   downloadRegionalBasemap,
-  estimateRegionalTiles,
+  estimateRegionalSize,
   invoke,
   listBasemaps,
   listen,
@@ -39,7 +39,7 @@ let basemaps = $state<BasemapInfo[]>([]);
 
 // Regional download state
 let regionalZoom = $state(15);
-let estimatedTiles = $state<number | null>(null);
+let estimatedSize = $state<number | null>(null);
 let estimateTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Map state
@@ -78,11 +78,11 @@ const hasGlobal = $derived(basemaps.some((b) => b.id === 'global'));
 
 function formatBytes(bytes: number): string {
   if (bytes < 1_000) return `${bytes} bytes`;
-  if (bytes < 1_000_000) return `${(bytes / 1_000).toFixed(1)} KB`;
+  if (bytes < 1_000_000) return `${(bytes / 1_000).toFixed(0)} KB`;
   if (bytes < 1_000_000_000) {
-    return `${(bytes / 1_000_000).toFixed(1)} MB`;
+    return `${(bytes / 1_000_000).toFixed(0)} MB`;
   }
-  return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+  return `${(bytes / 1_000_000_000).toFixed(0)} GB`;
 }
 
 function formatBounds(bounds: Bounds): string {
@@ -186,10 +186,10 @@ function updateTileEstimate() {
       maxLat: mapBounds.getNorth(),
     };
     try {
-      const result = await estimateRegionalTiles(bounds, regionalZoom);
-      estimatedTiles = result.tiles;
+      const result = await estimateRegionalSize(bounds, regionalZoom);
+      estimatedSize = result.estimatedBytes;
     } catch {
-      estimatedTiles = null;
+      estimatedSize = null;
     }
   }, 300);
 }
@@ -446,8 +446,8 @@ onMount(() => {
             </select>
           </label>
           <div class="flex-1 text-xs text-surface-500 pb-2">
-            {#if estimatedTiles !== null}
-              ~{estimatedTiles.toLocaleString()} tiles
+            {#if estimatedSize !== null}
+              ~{formatBytes(estimatedSize)}
             {/if}
           </div>
           <button

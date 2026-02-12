@@ -187,6 +187,32 @@ async fn discover_planet_url() -> Result<String, String> {
 static CANCEL_FLAG: LazyLock<Arc<AtomicBool>> =
     LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 
+type RemoteReader =
+    Arc<AsyncPmTilesReader<ChunkedHttpBackend, HashMapCache>>;
+
+/// Cached remote reader so estimate and download can share the
+/// connection (header, directory chunks, and data chunks).
+static REMOTE_READER: LazyLock<
+    RwLock<Option<(RemoteReader, String)>>,
+> = LazyLock::new(|| RwLock::new(None));
+
+/// Get or create a cached remote PMTiles reader.
+async fn get_remote_reader(
+) -> Result<(RemoteReader, String), String> {
+    {
+        let guard = REMOTE_READER.read().await;
+        if let Some(cached) = guard.as_ref() {
+            return Ok(cached.clone());
+        }
+    }
+    let result = open_remote_reader().await?;
+    {
+        let mut guard = REMOTE_READER.write().await;
+        *guard = Some(result.clone());
+    }
+    Ok(result)
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadProgress {
@@ -604,22 +630,138 @@ pub async fn download_regional_basemap(
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TileEstimate {
-    pub tiles: u64,
+/// Count tiles at a single zoom level within bounds.
+fn tiles_at_zoom(bounds: &Bounds, z: u8) -> u64 {
+    let n = (1u64 << z) as f64;
+    let x_min =
+        ((bounds.min_lon + 180.0) / 360.0 * n).floor() as u64;
+    let x_max = ((bounds.max_lon + 180.0) / 360.0 * n)
+        .floor()
+        .min(n - 1.0) as u64;
+    let y_min = lat_to_tile_y(bounds.max_lat, z) as u64;
+    let y_max = lat_to_tile_y(bounds.min_lat, z) as u64;
+    (x_max - x_min + 1) * (y_max - y_min + 1)
 }
 
+/// Return a grid of up to `max_samples` tile coordinates spread
+/// evenly across the bounding box at the given zoom level.
+fn sample_grid(
+    bounds: &Bounds,
+    z: u8,
+    max_samples: usize,
+) -> Vec<TileCoord> {
+    let n = (1u64 << z) as f64;
+    let x_min =
+        ((bounds.min_lon + 180.0) / 360.0 * n).floor() as u32;
+    let x_max = ((bounds.max_lon + 180.0) / 360.0 * n)
+        .floor()
+        .min(n - 1.0) as u32;
+    let y_min = lat_to_tile_y(bounds.max_lat, z);
+    let y_max = lat_to_tile_y(bounds.min_lat, z);
+
+    let x_count = (x_max - x_min + 1) as usize;
+    let y_count = (y_max - y_min + 1) as usize;
+    let total = x_count * y_count;
+
+    if total <= max_samples {
+        // Few enough tiles to sample all of them
+        let mut coords = Vec::with_capacity(total);
+        for x in x_min..=x_max {
+            for y in y_min..=y_max {
+                if let Ok(c) = TileCoord::new(z, x, y) {
+                    coords.push(c);
+                }
+            }
+        }
+        return coords;
+    }
+
+    // Pick a grid of ~sqrt(max_samples) x sqrt(max_samples)
+    let side = (max_samples as f64).sqrt().floor() as usize;
+    let gx = side.max(1);
+    let gy = side.max(1);
+
+    let mut coords = Vec::with_capacity(gx * gy);
+    for ix in 0..gx {
+        let x = x_min + (ix as u32 * (x_count as u32 - 1))
+            / (gx as u32 - 1).max(1);
+        for iy in 0..gy {
+            let y = y_min + (iy as u32 * (y_count as u32 - 1))
+                / (gy as u32 - 1).max(1);
+            if let Ok(c) = TileCoord::new(z, x, y) {
+                coords.push(c);
+            }
+        }
+    }
+    coords
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SizeEstimate {
+    pub estimated_bytes: u64,
+}
+
+/// Scaling factor per zoom level: each zoom down covers 4x the area
+/// but vector tile data is simplified, so tile size grows by ~1.5x.
+const ZOOM_SCALE: f64 = 1.5;
+
+/// Maximum number of zoom levels to apply ZOOM_SCALE across.
+/// Beyond this depth, use the capped value. This prevents the
+/// scaling from compounding unrealistically for low zoom levels
+/// where vector tiles are small regardless of region density.
+const MAX_SCALE_DEPTH: u8 = 5;
+
+/// Maximum number of tiles to sample when estimating regional size.
+const MAX_ESTIMATE_SAMPLES: usize = 16;
+
+/// Estimate the download size for a regional basemap by fetching a
+/// grid of tiles spread across the region at max zoom, averaging
+/// their sizes, then extrapolating to other zoom levels using the
+/// empirical 1.5x per-zoom scaling factor.
 #[tauri::command]
-pub fn estimate_regional_tiles(
+pub async fn estimate_regional_size(
     bounds: Bounds,
     max_zoom: u8,
-) -> Result<TileEstimate, String> {
+) -> Result<SizeEstimate, String> {
     if max_zoom > 15 {
         return Err("Max zoom cannot exceed 15".to_string());
     }
-    let count = tiles_in_bounds(&bounds, max_zoom).len() as u64;
-    Ok(TileEstimate { tiles: count })
+
+    let (reader, _url) = get_remote_reader().await?;
+
+    // Fetch a grid of tiles at max_zoom and average their sizes
+    let sample_coords =
+        sample_grid(&bounds, max_zoom, MAX_ESTIMATE_SAMPLES);
+    let mut total_sample_bytes = 0u64;
+    let mut sample_count = 0u64;
+    for coord in &sample_coords {
+        if let Ok(Some(data)) = reader.get_tile(*coord).await {
+            total_sample_bytes += data.len() as u64;
+            sample_count += 1;
+        }
+    }
+    let avg_bytes = if sample_count > 0 {
+        total_sample_bytes as f64 / sample_count as f64
+    } else {
+        5_000.0 // fallback if no tiles found
+    };
+
+    let capped_avg =
+        (avg_bytes * ZOOM_SCALE.powi(MAX_SCALE_DEPTH as i32)) as u64;
+    let mut estimated_bytes = 0u64;
+    for z in 0..=max_zoom {
+        let count = tiles_at_zoom(&bounds, z);
+        let zoom_diff = max_zoom - z;
+        let avg = if zoom_diff <= MAX_SCALE_DEPTH {
+            (avg_bytes * ZOOM_SCALE.powi(zoom_diff as i32)) as u64
+        } else {
+            capped_avg
+        };
+        estimated_bytes += count * avg;
+    }
+
+    Ok(SizeEstimate { estimated_bytes })
 }
 
 #[tauri::command]
@@ -694,6 +836,53 @@ mod tests {
         let tiles = tiles_in_bounds(&bounds, 1);
         // zoom 0: 1 tile, zoom 1: 4 tiles = 5 total
         assert_eq!(tiles.len(), 5);
+    }
+
+    #[test]
+    fn test_tiles_at_zoom() {
+        let bounds = Bounds {
+            min_lon: -10.0,
+            min_lat: -10.0,
+            max_lon: 10.0,
+            max_lat: 10.0,
+        };
+        assert_eq!(tiles_at_zoom(&bounds, 0), 1);
+        assert_eq!(tiles_at_zoom(&bounds, 1), 4);
+    }
+
+    #[test]
+    fn test_sample_grid() {
+        let bounds = Bounds {
+            min_lon: -123.0,
+            min_lat: 37.0,
+            max_lon: -122.0,
+            max_lat: 38.0,
+        };
+        // With max_samples=16, should get a 4x4 grid
+        let coords = sample_grid(&bounds, 10, 16);
+        assert!(!coords.is_empty());
+        assert!(coords.len() <= 16);
+        for c in &coords {
+            assert_eq!(c.z(), 10);
+        }
+        // Should include tiles near both edges of the bounds
+        let xs: Vec<u32> = coords.iter().map(|c| c.x()).collect();
+        assert!(xs.iter().max().unwrap() > xs.iter().min().unwrap());
+    }
+
+    #[test]
+    fn test_sample_grid_small_area() {
+        // Area with fewer tiles than max_samples returns all tiles
+        let bounds = Bounds {
+            min_lon: -122.5,
+            min_lat: 37.7,
+            max_lon: -122.3,
+            max_lat: 37.8,
+        };
+        let coords = sample_grid(&bounds, 10, 16);
+        // Small area at z10: ~1-2 tiles wide, should return all
+        assert!(coords.len() <= 16);
+        assert!(!coords.is_empty());
     }
 
     #[test]
