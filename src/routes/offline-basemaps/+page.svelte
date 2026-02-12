@@ -388,45 +388,40 @@ onMount(() => {
           <div class="space-y-2">
             {#each basemaps as bm}
               <div
-                class="card flex items-stretch p-2
+                class="card flex flex-col p-2
                   bg-surface-100 dark:bg-surface-900
                   rounded text-sm gap-2"
               >
-                <div class="flex flex-col w-full gap-2">
-                  <div class="font-medium">{bm.name}</div>
-                  <div>
+                <div class="font-medium">{bm.name}</div>
+                <div class="flex flex-row gap-2">
+                  <div class="flex-1">
                     <div class="text-surface-500">
                       Zoom 0&ndash;{bm.maxZoom}
                       ({formatBytes(bm.fileSize)})
                     </div>
-                    {#if bm.bounds}
-                      <div class="text-xs text-surface-500">
-                        {formatBounds(bm.bounds)}
-                      </div>
-                    {/if}
                   </div>
-                </div>
-                <div class="flex flex-col-reverse justify-between justify-items-end flex-rev gap-2">
-                  <button
-                    type="button"
-                    class="btn btn-sm preset-filled-warning-100-900 ml-2
-                      flex-shrink-0"
-                    onclick={() => (confirmDeleteId = bm.id)}
-                    title="Delete"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                  {#if bm.bounds}
+                  <div class="flex items-end">
+                    {#if bm.bounds}
+                      <button
+                        type="button"
+                        class="btn btn-sm preset-filled-surface-500 ml-2
+                          flex-shrink-0"
+                        onclick={() => zoomToBounds(bm.bounds)}
+                        title="Zoom to region"
+                      >
+                        <ZoomIn size={14} />
+                      </button>
+                    {/if}
                     <button
                       type="button"
-                      class="btn btn-sm preset-filled-surface-500 ml-2
+                      class="btn btn-sm preset-filled-surface-200-800 ml-2
                         flex-shrink-0"
-                      onclick={() => zoomToBounds(bm.bounds)}
-                      title="Zoom to extent"
+                      onclick={() => (confirmDeleteId = bm.id)}
+                      title="Delete"
                     >
-                      <ZoomIn size={14} />
+                      <Trash2 size={14} />
                     </button>
-                  {/if}
+                  </div>
                 </div>
               </div>
             {/each}
