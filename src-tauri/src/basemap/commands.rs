@@ -12,7 +12,8 @@ use pmtiles::{
 };
 use serde::Serialize;
 use tauri::Emitter;
-use tokio::sync::{OnceCell, RwLock};
+use tokio::sync::{Mutex, OnceCell, RwLock};
+use tokio::time::Instant;
 use url::Url;
 
 use super::protocol::{
@@ -654,6 +655,84 @@ pub async fn delete_basemap(
     Ok(())
 }
 
+/// Rate-limit guard for Nominatim (max 1 request per second).
+static NOMINATIM_LAST_REQUEST: LazyLock<Mutex<Instant>> =
+    LazyLock::new(|| Mutex::new(Instant::now() - std::time::Duration::from_secs(1)));
+
+/// Extract a concise place name from a Nominatim reverse-geocode response.
+/// Prefers the `name` field; falls back to the first two components of
+/// `display_name`.
+fn extract_place_name(json: &serde_json::Value) -> Option<String> {
+    if let Some(name) = json.get("name").and_then(|v| v.as_str()) {
+        let name = name.trim();
+        if !name.is_empty() {
+            return Some(name.to_string());
+        }
+    }
+    if let Some(display) =
+        json.get("display_name").and_then(|v| v.as_str())
+    {
+        let parts: Vec<&str> =
+            display.split(',').map(|s| s.trim()).collect();
+        let meaningful: Vec<&str> =
+            parts.into_iter().filter(|s| !s.is_empty()).collect();
+        if !meaningful.is_empty() {
+            let take = meaningful.len().min(2);
+            return Some(meaningful[..take].join(", "));
+        }
+    }
+    None
+}
+
+#[tauri::command]
+pub async fn reverse_geocode(
+    lat: f64,
+    lon: f64,
+    zoom: u8,
+) -> Result<String, String> {
+    // Enforce 1 req/sec rate limit
+    {
+        let mut last = NOMINATIM_LAST_REQUEST.lock().await;
+        let elapsed = last.elapsed();
+        let min_interval = std::time::Duration::from_secs(1);
+        if elapsed < min_interval {
+            tokio::time::sleep(min_interval - elapsed).await;
+        }
+        *last = Instant::now();
+    }
+
+    let client = reqwest::Client::builder()
+        .user_agent(
+            "Chuck/0.2 (https://github.com/kueda/chuck)",
+        )
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let url = format!(
+        "https://nominatim.openstreetmap.org/reverse\
+         ?format=json\
+         &lat={lat}\
+         &lon={lon}\
+         &zoom={zoom}\
+         &layer=natural,poi,address\
+         &accept-language=en",
+    );
+
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Nominatim request failed: {e}"))?;
+
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Invalid JSON from Nominatim: {e}"))?;
+
+    extract_place_name(&json)
+        .ok_or_else(|| "No place name found".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -694,6 +773,58 @@ mod tests {
         let tiles = tiles_in_bounds(&bounds, 1);
         // zoom 0: 1 tile, zoom 1: 4 tiles = 5 total
         assert_eq!(tiles.len(), 5);
+    }
+
+    #[test]
+    fn test_extract_place_name_with_name() {
+        let json = serde_json::json!({
+            "name": "San Francisco",
+            "display_name": "San Francisco, California, US"
+        });
+        assert_eq!(
+            extract_place_name(&json),
+            Some("San Francisco".to_string()),
+        );
+    }
+
+    #[test]
+    fn test_extract_place_name_without_name() {
+        let json = serde_json::json!({
+            "display_name": "Tokyo, Kanto, Japan"
+        });
+        assert_eq!(
+            extract_place_name(&json),
+            Some("Tokyo, Kanto".to_string()),
+        );
+    }
+
+    #[test]
+    fn test_extract_place_name_empty_name_falls_back() {
+        let json = serde_json::json!({
+            "name": "",
+            "display_name": "Pacific Ocean, Earth"
+        });
+        assert_eq!(
+            extract_place_name(&json),
+            Some("Pacific Ocean, Earth".to_string()),
+        );
+    }
+
+    #[test]
+    fn test_extract_place_name_empty_json() {
+        let json = serde_json::json!({});
+        assert_eq!(extract_place_name(&json), None);
+    }
+
+    #[test]
+    fn test_extract_place_name_single_component() {
+        let json = serde_json::json!({
+            "display_name": "Antarctica"
+        });
+        assert_eq!(
+            extract_place_name(&json),
+            Some("Antarctica".to_string()),
+        );
     }
 
     #[test]

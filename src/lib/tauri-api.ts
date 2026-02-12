@@ -121,6 +121,14 @@ export async function downloadRegionalBasemap(
   });
 }
 
+export async function reverseGeocode(
+  lat: number,
+  lon: number,
+  zoom: number,
+): Promise<string> {
+  return invoke<string>('reverse_geocode', { lat, lon, zoom });
+}
+
 export async function estimateRegionalTiles(
   bounds: Bounds,
   maxZoom: number,

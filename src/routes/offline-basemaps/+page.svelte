@@ -13,6 +13,7 @@ import {
   invoke,
   listBasemaps,
   listen,
+  reverseGeocode,
 } from '$lib/tauri-api';
 
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -41,6 +42,8 @@ let basemaps = $state<BasemapInfo[]>([]);
 let regionalZoom = $state(15);
 let estimatedTiles = $state<number | null>(null);
 let estimateTimer: ReturnType<typeof setTimeout> | null = null;
+let regionName = $state('');
+let geocodeTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Map state
 let mapContainer = $state<HTMLDivElement>();
@@ -141,7 +144,11 @@ async function startRegionalDownload() {
   errorMessage = '';
 
   try {
-    await downloadRegionalBasemap(bounds, regionalZoom);
+    await downloadRegionalBasemap(
+      bounds,
+      regionalZoom,
+      regionName || undefined,
+    );
     phase = 'complete';
     await refreshBasemaps();
     updateRegionalBoundsOverlay();
@@ -192,6 +199,20 @@ function updateTileEstimate() {
       estimatedTiles = null;
     }
   }, 300);
+}
+
+function updateRegionName() {
+  if (geocodeTimer) clearTimeout(geocodeTimer);
+  geocodeTimer = setTimeout(async () => {
+    if (!map) return;
+    const center = map.getCenter();
+    const z = Math.round(map.getZoom());
+    try {
+      regionName = await reverseGeocode(center.lat, center.lng, z);
+    } catch {
+      // Silently ignore — user can type a name manually
+    }
+  }, 1000);
 }
 
 function updateRegionalBoundsOverlay() {
@@ -272,10 +293,12 @@ function initMap() {
 
     updateRegionalBoundsOverlay();
     updateTileEstimate();
+    updateRegionName();
   });
 
   map.on('moveend', () => {
     updateTileEstimate();
+    updateRegionName();
     if (map) zoom = map.getZoom();
   });
 }
@@ -322,6 +345,7 @@ onMount(() => {
     destroyMap();
     unlistenPromise.then((fn) => fn());
     if (estimateTimer) clearTimeout(estimateTimer);
+    if (geocodeTimer) clearTimeout(geocodeTimer);
   };
 });
 </script>
@@ -432,6 +456,16 @@ onMount(() => {
           bind:this={mapContainer}
           class="w-full h-[300px] rounded border mb-3"
         ></div>
+
+        <label class="block mb-3">
+          <span class="text-xs">Region name</span>
+          <input
+            type="text"
+            class="input mt-1 w-full"
+            bind:value={regionName}
+            placeholder="e.g. San Francisco"
+          />
+        </label>
 
         <div class="flex items-end gap-2">
           <label class="flex-none">

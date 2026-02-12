@@ -42,6 +42,7 @@ pub fn run() {
             basemap::commands::estimate_regional_tiles,
             basemap::commands::cancel_basemap_download,
             basemap::commands::delete_basemap,
+            basemap::commands::reverse_geocode,
         ])
         .setup(|app| {
             // Initialize auth cache (lazy - won't access keychain until first use)
