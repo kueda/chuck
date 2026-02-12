@@ -594,7 +594,7 @@ onMount(() => {
         </div>
         <Progress
           value={phase === 'downloading'
-            ? progressPercent
+            ? (progressPercent === 0 ? null : progressPercent)
             : undefined}
           class="w-full mb-4"
         >
