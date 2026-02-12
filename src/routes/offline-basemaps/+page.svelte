@@ -174,6 +174,8 @@ async function cancelDownload() {
   }
 }
 
+let confirmDeleteId = $state<string | null>(null);
+
 async function handleDelete(id: string) {
   try {
     await deleteBasemap(id);
@@ -181,6 +183,8 @@ async function handleDelete(id: string) {
     updateRegionalBoundsOverlay();
   } catch (e) {
     errorMessage = String(e);
+  } finally {
+    confirmDeleteId = null;
   }
 }
 
@@ -407,7 +411,7 @@ onMount(() => {
                     type="button"
                     class="btn btn-sm preset-filled-warning-100-900 ml-2
                       flex-shrink-0"
-                    onclick={() => handleDelete(bm.id)}
+                    onclick={() => (confirmDeleteId = bm.id)}
                     title="Delete"
                   >
                     <Trash2 size={14} />
@@ -529,6 +533,38 @@ onMount(() => {
     </main>
   </div>
 </div>
+
+{#if confirmDeleteId}
+  <div
+    class="fixed inset-0 bg-black/50 flex items-center
+      justify-center z-50"
+  >
+    <div
+      class="bg-surface-50 dark:bg-surface-900 rounded-lg
+        p-6 max-w-sm w-full mx-4 shadow-xl"
+    >
+      <p class="text-sm mb-4">
+        Are you sure you want to delete this basemap?
+      </p>
+      <div class="flex gap-2 justify-end">
+        <button
+          type="button"
+          class="btn preset-tonal"
+          onclick={() => (confirmDeleteId = null)}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="btn preset-filled-error-500"
+          onclick={() => handleDelete(confirmDeleteId!)}
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if downloading || phase === 'error'}
   <div
