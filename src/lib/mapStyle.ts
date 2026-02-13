@@ -2,10 +2,10 @@ import { layers, namedFlavor } from '@protomaps/basemaps';
 import type { StyleSpecification } from 'maplibre-gl';
 import { getBasemapUrlBase } from '$lib/tauri-api';
 
-const OSM_ATTRIBUTION = '&copy; OpenStreetMap contributors';
+const OSM_ATTRIBUTION = '<a target="_blank" href="https://openstreetmap.org/copyright">OpenStreetMap</a>';
 const PROTOMAPS_ATTRIBUTION =
-  '&copy; <a href="https://protomaps.com">Protomaps</a> ' +
-  '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>';
+  '<a target="_blank" href="https://protomaps.com">Protomaps</a> ' +
+  `| ${OSM_ATTRIBUTION}`;
 
 const GLYPHS_URL =
   'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf';

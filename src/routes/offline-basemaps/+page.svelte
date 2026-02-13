@@ -1,6 +1,6 @@
 <script lang="ts">
-import { Progress } from '@skeletonlabs/skeleton-svelte';
-import { Trash2, ZoomIn } from 'lucide-svelte';
+import { Popover, Portal, Progress } from '@skeletonlabs/skeleton-svelte';
+import { Info, Trash2, ZoomIn } from 'lucide-svelte';
 import maplibregl from 'maplibre-gl';
 import { onMount } from 'svelte';
 import { buildMapStyle } from '$lib/mapStyle';
@@ -379,8 +379,13 @@ onMount(() => {
 </script>
 
 <div class="p-6 mx-auto">
-  <header>
-    <h1 class="h3 mb-4">Offline Basemaps</h1>
+  <header class="flex flex-row justify-between items-center mb-4">
+    <h1 class="h3">Offline Basemaps</h1>
+    <span class="text-gray-500">
+      Maps courtesy of
+      <a target="_blank" href="https://protomaps.com">Protomaps</a> and
+      <a target="_blank" href="https://openstreetmap.org/copyright">OpenStreetMap</a>
+    </span>
   </header>
 
   <div class="flex flex-row gap-8">
@@ -509,22 +514,44 @@ onMount(() => {
           />
         </label>
 
-        <div class="flex items-end gap-2">
-          <label class="flex-none">
-            <span class="text-xs">Max zoom (Map: {Math.round(zoom)})</span>
-            <select
-              class="select mt-1"
-              bind:value={regionalZoom}
-            >
-              {#each REGIONAL_ZOOM_OPTIONS as zoom}
-                <option value={zoom}>Zoom {zoom}</option>
-              {/each}
-            </select>
-          </label>
-          <div class="flex-1 text-xs text-surface-500 pb-2">
-            {#if estimatedSize !== null}
-              ~{formatBytes(estimatedSize)}
-            {/if}
+        <div class="flex items-end gap-2 justify-between">
+          <div class="flex flex-col">
+            <label for="zoom-select" class="text-xs">Max zoom (Map: {Math.round(zoom)})</label>
+            <div class="flex flex-row items-center gap-2">
+              <select
+                id="zoom-select"
+                class="select mt-1"
+                bind:value={regionalZoom}
+              >
+                {#each REGIONAL_ZOOM_OPTIONS as zoom}
+                  <option value={zoom}>Zoom {zoom}</option>
+                {/each}
+              </select>
+              <div class="flex-1 text-xs text-surface-500 flex items-center gap-1 flex-nowrap text-nowrap">
+                {#if estimatedSize !== null}
+                  <span>~{formatBytes(estimatedSize)}</span>
+                  <Popover>
+                    <Popover.Trigger class="leading-0 pb-[1px]">
+                      <button type="button" class="text-surface-400 hover:text-surface-600">
+                        <Info size={14} />
+                      </button>
+                    </Popover.Trigger>
+                    <Portal>
+                      <Popover.Positioner class="z-20!">
+                        <Popover.Content
+                          class="card p-3 bg-surface-100-900 shadow-lg text-xs max-w-48"
+                        >
+                          Size estimates vary depending on feature density in the map area, e.g. if the map is a mix of urban and rural areas, the estimate may be off.
+                          <Popover.Arrow class="[--arrow-size:--spacing(2)] [--arrow-background:var(--color-surface-100-900)]">
+                            <Popover.ArrowTip />
+                          </Popover.Arrow>
+                        </Popover.Content>
+                      </Popover.Positioner>
+                    </Portal>
+                  </Popover>
+                {/if}
+              </div>
+            </div>
           </div>
           <button
             type="button"
