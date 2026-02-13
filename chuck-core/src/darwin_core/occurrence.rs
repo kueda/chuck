@@ -892,6 +892,56 @@ pub struct Occurrence {
 }
 
 impl Occurrence {
+    /// Row type URI for occurrence core
+    pub const ROW_TYPE: &'static str =
+        "http://rs.tdwg.org/dwc/terms/Occurrence";
+
+    /// CSV filename for the occurrence core
+    pub const FILENAME: &'static str = "occurrence.csv";
+
+    /// Fields written to CSV when exporting, paired with their term URIs.
+    /// This is the single source of truth for CSV column order and meta.xml
+    /// field declarations when *writing* archives.
+    pub const WRITE_FIELDS: &'static [(&'static str, &'static str)] = &[
+        ("occurrenceID", "http://rs.tdwg.org/dwc/terms/occurrenceID"),
+        ("basisOfRecord", "http://rs.tdwg.org/dwc/terms/basisOfRecord"),
+        ("recordedBy", "http://rs.tdwg.org/dwc/terms/recordedBy"),
+        ("eventDate", "http://rs.tdwg.org/dwc/terms/eventDate"),
+        ("decimalLatitude", "http://rs.tdwg.org/dwc/terms/decimalLatitude"),
+        ("decimalLongitude", "http://rs.tdwg.org/dwc/terms/decimalLongitude"),
+        ("scientificName", "http://rs.tdwg.org/dwc/terms/scientificName"),
+        ("taxonRank", "http://rs.tdwg.org/dwc/terms/taxonRank"),
+        ("taxonomicStatus", "http://rs.tdwg.org/dwc/terms/taxonomicStatus"),
+        ("vernacularName", "http://rs.tdwg.org/dwc/terms/vernacularName"),
+        ("kingdom", "http://rs.tdwg.org/dwc/terms/kingdom"),
+        ("phylum", "http://rs.tdwg.org/dwc/terms/phylum"),
+        ("class", "http://rs.tdwg.org/dwc/terms/class"),
+        ("order", "http://rs.tdwg.org/dwc/terms/order"),
+        ("family", "http://rs.tdwg.org/dwc/terms/family"),
+        ("genus", "http://rs.tdwg.org/dwc/terms/genus"),
+        ("specificEpithet", "http://rs.tdwg.org/dwc/terms/specificEpithet"),
+        ("infraspecificEpithet", "http://rs.tdwg.org/dwc/terms/infraspecificEpithet"),
+        ("taxonID", "http://rs.tdwg.org/dwc/terms/taxonID"),
+        ("occurrenceRemarks", "http://rs.tdwg.org/dwc/terms/occurrenceRemarks"),
+        ("establishmentMeans", "http://rs.tdwg.org/dwc/terms/establishmentMeans"),
+        ("georeferencedDate", "http://rs.tdwg.org/dwc/terms/georeferencedDate"),
+        ("georeferenceProtocol", "http://rs.tdwg.org/dwc/terms/georeferenceProtocol"),
+        (
+            "coordinateUncertaintyInMeters",
+            "http://rs.tdwg.org/dwc/terms/coordinateUncertaintyInMeters",
+        ),
+        ("coordinatePrecision", "http://rs.tdwg.org/dwc/terms/coordinatePrecision"),
+        ("geodeticDatum", "http://rs.tdwg.org/dwc/terms/geodeticDatum"),
+        ("accessRights", "http://purl.org/dc/terms/accessRights"),
+        ("license", "http://purl.org/dc/terms/license"),
+        ("informationWithheld", "http://rs.tdwg.org/dwc/terms/informationWithheld"),
+        ("modified", "http://purl.org/dc/terms/modified"),
+        ("captive", "https://www.inaturalist.org/terms/captive"),
+        ("eventTime", "http://rs.tdwg.org/dwc/terms/eventTime"),
+        ("verbatimEventDate", "http://rs.tdwg.org/dwc/terms/verbatimEventDate"),
+        ("verbatimLocality", "http://rs.tdwg.org/dwc/terms/verbatimLocality"),
+    ];
+
     /// All supported DarwinCore occurrence fields for reading
     pub const FIELD_NAMES: &'static [&'static str] = &[
         "id", "occurrenceID", "basisOfRecord", "recordedBy", "eventDate",
@@ -958,49 +1008,12 @@ impl Occurrence {
 
     /// Get the CSV headers for DarwinCore occurrence records
     pub fn csv_headers() -> Vec<&'static str> {
-        vec![
-            "id",
-            "occurrenceID",
-            "basisOfRecord",
-            "recordedBy",
-            "eventDate",
-            "decimalLatitude",
-            "decimalLongitude",
-            "scientificName",
-            "taxonRank",
-            "taxonomicStatus",
-            "vernacularName",
-            "kingdom",
-            "phylum",
-            "class",
-            "order",
-            "family",
-            "genus",
-            "specificEpithet",
-            "infraspecificEpithet",
-            "taxonID",
-            "occurrenceRemarks",
-            "establishmentMeans",
-            "georeferencedDate",
-            "georeferenceProtocol",
-            "coordinateUncertaintyInMeters",
-            "coordinatePrecision",
-            "geodeticDatum",
-            "accessRights",
-            "license",
-            "informationWithheld",
-            "modified",
-            "captive",
-            "eventTime",
-            "verbatimEventDate",
-            "verbatimLocality"
-        ]
+        Self::WRITE_FIELDS.iter().map(|(name, _)| *name).collect()
     }
 
     /// Convert to CSV record values
     pub fn to_csv_record(&self) -> Vec<String> {
         vec![
-            self.id.clone().unwrap_or_default(),
             self.occurrence_id.clone(),
             self.basis_of_record.clone(),
             self.recorded_by.clone(),

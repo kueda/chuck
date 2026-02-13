@@ -287,7 +287,7 @@ const coreFields = {
                         class="aspect-square overflow-hidden rounded border hover:opacity-80 transition-opacity relative"
                         onclick={() => openPhotoViewer(photoUrl)}
                       >
-                        <MediaItem media={media} alt={media.title || 'Photo'} />
+                        <MediaItem multimediaItem={media} alt={media.title || 'Photo'} />
                       </button>
                     {/if}
                   {/each}
@@ -299,7 +299,7 @@ const coreFields = {
                         class="aspect-square overflow-hidden rounded border hover:opacity-80 transition-opacity relative"
                         onclick={() => openPhotoViewer(photoUrl)}
                       >
-                        <MediaItem media={av} alt={av.title || 'Photo'} />
+                        <MediaItem audiovisualItem={av} alt={av.title || 'Photo'} />
                       </button>
                     {/if}
                   {/each}

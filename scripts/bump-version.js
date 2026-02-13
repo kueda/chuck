@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync } from 'fs';
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes('--dry-run');
+const SKIP_COMMIT = args.includes('--skip-commit');
 const BUMP_TYPE = args.find((a) => ['patch', 'minor', 'major'].includes(a));
 
 if (!BUMP_TYPE) {
@@ -61,8 +62,10 @@ if (DRY_RUN) {
   console.log('\n[dry-run] Would update:');
   FILES.forEach((f) => console.log(`  ${f}`));
   console.log('  package-lock.json (via npm install --package-lock-only)');
-  console.log(`\n[dry-run] Would commit with message: ${tag}`);
-  console.log(`[dry-run] Would create tag: ${tag}`);
+  if (!SKIP_COMMIT) {
+    console.log(`\n[dry-run] Would commit with message: ${tag}`);
+    console.log(`[dry-run] Would create tag: ${tag}`);
+  }
   process.exit(0);
 }
 
@@ -76,10 +79,13 @@ updateCargoToml('chuck-cli/Cargo.toml', newVersion);
 // Sync package-lock.json
 execSync('npm install --package-lock-only', { stdio: 'inherit' });
 
-// Maybe uncomment if you REALLY want this to commit and tag
-// // Git commit and tag (--no-verify skips hooks)
-// execSync(`git add ${FILES.join(' ')} package-lock.json`);
-// execSync(`git commit --no-verify -m "${tag}"`);
-// execSync(`git tag -a ${tag} -m "${tag}"`);
+if (SKIP_COMMIT) {
+  console.log(`Skipped committing and tagging ${tag}`);
+} else {
+  // Git commit and tag (--no-verify skips hooks)
+  execSync(`git add ${FILES.join(' ')} package-lock.json`);
+  execSync(`git commit --no-verify -m "${tag}"`);
+  execSync(`git tag -a ${tag} -m "${tag}"`);
 
-// console.log(`Committed and tagged ${tag}`);
+  console.log(`Committed and tagged ${tag}`);
+}

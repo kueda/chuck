@@ -1,37 +1,25 @@
 <script lang="ts">
 import '../app.css';
+import tauriConf from '../../src-tauri/tauri.conf.json';
 
 const { children } = $props();
 
-// I haven't found a way to test the `csp` config from tauri.conf.json in a
-// dev env (there's a devCsp config property that doesn't work with vite),
-// and to make things more annoying, there are some dev-only CSP allowances
-// that are necessary, so... this is a way to test CSP config in dev with
-// the huge caveat that prodCsp here must be manually kept in sync with the
-// `csp` config from tauri.conf.json
-const connectSrc = [
-  "'self'",
-  'basemap:',
-  'http://ipc.localhost',
-  'http://tiles.localhost',
-  'https://api.inaturalist.org:*',
-  'https://protomaps.github.io:*',
-  'https://tile.openstreetmap.org:*',
-  'ipc:',
-  'tiles:',
-].join(' ');
+// Test the `csp` config from tauri.conf.json in a dev env (there's a devCsp
+// config property that doesn't work with vite). There are some dev-only CSP
+// allowances that are necessary.
+const connectSrc = tauriConf.app.security.csp['connect-src'];
 const devCsp = {
   'script-src': "'self' 'unsafe-inline' http://localhost:*",
   'style-src': "'self' 'unsafe-inline' http://localhost:*",
   'connect-src': `${connectSrc} ws://localhost:* http://localhost:*`,
 };
 const prodCsp = {
-  'default-src': "'self' tiles: http://tiles.localhost",
-  'img-src': "'self' data: blob: asset: tiles: *",
+  'default-src': tauriConf.app.security.csp['default-src'],
+  'img-src': tauriConf.app.security.csp['img-src'],
   'connect-src': connectSrc,
-  'object-src': "'none'",
-  'frame-src': "'self'",
-  'worker-src': 'blob:',
+  'object-src': tauriConf.app.security.csp['object-src'],
+  'frame-src': tauriConf.app.security.csp['frame-src'],
+  'worker-src': tauriConf.app.security.csp['worker-src'],
 };
 const csp = import.meta.env.DEV
   ? Object.entries({ ...prodCsp, ...devCsp })

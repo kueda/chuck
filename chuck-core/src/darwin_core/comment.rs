@@ -25,24 +25,31 @@ pub struct Comment {
 }
 
 impl Comment {
+    /// Row type URI for the Comment extension
+    pub const ROW_TYPE: &'static str = "https://schema.org/Comment";
+
+    /// CSV filename for the comment extension
+    pub const FILENAME: &'static str = "comment.csv";
+
+    /// Fields written to CSV when exporting, paired with their term URIs
+    pub const WRITE_FIELDS: &'static [(&'static str, &'static str)] = &[
+        ("occurrenceID", "http://rs.tdwg.org/dwc/terms/occurrenceID"),
+        ("identifier", "http://purl.org/dc/terms/identifier"),
+        ("text", "https://schema.org/text"),
+        ("author", "https://schema.org/author"),
+        ("authorID", "https://chuck.kueda.net/terms/authorID"),
+        ("created", "http://purl.org/dc/terms/created"),
+        ("modified", "http://purl.org/dc/terms/modified"),
+    ];
+
     /// Get the CSV header row for comment records
     pub fn csv_headers() -> Vec<&'static str> {
-        vec![
-            "coreid",
-            "occurrenceID",
-            "identifier",
-            "text",
-            "author",
-            "authorID",
-            "created",
-            "modified",
-        ]
+        Self::WRITE_FIELDS.iter().map(|(name, _)| *name).collect()
     }
 
     /// Convert to CSV record for writing
     pub fn to_csv_record(&self) -> Vec<String> {
         vec![
-            self.coreid.clone().unwrap_or_default(),
             self.occurrence_id.clone(),
             self.identifier.clone().unwrap_or_default(),
             self.text.clone().unwrap_or_default(),

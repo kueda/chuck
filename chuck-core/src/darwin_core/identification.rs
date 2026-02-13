@@ -67,45 +67,62 @@ pub struct Identification {
 }
 
 impl Identification {
+    /// Row type URI for the Identification extension
+    pub const ROW_TYPE: &'static str =
+        "http://rs.tdwg.org/dwc/terms/Identification";
+
+    /// CSV filename for the identification extension
+    pub const FILENAME: &'static str = "identification.csv";
+
+    /// Fields written to CSV when exporting, paired with their term URIs
+    pub const WRITE_FIELDS: &'static [(&'static str, &'static str)] = &[
+        ("occurrenceID", "http://rs.tdwg.org/dwc/terms/occurrenceID"),
+        ("identificationID", "http://rs.tdwg.org/dwc/terms/identificationID"),
+        ("identifiedBy", "http://rs.tdwg.org/dwc/terms/identifiedBy"),
+        ("identifiedByID", "http://rs.tdwg.org/dwc/terms/identifiedByID"),
+        ("dateIdentified", "http://rs.tdwg.org/dwc/terms/dateIdentified"),
+        (
+            "identificationRemarks",
+            "http://rs.tdwg.org/dwc/terms/identificationRemarks",
+        ),
+        ("taxonID", "http://rs.tdwg.org/dwc/terms/taxonID"),
+        ("scientificName", "http://rs.tdwg.org/dwc/terms/scientificName"),
+        ("taxonRank", "http://rs.tdwg.org/dwc/terms/taxonRank"),
+        ("vernacularName", "http://rs.tdwg.org/dwc/terms/vernacularName"),
+        ("taxonomicStatus", "http://rs.tdwg.org/dwc/terms/taxonomicStatus"),
+        ("higherClassification", "http://rs.tdwg.org/dwc/terms/higherClassification"),
+        ("kingdom", "http://rs.tdwg.org/dwc/terms/kingdom"),
+        ("phylum", "http://rs.tdwg.org/dwc/terms/phylum"),
+        ("class", "http://rs.tdwg.org/dwc/terms/class"),
+        ("order", "http://rs.tdwg.org/dwc/terms/order"),
+        ("superfamily", "http://rs.tdwg.org/dwc/terms/superfamily"),
+        ("family", "http://rs.tdwg.org/dwc/terms/family"),
+        ("subfamily", "http://rs.tdwg.org/dwc/terms/subfamily"),
+        ("tribe", "http://rs.tdwg.org/dwc/terms/tribe"),
+        ("subtribe", "http://rs.tdwg.org/dwc/terms/subtribe"),
+        ("genus", "http://rs.tdwg.org/dwc/terms/genus"),
+        ("subgenus", "http://rs.tdwg.org/dwc/terms/subgenus"),
+        ("infragenericEpithet", "http://rs.tdwg.org/dwc/terms/infragenericEpithet"),
+        ("specificEpithet", "http://rs.tdwg.org/dwc/terms/specificEpithet"),
+        ("infraspecificEpithet", "http://rs.tdwg.org/dwc/terms/infraspecificEpithet"),
+        (
+            "identificationVerificationStatus",
+            "http://rs.tdwg.org/dwc/terms/identificationVerificationStatus",
+        ),
+        (
+            "identificationCurrent",
+            "https://www.inaturalist.org/terms/identificationCurrent",
+        ),
+    ];
+
     /// Get the CSV header row for identification records
     pub fn csv_headers() -> Vec<&'static str> {
-        vec![
-            "coreid",
-            "occurrenceID",
-            "identificationID",
-            "identifiedBy",
-            "identifiedByID",
-            "dateIdentified",
-            "identificationRemarks",
-            "taxonID",
-            "scientificName",
-            "taxonRank",
-            "vernacularName",
-            "taxonomicStatus",
-            "higherClassification",
-            "kingdom",
-            "phylum",
-            "class",
-            "order",
-            "superfamily",
-            "family",
-            "subfamily",
-            "tribe",
-            "subtribe",
-            "genus",
-            "subgenus",
-            "infragenericEpithet",
-            "specificEpithet",
-            "infraspecificEpithet",
-            "identificationVerificationStatus",
-            "identificationCurrent",
-        ]
+        Self::WRITE_FIELDS.iter().map(|(name, _)| *name).collect()
     }
 
     /// Convert to CSV record for writing
     pub fn to_csv_record(&self) -> Vec<String> {
         vec![
-            self.coreid.clone().unwrap_or_default(),
             self.occurrence_id.clone(),
             self.identification_id.clone().unwrap_or_default(),
             self.identified_by.clone().unwrap_or_default(),

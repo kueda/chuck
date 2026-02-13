@@ -1,11 +1,11 @@
 mod basemap;
 mod commands;
-mod db;
-mod dwca;
-mod error;
+pub mod db;
+pub mod dwca;
+pub mod error;
 mod photo_cache;
 pub mod tile_server;
-mod search_params;
+pub mod search_params;
 
 use chuck_core::auth::AuthCache;
 use tauri::image::Image;
@@ -188,7 +188,12 @@ pub fn run() {
             // Remove empty submenus (e.g. Help on macOS)
             for item in menu.items()? {
                 if let Some(submenu) = item.as_submenu()
-                    && submenu.items()?.is_empty()
+                    && (
+                        // Remove empty submenus
+                        submenu.items()?.is_empty()
+                        // Remove Window menu on Linux, which Tauri thinks exists but it doesn't
+                        || cfg!(target_os = "linux") && submenu.text()? == "Window"
+                    )
                 {
                     menu.remove(&item)?;
                 }
