@@ -107,6 +107,7 @@ const ETR_SMOOTHING_ALPHA = 0.3; // Weight for new rate samples (lower = smoothe
 // Success dialog state
 let showSuccessDialog = $state<boolean>(false);
 let completedArchivePath = $state<string | null>(null);
+let downloadCancelled = $state<boolean>(false);
 
 // Large download confirmation dialog state
 let showLargeDownloadDialog = $state<boolean>(false);
@@ -369,6 +370,7 @@ async function startDownload(filePath: string) {
   showProgress = true;
   progressStage = 'building';
   progressMessage = 'Starting...';
+  downloadCancelled = false;
 
   // Reset ETR state
   downloadStartTime = null;
@@ -425,6 +427,7 @@ function handleCancelLargeDownload() {
 }
 
 function handleCancelDownload() {
+  downloadCancelled = true;
   invoke('cancel_inat_archive').catch((e) => {
     console.error('Failed to cancel:', e);
   });
@@ -456,6 +459,7 @@ onMount(() => {
 
   // Listen for progress events
   const unlistenProgress = listen<InatProgress>('inat-progress', (event) => {
+    if (downloadCancelled) return;
     const progress = event.payload;
 
     if (progress.stage === 'fetching') {

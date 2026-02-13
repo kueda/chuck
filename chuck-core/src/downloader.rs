@@ -129,6 +129,10 @@ impl Downloader {
             // Check cancellation
             if let Some(token) = &cancellation_token {
                 if token.load(Ordering::Relaxed) {
+                    // Abort any pending photo download task
+                    if let Some((photo_handle, _, _)) = pending_photos.take() {
+                        photo_handle.abort();
+                    }
                     return Err("Download cancelled".into());
                 }
             }
@@ -138,6 +142,13 @@ impl Downloader {
             if batch.results.is_empty() {
                 // Before breaking, finish any pending photo downloads
                 if let Some((photo_handle, observations, taxa_hash)) = pending_photos.take() {
+                    // Check cancellation before waiting for photos
+                    if let Some(token) = &cancellation_token {
+                        if token.load(Ordering::Relaxed) {
+                            photo_handle.abort();
+                            return Err("Download cancelled".into());
+                        }
+                    }
                     let (photo_mapping, photos_count) = photo_handle.await
                         .map_err(|e| format!("Photo download task failed: {e}"))??;
                     progress.photos_current += photos_count;
@@ -156,6 +167,13 @@ impl Downloader {
 
             // If there's a pending photo download from the previous batch, wait for it and process extensions
             if let Some((photo_handle, observations, prev_taxa_hash)) = pending_photos.take() {
+                // Check cancellation before waiting for photos
+                if let Some(token) = &cancellation_token {
+                    if token.load(Ordering::Relaxed) {
+                        photo_handle.abort();
+                        return Err("Download cancelled".into());
+                    }
+                }
                 let (photo_mapping, photos_count) = photo_handle.await
                     .map_err(|e| format!("Photo download task failed: {e}"))??;
                 progress.photos_current += photos_count;
@@ -168,6 +186,7 @@ impl Downloader {
                 archive.media_dir().to_path_buf(),
                 &mut progress,
                 &progress_callback,
+                cancellation_token.clone(),
             );
 
             // Store handle and data for next iteration (or process immediately if no photos)
@@ -242,6 +261,7 @@ impl Downloader {
         media_dir: std::path::PathBuf,
         progress: &mut DownloadProgress,
         callback: &F,
+        cancellation_token: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     ) -> Option<tokio::task::JoinHandle<Result<(HashMap<i32, String>, usize), String>>>
     where
         F: Fn(DownloadProgress) + Send + Sync + Clone + 'static,
@@ -293,6 +313,7 @@ impl Downloader {
                 &observations,
                 &media_dir,
                 photo_callback,
+                cancellation_token,
             )
             .await
             .map_err(|e| e.to_string())?;

@@ -4,7 +4,7 @@ use httpmock::prelude::*;
 use inaturalist::apis::observations_api;
 use serial_test::serial;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tempfile::TempDir;
 
 // Minimal 1x1 PNG image (67 bytes)
@@ -626,4 +626,107 @@ async fn test_downloader_photos_current_accumulates_across_pages() {
     observations_page3_mock.assert();
     photo1_mock.assert();
     photo2_mock.assert();
+}
+
+#[tokio::test]
+#[serial]
+async fn test_cancellation_stops_photo_downloads() {
+    // Set up mock server
+    let server = MockServer::start();
+
+    // Create custom configuration pointing to mock server
+    let config = chuck_core::api::client::create_config_with_base_url_and_jwt(
+        server.base_url(),
+        Some("test_jwt".to_string()),
+    );
+
+    // Mock pagination stop
+    let _observations_pagination_mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/observations")
+            .query_param_exists("id_below");
+        then.status(200)
+            .header("content-type", "application/json")
+            .json_body(observations_response_json(1, vec![]));
+    });
+
+    // Create observation with many photos so download takes a while
+    let photo_ids: Vec<i32> = (1..=20).collect();
+    let _observations_initial_mock = server.mock(|when, then| {
+        when.method(GET).path("/observations");
+        then.status(200)
+            .header("content-type", "application/json")
+            .json_body(observations_response_json(
+                1,
+                vec![observation_json(500, &server.base_url(), &photo_ids)],
+            ));
+    });
+
+    // Mock taxa API
+    let _taxa_mock = server.mock(|when, then| {
+        when.method(GET).path_contains("/taxa");
+        then.status(200)
+            .header("content-type", "application/json")
+            .json_body(taxa_response_json());
+    });
+
+    // Mock photo downloads with a long delay so cancellation fires mid-download
+    for id in &photo_ids {
+        let path = format!("/photo{id}.jpg");
+        server.mock(|when, then| {
+            when.method(GET).path(path);
+            then.status(200)
+                .header("content-type", "image/jpeg")
+                .body(MINIMAL_PNG)
+                .delay(std::time::Duration::from_secs(5));
+        });
+    }
+
+    // Create temp directory for output
+    let temp_dir = TempDir::new().unwrap();
+    let output_path = temp_dir.path().join("test.zip");
+
+    // Create downloader
+    let params = observations_api::ObservationsGetParams {
+        taxon_id: Some(vec!["47126".to_string()]),
+        per_page: Some("1".to_string()),
+        ..chuck_core::api::params::DEFAULT_GET_PARAMS.clone()
+    };
+
+    let extensions = vec![DwcaExtension::SimpleMultimedia];
+    let downloader = Downloader::with_config(params, extensions, true, config);
+
+    // Set up cancellation token
+    let cancel_token = Arc::new(AtomicBool::new(false));
+    let cancel_token_clone = cancel_token.clone();
+
+    // Cancel as soon as observations are fetched (before photo downloads complete)
+    let progress_callback = move |progress: DownloadProgress| {
+        if progress.observations_current > 0 {
+            cancel_token_clone.store(true, Ordering::Relaxed);
+        }
+    };
+
+    // Execute download
+    let result = downloader
+        .execute(
+            output_path.to_str().unwrap(),
+            progress_callback,
+            Some(cancel_token),
+        )
+        .await;
+
+    // Should return cancellation error
+    assert!(result.is_err(), "Download should be cancelled");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("cancelled"),
+        "Error should mention cancellation, got: {err}"
+    );
+
+    // Archive should NOT have been created
+    assert!(
+        !output_path.exists(),
+        "Archive file should not be created when cancelled"
+    );
 }

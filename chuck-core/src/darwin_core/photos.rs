@@ -85,6 +85,7 @@ impl PhotoDownloader {
         observations: &[Observation],
         output_dir: &Path,
         progress_callback: F,
+        cancellation_token: Option<Arc<std::sync::atomic::AtomicBool>>,
     ) -> Result<HashMap<i32, String>, Box<dyn std::error::Error>>
     where
         F: Fn(usize) + Send + Sync + Clone + 'static
@@ -118,12 +119,27 @@ impl PhotoDownloader {
             let semaphore = semaphore.clone();
             let photo_to_date = photo_to_date.clone();
             let progress_callback = progress_callback.clone();
+            let cancel = cancellation_token.clone();
 
             tokio::spawn(async move {
                 let mut result = None;
                 if let (Some(url), Some(id)) = (&photo.url, &photo.id) {
+                    // Check cancellation before acquiring permit
+                    if let Some(ref token) = cancel {
+                        if token.load(std::sync::atomic::Ordering::Relaxed) {
+                            return None;
+                        }
+                    }
+
                     // Acquire permit before opening file
                     let _permit = semaphore.acquire().await.unwrap();
+
+                    // Check cancellation again after acquiring permit
+                    if let Some(ref token) = cancel {
+                        if token.load(std::sync::atomic::Ordering::Relaxed) {
+                            return None;
+                        }
+                    }
 
                     let photo_url = url.replace("square", "original");
                     let filename = format!("{id}.jpg");
