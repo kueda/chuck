@@ -19,9 +19,9 @@
     ],
     "security": {
       "csp": {
-        "default-src": "'self' tiles: http://tiles.localhost",
+        "default-src": "'self' tiles: http://tiles.localhost basemap: http://basemap.localhost",
         "img-src": "'self' data: blob: tiles: asset: *",
-        "connect-src": "'self' tiles: http://tiles.localhost ipc: http://ipc.localhost https://tile.openstreetmap.org:* https://api.inaturalist.org:*",
+        "connect-src": "'self' tiles: http://tiles.localhost basemap: http://basemap.localhost ipc: http://ipc.localhost https://tile.openstreetmap.org:* https://protomaps.github.io https://build.protomaps.com https://api.inaturalist.org:*",
         "object-src": "'none'",
         "frame-src": "'self'",
         "worker-src": "blob:"

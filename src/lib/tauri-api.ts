@@ -82,6 +82,63 @@ export async function listen<T>(
   return tauriListen(event, handler);
 }
 
+// Basemap types matching the Rust structs
+
+export interface Bounds {
+  minLon: number;
+  minLat: number;
+  maxLon: number;
+  maxLat: number;
+}
+
+export interface BasemapInfo {
+  id: string;
+  name: string;
+  maxZoom: number;
+  bounds: Bounds | null;
+  downloadDate: string;
+  sourceUrl: string;
+  fileSize: number;
+}
+
+export async function listBasemaps(): Promise<BasemapInfo[]> {
+  return invoke<BasemapInfo[]>('list_basemaps');
+}
+
+export async function deleteBasemap(id: string): Promise<void> {
+  return invoke('delete_basemap', { id });
+}
+
+export async function downloadRegionalBasemap(
+  bounds: Bounds,
+  maxZoom: number,
+  name?: string,
+): Promise<void> {
+  return invoke('download_regional_basemap', {
+    bounds,
+    maxZoom,
+    name,
+  });
+}
+
+export async function reverseGeocode(
+  lat: number,
+  lon: number,
+  zoom: number,
+): Promise<string> {
+  return invoke<string>('reverse_geocode', { lat, lon, zoom });
+}
+
+export async function estimateRegionalSize(
+  bounds: Bounds,
+  maxZoom: number,
+): Promise<{ estimatedBytes: number }> {
+  return invoke<{ estimatedBytes: number }>('estimate_regional_size', {
+    bounds,
+    maxZoom,
+  });
+}
+
 /**
  * Get the base URL for the tiles custom protocol.
  * On Windows, WebView2 requires http://tiles.localhost/ format.
@@ -92,4 +149,15 @@ export function getTileUrlBase(): string {
     typeof navigator !== 'undefined' &&
     navigator.userAgent.toLowerCase().includes('windows');
   return isWindows ? 'http://tiles.localhost' : 'tiles://localhost';
+}
+
+/**
+ * Get the base URL for the basemap custom protocol.
+ * Same pattern as getTileUrlBase but for the basemap:// scheme.
+ */
+export function getBasemapUrlBase(): string {
+  const isWindows =
+    typeof navigator !== 'undefined' &&
+    navigator.userAgent.toLowerCase().includes('windows');
+  return isWindows ? 'http://basemap.localhost' : 'basemap://localhost';
 }

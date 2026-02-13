@@ -5,7 +5,8 @@ import OccurrenceDrawer from '$lib/components/OccurrenceDrawer.svelte';
 import { createDrawerHandlers, type DrawerState } from '$lib/utils/drawerState';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { onDestroy, onMount } from 'svelte';
-import { getTileUrlBase } from '$lib/tauri-api';
+import { buildMapStyle } from '$lib/mapStyle';
+import { getTileUrlBase, invoke, listBasemaps } from '$lib/tauri-api';
 import type { Occurrence } from '$lib/types/archive';
 import type { SearchParams } from '$lib/utils/filterCategories';
 
@@ -51,6 +52,7 @@ let mapContainer: HTMLDivElement;
 let map = $state<maplibregl.Map | null>(null);
 let zoom = $state(initialZoom);
 let center: [number, number] = $state(initialCenter);
+let hasBasemap = $state(false);
 
 const currentBounds = $derived(
   params.nelat !== undefined &&
@@ -93,30 +95,19 @@ $effect(() => {
   });
 });
 
-onMount(() => {
+onMount(async () => {
+  // Check if offline basemap is available
+  try {
+    const basemaps = await listBasemaps();
+    hasBasemap = basemaps.length > 0;
+  } catch {
+    hasBasemap = false;
+  }
+
   // Initialize MapLibre map
   map = new maplibregl.Map({
     container: mapContainer,
-    style: {
-      version: 8,
-      sources: {
-        osm: {
-          type: 'raster',
-          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-          tileSize: 256,
-          attribution: '© OpenStreetMap contributors',
-        },
-      },
-      layers: [
-        {
-          id: 'osm',
-          type: 'raster',
-          source: 'osm',
-          minzoom: 0,
-          maxzoom: 19,
-        },
-      ],
-    },
+    style: buildMapStyle(hasBasemap),
     center: initialCenter,
     zoom: initialZoom,
   });

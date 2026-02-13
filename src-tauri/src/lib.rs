@@ -1,3 +1,4 @@
+mod basemap;
 mod commands;
 pub mod db;
 pub mod dwca;
@@ -17,6 +18,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(crate::tile_server::init())
+        .plugin(crate::basemap::init())
         .invoke_handler(tauri::generate_handler![
             commands::archive::open_archive,
             commands::archive::current_archive,
@@ -34,6 +36,13 @@ pub fn run() {
             commands::inat_auth::inat_get_auth_status,
             commands::inat_auth::inat_sign_out,
             commands::inat_auth::inat_get_jwt,
+            basemap::commands::list_basemaps,
+            basemap::commands::download_basemap,
+            basemap::commands::download_regional_basemap,
+            basemap::commands::estimate_regional_size,
+            basemap::commands::cancel_basemap_download,
+            basemap::commands::delete_basemap,
+            basemap::commands::reverse_geocode,
         ])
         .setup(|app| {
             // Initialize auth cache (lazy - won't access keychain until first use)
@@ -48,9 +57,18 @@ pub fn run() {
                 "Download from iNaturalist"
             ).build(app)?;
 
-            let metadata_item = MenuItemBuilder::with_id("show-metadata", "Show Archive Metadata")
-                .accelerator("CmdOrCtrl+I")
-                .build(app)?;
+            let basemap_item = MenuItemBuilder::with_id(
+                "download-basemap",
+                "Download Offline Basemap\u{2026}",
+            )
+            .build(app)?;
+
+            let metadata_item = MenuItemBuilder::with_id(
+                "show-metadata",
+                "Show Archive Metadata",
+            )
+            .accelerator("CmdOrCtrl+I")
+            .build(app)?;
 
             // Get the existing menu or create one for the main window (needed for Windows/Linux)
             let menu = match app.menu() {
@@ -128,6 +146,7 @@ pub fn run() {
                     if let Ok(text) = submenu.text() {
                         if text == "Tools" {
                             submenu.append(&download_item)?;
+                            submenu.append(&basemap_item)?;
                             tools_submenu_exists = true;
                             break;
                         }
@@ -139,6 +158,7 @@ pub fn run() {
             if !tools_submenu_exists {
                 let tools_submenu = SubmenuBuilder::new(app, "Tools")
                     .item(&download_item)
+                    .item(&basemap_item)
                     .build()?;
                 menu.append(&tools_submenu)?;
             }
@@ -196,6 +216,22 @@ pub fn run() {
 
                     if let Err(e) = window {
                         log::error!("Failed to open iNat download window: {e}");
+                    }
+                } else if event.id() == "download-basemap" {
+                    let window = tauri::WebviewWindowBuilder::new(
+                        app,
+                        "offline-basemaps",
+                        tauri::WebviewUrl::App("offline-basemaps".into())
+                    )
+                    .title("Offline Basemaps")
+                    .inner_size(800.0, 600.0)
+                    .resizable(true)
+                    .build();
+
+                    if let Err(e) = window {
+                        log::error!(
+                            "Failed to open offline basemaps window: {e}"
+                        );
                     }
                 } else if event.id() == "show-metadata" {
                     // Open new window for archive metadata
