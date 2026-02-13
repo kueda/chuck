@@ -2,7 +2,8 @@ import { layers, namedFlavor } from '@protomaps/basemaps';
 import type { StyleSpecification } from 'maplibre-gl';
 import { getBasemapUrlBase } from '$lib/tauri-api';
 
-const OSM_ATTRIBUTION = '<a target="_blank" href="https://openstreetmap.org/copyright">OpenStreetMap</a>';
+const OSM_ATTRIBUTION =
+  '<a target="_blank" href="https://openstreetmap.org/copyright">OpenStreetMap</a>';
 const PROTOMAPS_ATTRIBUTION =
   '<a target="_blank" href="https://protomaps.com">Protomaps</a> ' +
   `| ${OSM_ATTRIBUTION}`;
@@ -25,11 +26,22 @@ export function buildMapStyle(hasBasemap: boolean): StyleSpecification {
 
 function buildVectorStyle(): StyleSpecification {
   const basemapUrl = getBasemapUrlBase();
+  const vectorLayers = (
+    layers('basemap', namedFlavor('light'), {
+      lang: 'en',
+    }) as StyleSpecification['layers']
+  ).filter((l) => l.type !== 'background');
   return {
     version: 8,
     glyphs: GLYPHS_URL,
     sprite: SPRITE_URL,
     sources: {
+      osm: {
+        type: 'raster',
+        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        attribution: OSM_ATTRIBUTION,
+      },
       basemap: {
         type: 'vector',
         tiles: [`${basemapUrl}/{z}/{x}/{y}`],
@@ -37,9 +49,16 @@ function buildVectorStyle(): StyleSpecification {
         attribution: PROTOMAPS_ATTRIBUTION,
       },
     },
-    layers: layers('basemap', namedFlavor('light'), {
-      lang: 'en',
-    }) as StyleSpecification['layers'],
+    layers: [
+      {
+        id: 'osm-fallback',
+        type: 'raster',
+        source: 'osm',
+        minzoom: 0,
+        maxzoom: 19,
+      },
+      ...vectorLayers,
+    ],
   };
 }
 
