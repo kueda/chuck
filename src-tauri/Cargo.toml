@@ -1,8 +1,8 @@
 [package]
 name = "chuck-app"
 version = "0.2.2"
-description = "A Tauri App"
-authors = ["you"]
+description = "DarwinCore Archive viewer"
+authors = ["Ken-ichi Ueda"]
 edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
