@@ -7,10 +7,16 @@ mod photo_cache;
 pub mod tile_server;
 pub mod search_params;
 
+use std::sync::Mutex;
+
 use chuck_core::auth::AuthCache;
 use tauri::image::Image;
 use tauri::menu::{AboutMetadata, Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::{Emitter, Manager, RunEvent};
+
+/// Holds a file path passed via CLI args (Windows/Linux file association).
+/// The frontend retrieves this once on startup via the `get_opened_file` command.
+struct OpenedFile(Mutex<Option<String>>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -21,6 +27,7 @@ pub fn run() {
         .plugin(crate::basemap::init())
         .invoke_handler(tauri::generate_handler![
             commands::archive::open_archive,
+            commands::archive::get_opened_file,
             commands::archive::current_archive,
             commands::archive::search,
             commands::archive::get_autocomplete_suggestions,
@@ -47,6 +54,12 @@ pub fn run() {
         .setup(|app| {
             // Initialize auth cache (lazy - won't access keychain until first use)
             app.manage(AuthCache::new());
+
+            // Check CLI args for a file path (Windows/Linux file association)
+            let opened_file = std::env::args()
+                .nth(1)
+                .filter(|arg| arg.to_lowercase().ends_with(".zip"));
+            app.manage(OpenedFile(Mutex::new(opened_file)));
 
             let open_item = MenuItemBuilder::with_id("open", "Open...")
                 .accelerator("CmdOrCtrl+O")
@@ -255,12 +268,13 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
-            if let RunEvent::Opened { urls } = event {
+        .run(|_app, _event| {
+            #[cfg(target_os = "macos")]
+            if let RunEvent::Opened { urls } = _event {
                 if let Some(url) = urls.first() {
                     if let Ok(path) = url.to_file_path() {
                         let path_str = path.to_string_lossy().to_string();
-                        let _ = app.emit("file-open", path_str);
+                        let _ = _app.emit("file-open", path_str);
                     }
                 }
             }

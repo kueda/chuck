@@ -183,6 +183,14 @@ pub async fn open_archive(app: tauri::AppHandle, path: String) -> Result<Archive
     }
 }
 
+/// Returns and clears the file path passed via CLI args (file association on
+/// Windows/Linux). Returns None if no file was passed or it was already consumed.
+#[tauri::command]
+pub fn get_opened_file(app: tauri::AppHandle) -> Option<String> {
+    let state = app.state::<crate::OpenedFile>();
+    state.0.lock().ok()?.take()
+}
+
 #[tauri::command]
 pub fn current_archive(app: tauri::AppHandle) -> Result<ArchiveInfo> {
     Archive::current(&get_archives_dir(app)?).map_err(|e| {

@@ -382,6 +382,11 @@ onMount(() => {
       // it's ok if there's no open archive
     });
 
+  // Check if the app was launched via file association (Windows/Linux)
+  invoke<string | null>('get_opened_file').then((path) => {
+    if (path) openArchiveFromPath(path);
+  });
+
   // Listen for menu events
   let unlistenMenu: (() => void) | undefined;
   listen('menu-open', openArchive).then((unlistenFn) => {

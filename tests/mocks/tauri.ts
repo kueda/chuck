@@ -75,6 +75,9 @@ export function getInjectionScript(
             }
             return currentArchive;
 
+          case 'get_opened_file':
+            return null;
+
           case 'current_archive':
             if (!currentArchive) {
               throw new Error('No archive currently open');
