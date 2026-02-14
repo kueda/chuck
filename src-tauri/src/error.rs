@@ -27,6 +27,9 @@ pub enum ChuckError {
     #[error("Failed to extract archive")]
     ArchiveExtraction(#[source] zip::result::ZipError),
 
+    #[error("Not a DarwinCore Archive: meta.xml not found in {0}")]
+    NotADarwinCoreArchive(PathBuf),
+
     #[error("Invalid file name in path: {0}")]
     InvalidFileName(PathBuf),
 

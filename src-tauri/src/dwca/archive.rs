@@ -61,6 +61,9 @@ impl Archive {
     where
         F: FnMut(&str),
     {
+        // Validate that the zip contains meta.xml before any destructive operations
+        validate_is_dwca(archive_path)?;
+
         // Create storage directory based on archive hash
         progress_callback("importing");
         let storage_dir = create_storage_dir(archive_path, base_dir)?;
@@ -370,6 +373,25 @@ impl Archive {
 
         Ok(cached_file_path.to_string_lossy().to_string())
     }
+}
+
+/// Check that the zip contains meta.xml, the defining characteristic of a DwC-A.
+/// Called before any destructive operations so a non-DwC-A zip doesn't destroy
+/// the currently-open archive.
+fn validate_is_dwca(archive_path: &Path) -> Result<()> {
+    let file = std::fs::File::open(archive_path).map_err(|e| ChuckError::FileOpen {
+        path: archive_path.to_path_buf(),
+        source: e,
+    })?;
+    let mut zip = zip::ZipArchive::new(file).map_err(ChuckError::ArchiveExtraction)?;
+    zip.by_name("meta.xml")
+        .map_err(|e| match e {
+            zip::result::ZipError::FileNotFound => {
+                ChuckError::NotADarwinCoreArchive(archive_path.to_path_buf())
+            }
+            other => ChuckError::ArchiveExtraction(other),
+        })?;
+    Ok(())
 }
 
 fn create_storage_dir(archive_path: &Path, base_dir: &Path) -> Result<PathBuf> {

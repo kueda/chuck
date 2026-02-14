@@ -350,6 +350,13 @@ export function getInjectionScript(
         },
       });
 
+      // Mock webview functions
+      const mockGetCurrentWebview = () => ({
+        onDragDropEvent: async () => {
+          return () => {};
+        },
+      });
+
       // Mock event listener
       const mockListen = async (event, handler) => {
         console.log('[Mock Tauri] Listening for event:', event);
@@ -384,6 +391,7 @@ export function getInjectionScript(
         showOpenDialog: mockOpen,
         showSaveDialog: mockSave,
         getCurrentWindow: mockGetCurrentWindow,
+        getCurrentWebview: mockGetCurrentWebview,
         listen: mockListen,
         triggerMenuOpen: triggerMenuOpen,
       };

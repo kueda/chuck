@@ -10,7 +10,7 @@ pub mod search_params;
 use chuck_core::auth::AuthCache;
 use tauri::image::Image;
 use tauri::menu::{AboutMetadata, Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, RunEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -253,6 +253,16 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let RunEvent::Opened { urls } = event {
+                if let Some(url) = urls.first() {
+                    if let Ok(path) = url.to_file_path() {
+                        let path_str = path.to_string_lossy().to_string();
+                        let _ = app.emit("file-open", path_str);
+                    }
+                }
+            }
+        });
 }

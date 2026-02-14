@@ -9,6 +9,7 @@ import {
   type EventCallback,
   listen as tauriListen,
 } from '@tauri-apps/api/event';
+import { getCurrentWebview as tauriGetCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow as tauriGetCurrentWindow } from '@tauri-apps/api/window';
 import {
   type OpenDialogOptions,
@@ -27,6 +28,7 @@ interface MockTauri {
     options?: SaveDialogOptions,
   ): Promise<string | string[] | null>;
   getCurrentWindow(): ReturnType<typeof tauriGetCurrentWindow>;
+  getCurrentWebview(): ReturnType<typeof tauriGetCurrentWebview>;
   listen<T>(event: string, handler: EventCallback<T>): Promise<() => void>;
 }
 
@@ -70,6 +72,13 @@ export function getCurrentWindow() {
     return getMockTauri().getCurrentWindow();
   }
   return tauriGetCurrentWindow();
+}
+
+export function getCurrentWebview() {
+  if (hasMocks) {
+    return getMockTauri().getCurrentWebview();
+  }
+  return tauriGetCurrentWebview();
 }
 
 export async function listen<T>(

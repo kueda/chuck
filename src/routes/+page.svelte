@@ -1,11 +1,12 @@
 <script lang="ts">
-import { Progress, Tabs } from '@skeletonlabs/skeleton-svelte';
+import { Dialog, Portal, Progress, Tabs } from '@skeletonlabs/skeleton-svelte';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { Combine, Grid3x3 } from 'lucide-svelte';
+import { Combine, Grid3x3, Import } from 'lucide-svelte';
 import { onMount } from 'svelte';
 import Filters from '$lib/components/Filters.svelte';
 import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
 import {
+  getCurrentWebview,
   getCurrentWindow,
   invoke,
   listen,
@@ -67,6 +68,8 @@ let drawerState = $state<{
   selectedOccurrenceId: null,
   selectedOccurrenceIndex: null,
 });
+
+let isDragOver = $state(false);
 
 let archiveLoadingStatus = $state<
   null | 'importing' | 'extracting' | 'creatingDatabase'
@@ -339,29 +342,35 @@ function clearArchiveData() {
   archiveLoadingError = null;
 }
 
-async function openArchive() {
-  const path = await showOpenDialog();
-  if (!path) return;
-
-  // Clear existing data before opening new archive
+async function openArchiveFromPath(path: string) {
   clearArchiveData();
 
   try {
-    // Open the new archive (progress will be reported via events)
     archive = await invoke('open_archive', { path });
-
-    // Clear loading status on success
     archiveLoadingStatus = null;
 
-    // Reset scroll position
     if (scrollElement) {
       scrollElement.scrollTop = 0;
     }
   } catch (e) {
     archiveLoadingError = e instanceof Error ? e.message : String(e);
     archiveLoadingStatus = null;
+    // Try to restore the previous archive if it still exists on disk
+    try {
+      archive = await invoke('current_archive');
+    } catch {
+      archive = undefined;
+    }
     console.error('[+page.svelte] Error opening archive:', e);
   }
+}
+
+async function openArchive() {
+  const path = await showOpenDialog({
+    filters: [{ name: 'DarwinCore Archive', extensions: ['zip'] }],
+  });
+  if (!path) return;
+  await openArchiveFromPath(path as string);
 }
 
 onMount(() => {
@@ -377,6 +386,14 @@ onMount(() => {
   let unlistenMenu: (() => void) | undefined;
   listen('menu-open', openArchive).then((unlistenFn) => {
     unlistenMenu = unlistenFn;
+  });
+
+  // Listen for file association events (e.g. drop on Dock icon, "Open With")
+  let unlistenFileOpen: (() => void) | undefined;
+  listen<string>('file-open', (event) => {
+    openArchiveFromPath(event.payload);
+  }).then((unlistenFn) => {
+    unlistenFileOpen = unlistenFn;
   });
 
   // Listen for archive open progress events
@@ -417,6 +434,14 @@ onMount(() => {
       case 'error':
         archiveLoadingStatus = null;
         archiveLoadingError = progress.message;
+        // Try to restore the previous archive if it still exists on disk
+        invoke('current_archive')
+          .then((result) => {
+            archive = result as ArchiveInfo;
+          })
+          .catch(() => {
+            archive = undefined;
+          });
         console.error('[+page.svelte] Archive open error:', progress.message);
         break;
     }
@@ -424,9 +449,34 @@ onMount(() => {
     unlistenProgress = unlistenFn;
   });
 
+  // Listen for drag-and-drop events
+  let unlistenDragDrop: (() => void) | undefined;
+  getCurrentWebview()
+    .onDragDropEvent((event) => {
+      let zipPath: string | undefined;
+      if (event.payload.type === 'enter' || event.payload.type === 'drop') {
+        zipPath = event.payload.paths.find((p) =>
+          p.toLowerCase().endsWith('.zip'),
+        );
+      }
+      if (zipPath && event.payload.type === 'enter') {
+        isDragOver = true;
+      } else if (zipPath && event.payload.type === 'drop') {
+        isDragOver = false;
+        openArchiveFromPath(zipPath);
+      } else if (event.payload.type === 'leave') {
+        isDragOver = false;
+      }
+    })
+    .then((unlistenFn) => {
+      unlistenDragDrop = unlistenFn;
+    });
+
   return () => {
     unlistenMenu?.();
+    unlistenFileOpen?.();
     unlistenProgress?.();
+    unlistenDragDrop?.();
   };
 });
 </script>
@@ -455,23 +505,6 @@ onMount(() => {
       </Progress.Track>
     </Progress>
 
-  </div>
-{:else if archiveLoadingError}
-  <div
-    class="w-full h-screen flex flex-col justify-center items-center p-4 text-center"
-  >
-    <div class="text-xl mb-4 text-red-600">Error Opening Archive</div>
-    <div class="text-sm mb-6 max-w-md">{archiveLoadingError}</div>
-    <button
-      type="button"
-      class="btn preset-filled"
-      onclick={() => {
-        archiveLoadingError = null;
-        openArchive();
-      }}
-    >
-      Try Again
-    </button>
   </div>
 {:else if archive}
   <div class="flex flex-row p-4 fixed w-full h-screen">
@@ -586,7 +619,7 @@ onMount(() => {
   </div>
 {:else}
   <div class="w-full h-screen flex flex-col justify-center items-center p-4 text-center">
-    <p class="w-3/4 mb-5">Chuck is an application for viewing archives of biodiversity occurrences called DarwinCore Archives. Open an existing archive to get started</p>
+    <p class="w-3/4 mb-5">Chuck is an application for viewing archives of biodiversity occurrences called DarwinCore Archives. Open an existing archive to get started.</p>
     <div>
       <button
         type="button"
@@ -611,3 +644,58 @@ onMount(() => {
     </div>
   </div>
 {/if}
+
+{#if isDragOver}
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center
+      bg-surface-50/80 dark:bg-surface-900/80 pointer-events-none"
+  >
+    <div
+      class="rounded-full w-[50vh] h-[50vh] flex flex-col justify-center items-center preset-filled-surface-500
+        px-8 py-6 text-lg text-shadow-current dark:text-surface-300"
+    >
+      <div class="animate-bounce">
+        <Import size={64} />
+      </div>
+      Drop archive to open
+    </div>
+  </div>
+{/if}
+
+<Dialog
+  open={!!archiveLoadingError}
+  onOpenChange={(details) => {
+    if (!details.open) archiveLoadingError = null;
+  }}
+>
+  <Portal>
+    <Dialog.Backdrop class="fixed inset-0 z-50 bg-black/50" />
+    <Dialog.Positioner class="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <Dialog.Content
+        class="bg-surface-50 dark:bg-surface-900 rounded-lg p-6 max-w-md text-center shadow-xl"
+      >
+        <div class="text-xl mb-4 text-error-500">Error Opening Archive</div>
+        <div class="text-sm mb-6">{archiveLoadingError}</div>
+        <div class="flex gap-3 justify-center">
+          <button
+            type="button"
+            class="btn preset-tonal"
+            onclick={() => { archiveLoadingError = null; }}
+          >
+            Dismiss
+          </button>
+          <button
+            type="button"
+            class="btn preset-filled"
+            onclick={() => {
+              archiveLoadingError = null;
+              openArchive();
+            }}
+          >
+            Open Another Archive
+          </button>
+        </div>
+      </Dialog.Content>
+    </Dialog.Positioner>
+  </Portal>
+</Dialog>
