@@ -1,6 +1,6 @@
 [package]
 name = "chuck-app"
-version = "0.2.2"
+version = "0.3.0"
 description = "DarwinCore Archive viewer"
 authors = ["Ken-ichi Ueda"]
 edition.workspace = true
