@@ -12,7 +12,9 @@ use std::sync::Mutex;
 use chuck_core::auth::AuthCache;
 use tauri::image::Image;
 use tauri::menu::{AboutMetadata, Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
-use tauri::{Emitter, Manager, RunEvent};
+use tauri::{Emitter, Manager};
+#[cfg(target_os = "macos")]
+use tauri::RunEvent;
 
 /// Holds a file path passed via CLI args (Windows/Linux file association).
 /// The frontend retrieves this once on startup via the `get_opened_file` command.
