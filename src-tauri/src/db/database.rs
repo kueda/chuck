@@ -552,7 +552,12 @@ impl Database {
         let mut where_clauses = Vec::new();
         let mut where_interpolations: Vec<Box<dyn duckdb::ToSql>> = Vec::new();
 
+        let range_suffixes = ["_min", "_max", "_include_blank"];
         for (column_name, filter_value) in &search_params.filters {
+            // Skip range-filter keys; handled in a second pass
+            if range_suffixes.iter().any(|s| column_name.ends_with(s)) {
+                continue;
+            }
             // Validate column name against allowlist
             if Occurrence::FIELD_NAMES.contains(&column_name.as_str()) {
                 // Check if this column has a type override
@@ -594,6 +599,65 @@ impl Database {
                         where_interpolations.push(Box::new(format!("%{filter_value}%")));
                     }
                 }
+            }
+        }
+
+        // Second pass: handle _min / _max / _include_blank range filters
+        let mut range_columns: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        for key in search_params.filters.keys() {
+            for suffix in &range_suffixes {
+                if let Some(base) = key.strip_suffix(suffix) {
+                    if Occurrence::FIELD_NAMES.contains(&base) {
+                        range_columns.insert(base.to_string());
+                    }
+                }
+            }
+        }
+
+        for base_col in &range_columns {
+            let min_val = search_params
+                .filters
+                .get(&format!("{base_col}_min"))
+                .and_then(|v| v.parse::<f64>().ok());
+            let max_val = search_params
+                .filters
+                .get(&format!("{base_col}_max"))
+                .and_then(|v| v.parse::<f64>().ok());
+            let include_blank = search_params
+                .filters
+                .get(&format!("{base_col}_include_blank"))
+                .map(|v| v == "true")
+                .unwrap_or(false);
+
+            if min_val.is_none() && max_val.is_none() {
+                continue;
+            }
+
+            let quoted = Self::quote_identifier(base_col);
+            let mut range_parts: Vec<String> = Vec::new();
+
+            if let Some(min) = min_val {
+                range_parts.push(format!(
+                    "TRY_CAST({quoted} AS DOUBLE) >= ?"
+                ));
+                where_interpolations.push(Box::new(min));
+            }
+            if let Some(max) = max_val {
+                range_parts.push(format!(
+                    "TRY_CAST({quoted} AS DOUBLE) <= ?"
+                ));
+                where_interpolations.push(Box::new(max));
+            }
+
+            let range_clause = range_parts.join(" AND ");
+
+            if include_blank {
+                where_clauses.push(
+                    format!("({range_clause} OR {quoted} IS NULL)")
+                );
+            } else {
+                where_clauses.push(range_clause);
             }
         }
 
@@ -2049,5 +2113,280 @@ mod tests {
         }
 
         std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_sql_parts_min_max_filter() {
+        let mut filters = HashMap::new();
+        filters.insert(
+            "coordinateUncertaintyInMeters_min".to_string(),
+            "10".to_string(),
+        );
+        filters.insert(
+            "coordinateUncertaintyInMeters_max".to_string(),
+            "1000".to_string(),
+        );
+
+        let params = SearchParams {
+            filters,
+            sort_by: None,
+            sort_direction: None,
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
+        };
+
+        let (_, where_clause, where_interpolations, _) =
+            Database::sql_parts(params, None, "", &vec![]);
+
+        assert!(
+            where_clause.contains("coordinateUncertaintyInMeters"),
+            "WHERE clause should reference the base column name"
+        );
+        assert!(
+            where_clause.contains(">="),
+            "WHERE clause should have >= for min"
+        );
+        assert!(
+            where_clause.contains("<="),
+            "WHERE clause should have <= for max"
+        );
+        assert_eq!(
+            where_interpolations.len(),
+            2,
+            "Should have 2 interpolations (min and max)"
+        );
+    }
+
+    #[test]
+    fn test_sql_parts_min_only_filter() {
+        let mut filters = HashMap::new();
+        filters.insert(
+            "coordinateUncertaintyInMeters_min".to_string(),
+            "10".to_string(),
+        );
+
+        let params = SearchParams {
+            filters,
+            sort_by: None,
+            sort_direction: None,
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
+        };
+
+        let (_, where_clause, where_interpolations, _) =
+            Database::sql_parts(params, None, "", &vec![]);
+
+        assert!(where_clause.contains(">="), "Should have >= for min");
+        assert!(
+            !where_clause.contains("<="),
+            "Should NOT have <= without max"
+        );
+        assert_eq!(where_interpolations.len(), 1);
+    }
+
+    #[test]
+    fn test_sql_parts_include_blank_with_range() {
+        let mut filters = HashMap::new();
+        filters.insert(
+            "coordinateUncertaintyInMeters_min".to_string(),
+            "10".to_string(),
+        );
+        filters.insert(
+            "coordinateUncertaintyInMeters_include_blank".to_string(),
+            "true".to_string(),
+        );
+
+        let params = SearchParams {
+            filters,
+            sort_by: None,
+            sort_direction: None,
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
+        };
+
+        let (_, where_clause, _, _) =
+            Database::sql_parts(params, None, "", &vec![]);
+
+        assert!(
+            where_clause.contains("IS NULL"),
+            "Should include IS NULL for include_blank"
+        );
+        assert!(
+            where_clause.contains("OR"),
+            "Should use OR to combine range with NULL check"
+        );
+    }
+
+    #[test]
+    fn test_sql_parts_min_max_skips_invalid_column() {
+        let mut filters = HashMap::new();
+        filters.insert("fakeColumn_min".to_string(), "10".to_string());
+
+        let params = SearchParams {
+            filters,
+            sort_by: None,
+            sort_direction: None,
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
+        };
+
+        let (_, where_clause, where_interpolations, _) =
+            Database::sql_parts(params, None, "", &vec![]);
+
+        assert_eq!(where_clause, "", "Should produce no WHERE clause");
+        assert_eq!(where_interpolations.len(), 0);
+    }
+
+    #[test]
+    fn test_sql_parts_min_max_not_processed_as_regular_filter() {
+        let mut filters = HashMap::new();
+        filters.insert(
+            "coordinateUncertaintyInMeters_min".to_string(),
+            "10".to_string(),
+        );
+
+        let params = SearchParams {
+            filters,
+            sort_by: None,
+            sort_direction: None,
+            nelat: None,
+            nelng: None,
+            swlat: None,
+            swlng: None,
+        };
+
+        let (_, where_clause, _, _) =
+            Database::sql_parts(params, None, "", &vec![]);
+
+        assert!(
+            !where_clause.contains("ILIKE"),
+            "Min/max keys should not produce ILIKE clauses"
+        );
+    }
+
+    #[test]
+    fn test_search_with_min_max_range_filter() {
+        let csv_data =
+            b"occurrenceID,scientificName,coordinateUncertaintyInMeters\n\
+            1,Species A,5\n\
+            2,Species B,10\n\
+            3,Species C,100\n\
+            4,Species D,1000\n\
+            5,Species E,\n";
+
+        let fixture =
+            TestFixture::new("search_min_max_range", vec![csv_data]);
+        let db = Database::create_from_core_files(
+            &fixture.csv_paths,
+            &[],
+            &fixture.db_path,
+            "occurrenceID",
+        )
+        .unwrap();
+
+        // Test min only: >= 100
+        let mut filters = HashMap::new();
+        filters.insert(
+            "coordinateUncertaintyInMeters_min".to_string(),
+            "100".to_string(),
+        );
+        let result = db
+            .search(
+                10,
+                0,
+                SearchParams {
+                    filters,
+                    sort_by: Some("occurrenceID".to_string()),
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            result.total, 2,
+            "Min 100 should match 100 and 1000"
+        );
+
+        // Test max only: <= 10
+        let mut filters = HashMap::new();
+        filters.insert(
+            "coordinateUncertaintyInMeters_max".to_string(),
+            "10".to_string(),
+        );
+        let result = db
+            .search(
+                10,
+                0,
+                SearchParams {
+                    filters,
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            result.total, 2,
+            "Max 10 should match 5 and 10"
+        );
+
+        // Test min + max: 10 to 100
+        let mut filters = HashMap::new();
+        filters.insert(
+            "coordinateUncertaintyInMeters_min".to_string(),
+            "10".to_string(),
+        );
+        filters.insert(
+            "coordinateUncertaintyInMeters_max".to_string(),
+            "100".to_string(),
+        );
+        let result = db
+            .search(
+                10,
+                0,
+                SearchParams {
+                    filters,
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            result.total, 2,
+            "10-100 should match 10 and 100"
+        );
+
+        // Test include_blank with min
+        let mut filters = HashMap::new();
+        filters.insert(
+            "coordinateUncertaintyInMeters_min".to_string(),
+            "100".to_string(),
+        );
+        filters.insert(
+            "coordinateUncertaintyInMeters_include_blank".to_string(),
+            "true".to_string(),
+        );
+        let result = db
+            .search(
+                10,
+                0,
+                SearchParams {
+                    filters,
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            result.total, 3,
+            "Min 100 + include_blank should match 100, 1000, and NULL"
+        );
     }
 }

@@ -4,6 +4,7 @@ import { ArrowUpDown, MinusIcon, PlusIcon } from 'lucide-svelte';
 import type { SearchParams } from '$lib/utils/filterCategories';
 import { categorizeColumns } from '$lib/utils/filterCategories';
 import ComboboxFilter from './ComboboxFilter.svelte';
+import MinMaxFilter from './MinMaxFilter.svelte';
 
 const NUMERIC_COLUMNS = [
   'decimalLatitude',
@@ -14,6 +15,13 @@ const NUMERIC_COLUMNS = [
   'swlat',
   'swlng',
 ];
+
+const MIN_MAX_COLUMNS = ['coordinateUncertaintyInMeters', 'elevation'];
+
+// Helper to access localParams with dynamic keys (e.g. `${col}_min`)
+function param(key: string): string {
+  return (localParams as Record<string, string>)[key] ?? '';
+}
 
 interface Props {
   onSearchChange: (params: SearchParams) => void;
@@ -73,11 +81,19 @@ const filterCategories = $derived(categorizeColumns(availableColumns));
 
 // Track active params counts per category (reactive to localParams changes)
 const categoryCounts = $derived.by(() =>
-  filterCategories.map((category) => ({
-    category,
-    activeCount: category.columns.filter((c) => localParams[c]).length,
-    hasActive: category.columns.some((c) => localParams[c]),
-  })),
+  filterCategories.map((category) => {
+    const activeCount = category.columns.filter((c) => {
+      if (MIN_MAX_COLUMNS.includes(c)) {
+        return param(`${c}_min`) || param(`${c}_max`);
+      }
+      return localParams[c];
+    }).length;
+    return {
+      category,
+      activeCount,
+      hasActive: activeCount > 0,
+    };
+  }),
 );
 
 function triggerSearch() {
@@ -127,6 +143,23 @@ function handleFilterClear(columnName: keyof SearchParams) {
 
   delete localParams[columnName];
   localParams = { ...localParams }; // Trigger reactivity
+  triggerSearch();
+}
+
+function handleMinMaxChange(
+  columnName: keyof SearchParams,
+  suffix: '_min' | '_max' | '_include_blank',
+  value: string | boolean,
+) {
+  if (syncingFromProp) return;
+  const key = `${columnName}${suffix}` as keyof SearchParams;
+  const strValue = String(value);
+  if (strValue && strValue !== 'false') {
+    (localParams as Record<string, string>)[key] = strValue;
+  } else {
+    delete localParams[key];
+  }
+  localParams = { ...localParams };
   triggerSearch();
 }
 
@@ -210,13 +243,39 @@ function handleSortByChange() {
         </Accordion.ItemTrigger>
         <Accordion.ItemContent class="p-0">
           {#each category.columns as columnName (columnName)}
-            <ComboboxFilter
-              {columnName}
-              value={localParams[columnName] ? String(localParams[columnName]) : ''}
-              onValueChange={(value) => handleFilterChange(columnName, value)}
-              onClear={() => handleFilterClear(columnName)}
-              type={NUMERIC_COLUMNS.includes(columnName) ? 'number' : 'text'}
-            />
+            {#if MIN_MAX_COLUMNS.includes(columnName)}
+              <MinMaxFilter
+                {columnName}
+                minValue={param(`${columnName}_min`)}
+                maxValue={param(`${columnName}_max`)}
+                includeBlank={param(
+                  `${columnName}_include_blank`,
+                ) === 'true'}
+                onMinChange={(v) =>
+                  handleMinMaxChange(columnName, '_min', v)}
+                onMaxChange={(v) =>
+                  handleMinMaxChange(columnName, '_max', v)}
+                onIncludeBlankChange={(v) =>
+                  handleMinMaxChange(
+                    columnName,
+                    '_include_blank',
+                    v,
+                  )}
+              />
+            {:else}
+              <ComboboxFilter
+                {columnName}
+                value={localParams[columnName]
+                  ? String(localParams[columnName])
+                  : ''}
+                onValueChange={(value) =>
+                  handleFilterChange(columnName, value)}
+                onClear={() => handleFilterClear(columnName)}
+                type={NUMERIC_COLUMNS.includes(columnName)
+                  ? 'number'
+                  : 'text'}
+              />
+            {/if}
           {/each}
         </Accordion.ItemContent>
       </Accordion.Item>

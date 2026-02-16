@@ -54,6 +54,15 @@ export interface SearchParams {
   islandGroup?: string;
   higherGeography?: string;
   verbatimLocality?: string;
+  elevation?: number;
+
+  // Min/max range filter fields
+  coordinateUncertaintyInMeters_min?: string;
+  coordinateUncertaintyInMeters_max?: string;
+  coordinateUncertaintyInMeters_include_blank?: string;
+  elevation_min?: string;
+  elevation_max?: string;
+  elevation_include_blank?: string;
 
   // Bounding box (northeast/southwest corners)
   nelat?: string;
@@ -124,6 +133,7 @@ const GEOGRAPHY_COLUMNS: (keyof SearchParams)[] = [
   'decimalLatitude',
   'decimalLongitude',
   'coordinateUncertaintyInMeters',
+  'elevation',
   'coordinatePrecision',
   'locality',
   'verbatimLocality',
