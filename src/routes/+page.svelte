@@ -6,6 +6,7 @@ import { onMount } from 'svelte';
 import Filters from '$lib/components/Filters.svelte';
 import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
 import {
+  exportCsv,
   exportKml,
   getCurrentWebview,
   getCurrentWindow,
@@ -375,6 +376,15 @@ async function openArchive() {
   await openArchiveFromPath(path as string);
 }
 
+async function handleExportCsv() {
+  const path = await showSaveDialog({
+    defaultPath: 'occurrences.csv',
+    filters: [{ name: 'CSV', extensions: ['csv'] }],
+  });
+  if (!path) return;
+  await exportCsv(searchParams, path as string);
+}
+
 async function handleExportKml() {
   const path = await showSaveDialog({
     defaultPath: 'occurrences.kml',
@@ -534,6 +544,14 @@ onMount(() => {
       </div>
       {#if archive}
         <div class="flex justify-center items-center gap-2 absolute bottom-0 w-full bg-white p-2">
+          <button
+            type="button"
+            class="btn btn-sm hover:preset-tonal text-sm"
+            onclick={handleExportCsv}
+          >
+            <FileDown size={16} />
+            CSV
+          </button>
           <button
             type="button"
             class="btn btn-sm hover:preset-tonal text-sm"

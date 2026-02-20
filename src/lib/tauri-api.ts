@@ -172,6 +172,13 @@ export function getBasemapUrlBase(): string {
   return isWindows ? 'http://basemap.localhost' : 'basemap://localhost';
 }
 
+export async function exportCsv(
+  searchParams: SearchParams,
+  path: string,
+): Promise<void> {
+  return invoke('export_csv', { searchParams, path });
+}
+
 export async function exportKml(
   searchParams: SearchParams,
   path: string,
