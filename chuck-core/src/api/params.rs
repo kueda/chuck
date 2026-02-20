@@ -398,6 +398,73 @@ mod tests {
             assert_eq!(p.place_id, None);
             assert_eq!(p.user_id, None);
         }
+
+        #[test]
+        fn test_multi_value_comma_separated() {
+            let p = parse_url_params("taxon_id=1,2");
+            assert_eq!(p.taxon_id, Some(vec!["1".to_string(), "2".to_string()]));
+        }
+
+        #[test]
+        fn test_multi_value_repeated_key() {
+            let p = parse_url_params("taxon_id=1&taxon_id=2");
+            assert_eq!(p.taxon_id, Some(vec!["1".to_string(), "2".to_string()]));
+        }
+
+        #[test]
+        fn test_place_id_parsed_as_i32() {
+            let p = parse_url_params("place_id=122851");
+            assert_eq!(p.place_id, Some(vec![122851i32]));
+        }
+
+        #[test]
+        fn test_bool_verifiable_true() {
+            let p = parse_url_params("verifiable=true");
+            assert_eq!(p.verifiable, Some(true));
+        }
+
+        #[test]
+        fn test_bool_verifiable_any_is_dropped() {
+            let p = parse_url_params("verifiable=any");
+            assert_eq!(p.verifiable, None);
+        }
+
+        #[test]
+        fn test_without_taxon_id() {
+            let p = parse_url_params("taxon_id=47790&without_taxon_id=47789");
+            assert_eq!(p.taxon_id, Some(vec!["47790".to_string()]));
+            assert_eq!(p.without_taxon_id, Some(vec!["47789".to_string()]));
+        }
+
+        #[test]
+        fn test_date_params() {
+            let p = parse_url_params("d1=2020-01-01&d2=2020-12-31");
+            assert_eq!(p.d1, Some("2020-01-01".to_string()));
+            assert_eq!(p.d2, Some("2020-12-31".to_string()));
+        }
+
+        #[test]
+        fn test_ident_user_id() {
+            let p = parse_url_params("ident_user_id=1");
+            // ident_user_id is Option<i32> in the actual struct
+            assert_eq!(p.ident_user_id, Some(1i32));
+        }
+
+        #[test]
+        fn test_leading_question_mark_stripped() {
+            let p = parse_url_params("?taxon_id=47790");
+            assert_eq!(p.taxon_id, Some(vec!["47790".to_string()]));
+        }
+
+        #[test]
+        fn test_pagination_params_skipped() {
+            let p = parse_url_params("taxon_id=47790&per_page=500&page=2&order_by=id");
+            assert_eq!(p.taxon_id, Some(vec!["47790".to_string()]));
+            // per_page is set to our PER_PAGE constant, not the URL value
+            assert_eq!(p.per_page, Some(PER_PAGE.to_string()));
+            assert_eq!(p.page, None);
+            assert_eq!(p.order_by, None);
+        }
     }
 
     mod build_params {
