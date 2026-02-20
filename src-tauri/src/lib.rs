@@ -41,6 +41,7 @@ pub fn run() {
             commands::inat_download::estimate_photo_count,
             commands::inat_download::generate_inat_archive,
             commands::inat_download::cancel_inat_archive,
+            commands::inat_download::parse_inat_url,
             commands::inat_auth::inat_authenticate,
             commands::inat_auth::inat_get_auth_status,
             commands::inat_auth::inat_sign_out,

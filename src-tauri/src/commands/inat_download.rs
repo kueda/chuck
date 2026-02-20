@@ -14,20 +14,61 @@ pub struct CountParams {
     d2: Option<String>,
     created_d1: Option<String>,
     created_d2: Option<String>,
+    url_params: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ParsedInatUrl {
+    effective_params: String,
+}
+
+/// Extract query string from a URL string (everything after '?'),
+/// or use the input as-is if it contains no '?'.
+fn extract_query(url: &str) -> &str {
+    url.find('?').map(|i| &url[i + 1..]).unwrap_or(url)
+}
+
+/// Build ObservationsGetParams from either url_params or individual fields.
+fn build_api_params_from_count(
+    p: &CountParams,
+) -> inaturalist::apis::observations_api::ObservationsGetParams {
+    if let Some(ref url_params) = p.url_params {
+        params::parse_url_params(extract_query(url_params))
+    } else {
+        params::build_params(
+            p.taxon_id.map(|id| id.to_string()),
+            p.place_id,
+            p.user.clone(),
+            p.d1.clone(),
+            p.d2.clone(),
+            p.created_d1.clone(),
+            p.created_d2.clone(),
+        )
+    }
+}
+
+fn build_api_params_from_generate(
+    p: &GenerateParams,
+) -> inaturalist::apis::observations_api::ObservationsGetParams {
+    if let Some(ref url_params) = p.url_params {
+        params::parse_url_params(extract_query(url_params))
+    } else {
+        params::build_params(
+            p.taxon_id.map(|id| id.to_string()),
+            p.place_id,
+            p.user.clone(),
+            p.d1.clone(),
+            p.d2.clone(),
+            p.created_d1.clone(),
+            p.created_d2.clone(),
+        )
+    }
 }
 
 #[tauri::command]
 pub async fn get_observation_count(params: CountParams) -> Result<i32, String> {
     // Build API params
-    let api_params = params::build_params(
-        params.taxon_id.map(|id| id.to_string()),
-        params.place_id,
-        params.user,
-        params.d1,
-        params.d2,
-        params.created_d1,
-        params.created_d2,
-    );
+    let api_params = build_api_params_from_count(&params);
 
     // Get API config
     let config = client::get_config().await;
@@ -56,15 +97,7 @@ pub struct PhotoEstimate {
 #[tauri::command]
 pub async fn estimate_photo_count(params: CountParams) -> Result<PhotoEstimate, String> {
     // Build API params
-    let api_params = params::build_params(
-        params.taxon_id.map(|id| id.to_string()),
-        params.place_id,
-        params.user,
-        params.d1,
-        params.d2,
-        params.created_d1,
-        params.created_d2,
-    );
+    let api_params = build_api_params_from_count(&params);
 
     // Get API config
     let config = client::get_config().await;
@@ -126,6 +159,7 @@ pub struct GenerateParams {
     created_d2: Option<String>,
     fetch_photos: bool,
     extensions: Vec<String>,
+    url_params: Option<String>,
 }
 
 // Global cancellation flag
@@ -157,15 +191,7 @@ pub async fn generate_inat_archive(
     }
 
     // Build API params
-    let api_params = params::build_params(
-        params.taxon_id.map(|id| id.to_string()),
-        params.place_id,
-        params.user.clone(),
-        params.d1.clone(),
-        params.d2.clone(),
-        params.created_d1.clone(),
-        params.created_d2.clone(),
-    );
+    let api_params = build_api_params_from_generate(&params);
 
     // Emit building message
     app.emit("inat-progress", InatProgress::Building {
@@ -221,6 +247,13 @@ pub async fn generate_inat_archive(
 pub fn cancel_inat_archive() -> Result<(), String> {
     CANCEL_FLAG.as_ref().store(true, Ordering::Relaxed);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn parse_inat_url(url: String) -> Result<ParsedInatUrl, String> {
+    let api_params = params::parse_url_params(extract_query(&url));
+    let effective_params = params::serialize_params(&api_params);
+    Ok(ParsedInatUrl { effective_params })
 }
 
 #[cfg(test)]
