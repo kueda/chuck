@@ -414,6 +414,16 @@ onMount(() => {
     unlistenMenu = unlistenFn;
   });
 
+  let unlistenExportCsv: (() => void) | undefined;
+  listen('menu-export-csv', handleExportCsv).then((fn) => {
+    unlistenExportCsv = fn;
+  });
+
+  let unlistenExportKml: (() => void) | undefined;
+  listen('menu-export-kml', handleExportKml).then((fn) => {
+    unlistenExportKml = fn;
+  });
+
   // Listen for file association events (e.g. drop on Dock icon, "Open With")
   let unlistenFileOpen: (() => void) | undefined;
   listen<string>('file-open', (event) => {
@@ -500,6 +510,8 @@ onMount(() => {
 
   return () => {
     unlistenMenu?.();
+    unlistenExportCsv?.();
+    unlistenExportKml?.();
     unlistenFileOpen?.();
     unlistenProgress?.();
     unlistenDragDrop?.();

@@ -69,6 +69,13 @@ pub fn run() {
                 .accelerator("CmdOrCtrl+O")
                 .build(app)?;
 
+            let export_csv_item = MenuItemBuilder::with_id("export-csv", "CSV...").build(app)?;
+            let export_kml_item = MenuItemBuilder::with_id("export-kml", "KML...").build(app)?;
+            let export_submenu = SubmenuBuilder::new(app, "Export occurrences")
+                .item(&export_csv_item)
+                .item(&export_kml_item)
+                .build()?;
+
             let download_item = MenuItemBuilder::with_id(
                 "download-from-inaturalist",
                 "Download from iNaturalist"
@@ -143,6 +150,7 @@ pub fn run() {
                     && text == "File"
                 {
                     submenu.prepend(&open_item)?;
+                    submenu.append(&export_submenu)?;
                     file_submenu_exists = true;
                     break;
                 }
@@ -152,6 +160,7 @@ pub fn run() {
             if !file_submenu_exists {
                 let file_submenu = SubmenuBuilder::new(app, "File")
                     .item(&open_item)
+                    .item(&export_submenu)
                     .build()?;
                 menu.insert(&file_submenu, 0)?;
             }
@@ -250,6 +259,10 @@ pub fn run() {
                             "Failed to open offline basemaps window: {e}"
                         );
                     }
+                } else if event.id() == "export-csv" {
+                    app.emit("menu-export-csv", ()).unwrap();
+                } else if event.id() == "export-kml" {
+                    app.emit("menu-export-kml", ()).unwrap();
                 } else if event.id() == "show-metadata" {
                     // Open new window for archive metadata
                     let window = tauri::WebviewWindowBuilder::new(
