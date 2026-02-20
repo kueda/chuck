@@ -1,9 +1,26 @@
 use tokio::sync::mpsc;
 use inaturalist::models::ObservationsResponse;
+use inaturalist::apis::observations_api::ObservationsGetParams;
 use crate::output::{CsvOutput, ObservationWriter};
-use chuck_core::api::{client, params::build_params, rate_limiter::get_rate_limiter};
+use chuck_core::api::{client, params::{build_params, parse_url_params}, rate_limiter::get_rate_limiter};
 use chuck_core::downloader::Downloader;
 use crate::progress::ProgressManager;
+
+#[derive(Default)]
+pub struct FetchObservationsOptions {
+    pub url: Option<String>,
+    pub taxon: Option<String>,
+    pub place_id: Option<i32>,
+    pub user: Option<String>,
+    pub d1: Option<String>,
+    pub d2: Option<String>,
+    pub created_d1: Option<String>,
+    pub created_d2: Option<String>,
+    pub file: Option<String>,
+    pub fetch_photos: bool,
+    pub format: crate::OutputFormat,
+    pub dwc_extensions: Vec<crate::DwcExtension>,
+}
 
 fn setup_progress_bar(
     response: &ObservationsResponse,
@@ -46,26 +63,32 @@ fn spawn_observation_write_task<W: ObservationWriter + Send + 'static>(
     })
 }
 
-// TODO consider refactoring with a single options: FetchObservationsOptions arg
-#[allow(clippy::too_many_arguments)]
+/// Build API params from either a URL/query string or individual filter fields.
+pub fn build_fetch_params(opts: &FetchObservationsOptions) -> ObservationsGetParams {
+    if let Some(ref url) = opts.url {
+        let query = url.find('?').map(|i| &url[i + 1..]).unwrap_or(url);
+        parse_url_params(query)
+    } else {
+        build_params(
+            opts.taxon.clone(),
+            opts.place_id,
+            opts.user.clone(),
+            opts.d1.clone(),
+            opts.d2.clone(),
+            opts.created_d1.clone(),
+            opts.created_d2.clone(),
+        )
+    }
+}
+
 pub async fn fetch_observations(
-    file: Option<String>,
-    taxon: Option<String>,
-    place_id: Option<i32>,
-    user: Option<String>,
-    d1: Option<String>,
-    d2: Option<String>,
-    created_d1: Option<String>,
-    created_d2: Option<String>,
-    fetch_photos: bool,
-    format: crate::OutputFormat,
-    dwc_extensions: Vec<crate::DwcExtension>,
+    opts: FetchObservationsOptions,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config = client::get_config().await;
-    let params = build_params(taxon, place_id, user, d1, d2, created_d1, created_d2);
+    let params = build_fetch_params(&opts);
 
-    let show_progress = file.is_some();
-    let progress_manager = ProgressManager::new(show_progress, fetch_photos);
+    let show_progress = opts.file.is_some();
+    let progress_manager = ProgressManager::new(show_progress, opts.fetch_photos);
 
     // Create channel for sending observations from fetcher to writer
     let (tx, rx) = mpsc::channel::<ObservationsResponse>(10);
@@ -78,9 +101,9 @@ pub async fn fetch_observations(
     };
 
     // Spawn writer task based on format
-    match format {
+    match opts.format {
         crate::OutputFormat::Csv => {
-            let writer = CsvOutput::new(file).unwrap();
+            let writer = CsvOutput::new(opts.file).unwrap();
             let writer_handle = spawn_observation_write_task(writer, rx, progress_manager_clone);
 
             // Spawn API fetcher task
@@ -131,15 +154,15 @@ pub async fn fetch_observations(
             fetcher_result.unwrap();
         }
         crate::OutputFormat::Dwc => {
-            let output_path = file.unwrap_or_else(|| "observations.zip".to_string());
+            let output_path = opts.file.unwrap_or_else(|| "observations.zip".to_string());
 
-            let core_extensions: Vec<chuck_core::DwcaExtension> = dwc_extensions
+            let core_extensions: Vec<chuck_core::DwcaExtension> = opts.dwc_extensions
                 .iter()
                 .map(|e| e.clone().into())
                 .collect();
 
             // Create downloader (CLI uses file-based auth, so no JWT needed)
-            let downloader = Downloader::new(params, core_extensions, fetch_photos, None);
+            let downloader = Downloader::new(params, core_extensions, opts.fetch_photos, None);
 
             // Create progress callback
             let progress_callback = move |progress: chuck_core::downloader::DownloadProgress| {
@@ -170,4 +193,49 @@ pub async fn fetch_observations(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_fetch_params_from_url_sets_taxon_id() {
+        let p = build_fetch_params(&FetchObservationsOptions {
+            url: Some("https://www.inaturalist.org/observations?taxon_id=47790".to_string()),
+            ..Default::default()
+        });
+        assert_eq!(p.taxon_id, Some(vec!["47790".to_string()]));
+    }
+
+    #[test]
+    fn test_build_fetch_params_from_url_drops_any() {
+        let p = build_fetch_params(&FetchObservationsOptions {
+            url: Some("https://www.inaturalist.org/observations?taxon_id=47790&place_id=any".to_string()),
+            ..Default::default()
+        });
+        assert_eq!(p.taxon_id, Some(vec!["47790".to_string()]));
+        assert_eq!(p.place_id, None);
+    }
+
+    #[test]
+    fn test_build_fetch_params_from_fields_uses_build_params() {
+        let p = build_fetch_params(&FetchObservationsOptions {
+            taxon: Some("47790".to_string()),
+            place_id: Some(1),
+            ..Default::default()
+        });
+        assert_eq!(p.taxon_id, Some(vec!["47790".to_string()]));
+        assert_eq!(p.place_id, Some(vec![1i32]));
+    }
+
+    #[test]
+    fn test_build_fetch_params_url_without_scheme_still_works() {
+        let p = build_fetch_params(&FetchObservationsOptions {
+            url: Some("taxon_id=47790&user_id=kueda".to_string()),
+            ..Default::default()
+        });
+        assert_eq!(p.taxon_id, Some(vec!["47790".to_string()]));
+        assert_eq!(p.user_id, Some(vec!["kueda".to_string()]));
+    }
 }
