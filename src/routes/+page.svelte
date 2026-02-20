@@ -1,16 +1,18 @@
 <script lang="ts">
 import { Dialog, Portal, Progress, Tabs } from '@skeletonlabs/skeleton-svelte';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { Combine, Grid3x3, Import } from 'lucide-svelte';
+import { Combine, FileDown, Grid3x3, Import } from 'lucide-svelte';
 import { onMount } from 'svelte';
 import Filters from '$lib/components/Filters.svelte';
 import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
 import {
+  exportKml,
   getCurrentWebview,
   getCurrentWindow,
   invoke,
   listen,
   showOpenDialog,
+  showSaveDialog,
 } from '$lib/tauri-api';
 import type { ArchiveInfo, Occurrence, SearchResult } from '$lib/types/archive';
 import type { SearchParams } from '$lib/utils/filterCategories';
@@ -373,6 +375,15 @@ async function openArchive() {
   await openArchiveFromPath(path as string);
 }
 
+async function handleExportKml() {
+  const path = await showSaveDialog({
+    defaultPath: 'occurrences.kml',
+    filters: [{ name: 'KML', extensions: ['kml'] }],
+  });
+  if (!path) return;
+  await exportKml(searchParams, path as string);
+}
+
 onMount(() => {
   invoke('current_archive')
     .then((result) => {
@@ -513,12 +524,26 @@ onMount(() => {
   </div>
 {:else if archive}
   <div class="flex flex-row p-4 fixed w-full h-screen">
-    <aside class="pe-4 w-82 overflow-y-auto">
-      <Filters
-        onSearchChange={handleSearchChange}
-        availableColumns={archive?.availableColumns ?? []}
-        {searchParams}
-      />
+    <aside class="pe-4 w-82  flex flex-col relative">
+      <div class="overflow-y-auto">
+        <Filters
+          onSearchChange={handleSearchChange}
+          availableColumns={archive?.availableColumns ?? []}
+          {searchParams}
+        />
+      </div>
+      {#if archive}
+        <div class="flex justify-center items-center gap-2 absolute bottom-0 w-full bg-white p-2">
+          <button
+            type="button"
+            class="btn btn-sm hover:preset-tonal text-sm"
+            onclick={handleExportKml}
+          >
+            <FileDown size={16} />
+            KML
+          </button>
+        </div>
+      {/if}
     </aside>
     <main class="overflow-hidden w-full relative flex flex-col">
       <Tabs

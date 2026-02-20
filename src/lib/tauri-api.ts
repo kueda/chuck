@@ -17,6 +17,7 @@ import {
   open as tauriOpen,
   save as tauriSave,
 } from '@tauri-apps/plugin-dialog';
+import type { SearchParams } from '$lib/utils/filterCategories';
 
 // Interface for mock Tauri object used in tests
 interface MockTauri {
@@ -169,4 +170,11 @@ export function getBasemapUrlBase(): string {
     typeof navigator !== 'undefined' &&
     navigator.userAgent.toLowerCase().includes('windows');
   return isWindows ? 'http://basemap.localhost' : 'basemap://localhost';
+}
+
+export async function exportKml(
+  searchParams: SearchParams,
+  path: string,
+): Promise<void> {
+  return invoke('export_kml', { searchParams, path });
 }

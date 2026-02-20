@@ -797,6 +797,52 @@ impl Database {
         })
     }
 
+    /// Queries all occurrences matching search_params (no pagination) for export
+    pub(crate) fn query_all_occurrences(
+        &self,
+        search_params: SearchParams,
+    ) -> Result<Vec<serde_json::Map<String, serde_json::Value>>> {
+        let (
+            select_fields,
+            where_clause,
+            where_interpolations,
+            order_clause
+        ) = Self::sql_parts(
+            search_params,
+            None,
+            &self.core_id_column,
+            &[],
+        );
+
+        let select_query = format!(
+            "SELECT {select_fields} FROM occurrences{where_clause}{order_clause}"
+        );
+
+        let mut stmt = self.conn.prepare(&select_query)?;
+        let param_refs: Vec<&dyn duckdb::ToSql> = where_interpolations
+            .iter()
+            .map(|p| p.as_ref())
+            .collect();
+
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            let mut map = serde_json::Map::new();
+            let column_count = row.as_ref().column_count();
+            for i in 0..column_count {
+                let name = row.as_ref().column_name(i)
+                    .map_err(|_e| duckdb::Error::InvalidColumnIndex(i))?;
+                let value = Self::get_column_as_json(row, i);
+                map.insert(name.to_string(), value);
+            }
+            Ok(map)
+        })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+        Ok(results)
+    }
+
     /// Get autocomplete suggestions for a column
     pub fn get_autocomplete_suggestions(
         &self,

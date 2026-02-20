@@ -17,6 +17,13 @@ pub enum ChuckError {
         source: std::io::Error,
     },
 
+    #[error("Failed to write file: {path}")]
+    FileWrite {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
     #[error("Failed to create directory: {path}")]
     DirectoryCreate {
         path: PathBuf,

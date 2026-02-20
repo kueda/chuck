@@ -199,6 +199,14 @@ impl Archive {
         )
     }
 
+    /// Queries all occurrences matching search_params (no pagination) for export
+    pub fn query_all_occurrences(
+        &self,
+        search_params: SearchParams,
+    ) -> Result<Vec<serde_json::Map<String, serde_json::Value>>> {
+        self.db.query_all_occurrences(search_params)
+    }
+
     /// Get autocomplete suggestions for a given column
     pub fn get_autocomplete_suggestions(
         &self,
