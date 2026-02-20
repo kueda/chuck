@@ -47,6 +47,7 @@ fn build_api_params_from_count(
     }
 }
 
+/// Build ObservationsGetParams from either url_params or individual fields.
 fn build_api_params_from_generate(
     p: &GenerateParams,
 ) -> inaturalist::apis::observations_api::ObservationsGetParams {
@@ -259,6 +260,19 @@ pub async fn parse_inat_url(url: String) -> Result<ParsedInatUrl, String> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+
+    #[test]
+    fn test_extract_query_strips_url() {
+        assert_eq!(
+            super::extract_query("https://www.inaturalist.org/observations?taxon_id=47790"),
+            "taxon_id=47790"
+        );
+    }
+
+    #[test]
+    fn test_extract_query_passthrough_when_no_question_mark() {
+        assert_eq!(super::extract_query("taxon_id=47790"), "taxon_id=47790");
+    }
 
     #[test]
     fn test_convert_observations_to_multimedia_when_simple_multimedia_enabled() {
