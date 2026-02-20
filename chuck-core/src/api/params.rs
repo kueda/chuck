@@ -125,9 +125,10 @@ pub fn parse_url_params(query: &str) -> observations_api::ObservationsGetParams 
         // Support comma-separated multi-values (e.g. taxon_id=1,2)
         for part in val.split(',') {
             let part = part.trim().to_string();
-            if !part.is_empty() {
-                map.entry(key.clone()).or_default().push(part);
+            if part.is_empty() || part == "any" {
+                continue;
             }
+            map.entry(key.clone()).or_default().push(part);
         }
     }
 
@@ -270,7 +271,6 @@ pub fn parse_url_params(query: &str) -> observations_api::ObservationsGetParams 
     params
 }
 
-// TODO: accept more options, and maybe make a separate method that just converts a query string to API params
 pub fn build_params(
     taxon: Option<String>,
     place_id: Option<i32>,
