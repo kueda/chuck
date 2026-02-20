@@ -1,4 +1,5 @@
 <script lang="ts">
+import { SegmentedControl } from '@skeletonlabs/skeleton-svelte';
 import { onMount } from 'svelte';
 import InatPlaceChooser from '$lib/components/InatPlaceChooser.svelte';
 import InatProgressOverlay from '$lib/components/InatProgressOverlay.svelte';
@@ -688,117 +689,162 @@ $effect(() => {
     </li>
 
     <li>
-      <h2 class="h4 mb-3">Filter observations</h2>
+      <h2 class="h4 mb-3 flex items-center justify-between">
+        <span>Filter observations</span>
+        <SegmentedControl
+          value={filterMode}
+          onValueChange={(e) => { filterMode = (e.value || 'fields') as 'fields' | 'url'; }}
+        >
+          <SegmentedControl.Control>
+            <SegmentedControl.Indicator />
+            <SegmentedControl.Item value="fields">
+              <SegmentedControl.ItemText>Fields</SegmentedControl.ItemText>
+              <SegmentedControl.ItemHiddenInput />
+            </SegmentedControl.Item>
+            <SegmentedControl.Item value="url">
+              <SegmentedControl.ItemText>URL</SegmentedControl.ItemText>
+              <SegmentedControl.ItemHiddenInput />
+            </SegmentedControl.Item>
+          </SegmentedControl.Control>
+        </SegmentedControl>
+      </h2>
 
-      <div class="mb-6">
-        <div class="space-y-4">
-          <InatTaxonChooser bind:selectedId={taxonId} />
+      {#if filterMode === 'fields'}
+        <div class="mb-6">
+          <div class="space-y-4">
+            <InatTaxonChooser bind:selectedId={taxonId} />
 
-          <InatPlaceChooser bind:selectedId={placeId} />
+            <InatPlaceChooser bind:selectedId={placeId} />
 
-          <InatUserChooser bind:selectedId={userId} />
+            <InatUserChooser bind:selectedId={userId} />
 
-          <div>
-            <div class="block text-sm font-medium mb-2">
-              Observation Date Range
+            <div>
+              <div class="block text-sm font-medium mb-2">
+                Observation Date Range
+              </div>
+              <div class="space-y-2">
+                <label class="flex items-center w-fit">
+                  <input
+                    type="radio"
+                    name="observed-range"
+                    value="all"
+                    checked={observedDateRange === 'all'}
+                    onchange={() => observedDateRange = 'all'}
+                  />
+                  <span class="ml-2">All time</span>
+                </label>
+                <label class="flex items-center w-fit">
+                  <input
+                    type="radio"
+                    name="observed-range"
+                    value="custom"
+                    checked={observedDateRange === 'custom'}
+                    onchange={() => observedDateRange = 'custom'}
+                  />
+                  <span class="ml-2">Custom range</span>
+                </label>
+                {#if observedDateRange === 'custom'}
+                  <div class="ml-6 space-y-2">
+                    <div>
+                      <label for="observed-d1" class="block text-xs mb-1">From</label>
+                      <input
+                        id="observed-d1"
+                        type="date"
+                        class="input"
+                        bind:value={observedD1}
+                      />
+                    </div>
+                    <div>
+                      <label for="observed-d2" class="block text-xs mb-1">To</label>
+                      <input
+                        id="observed-d2"
+                        type="date"
+                        class="input"
+                        bind:value={observedD2}
+                      />
+                    </div>
+                  </div>
+                {/if}
+              </div>
             </div>
-            <div class="space-y-2">
-              <label class="flex items-center w-fit">
-                <input
-                  type="radio"
-                  name="observed-range"
-                  value="all"
-                  checked={observedDateRange === 'all'}
-                  onchange={() => observedDateRange = 'all'}
-                />
-                <span class="ml-2">All time</span>
-              </label>
-              <label class="flex items-center w-fit">
-                <input
-                  type="radio"
-                  name="observed-range"
-                  value="custom"
-                  checked={observedDateRange === 'custom'}
-                  onchange={() => observedDateRange = 'custom'}
-                />
-                <span class="ml-2">Custom range</span>
-              </label>
-              {#if observedDateRange === 'custom'}
-                <div class="ml-6 space-y-2">
-                  <div>
-                    <label for="observed-d1" class="block text-xs mb-1">From</label>
-                    <input
-                      id="observed-d1"
-                      type="date"
-                      class="input"
-                      bind:value={observedD1}
-                    />
-                  </div>
-                  <div>
-                    <label for="observed-d2" class="block text-xs mb-1">To</label>
-                    <input
-                      id="observed-d2"
-                      type="date"
-                      class="input"
-                      bind:value={observedD2}
-                    />
-                  </div>
-                </div>
-              {/if}
-            </div>
-          </div>
 
-          <div>
-            <div class="block text-sm font-medium mb-2">
-              Created Date Range
-            </div>
-            <div class="space-y-2">
-              <label class="flex items-center w-fit">
-                <input
-                  type="radio"
-                  name="created-range"
-                  value="all"
-                  checked={createdDateRange === 'all'}
-                  onchange={() => createdDateRange = 'all'}
-                />
-                <span class="ml-2">All time</span>
-              </label>
-              <label class="flex items-center w-fit">
-                <input
-                  type="radio"
-                  name="created-range"
-                  value="custom"
-                  checked={createdDateRange === 'custom'}
-                  onchange={() => createdDateRange = 'custom'}
-                />
-                <span class="ml-2">Custom range</span>
-              </label>
-              {#if createdDateRange === 'custom'}
-                <div class="ml-6 space-y-2">
-                  <div>
-                    <label for="created-d1" class="block text-xs mb-1">From</label>
-                    <input
-                      id="created-d1"
-                      type="date"
-                      class="input"
-                      bind:value={createdD1}
-                    />
+            <div>
+              <div class="block text-sm font-medium mb-2">
+                Created Date Range
+              </div>
+              <div class="space-y-2">
+                <label class="flex items-center w-fit">
+                  <input
+                    type="radio"
+                    name="created-range"
+                    value="all"
+                    checked={createdDateRange === 'all'}
+                    onchange={() => createdDateRange = 'all'}
+                  />
+                  <span class="ml-2">All time</span>
+                </label>
+                <label class="flex items-center w-fit">
+                  <input
+                    type="radio"
+                    name="created-range"
+                    value="custom"
+                    checked={createdDateRange === 'custom'}
+                    onchange={() => createdDateRange = 'custom'}
+                  />
+                  <span class="ml-2">Custom range</span>
+                </label>
+                {#if createdDateRange === 'custom'}
+                  <div class="ml-6 space-y-2">
+                    <div>
+                      <label for="created-d1" class="block text-xs mb-1">From</label>
+                      <input
+                        id="created-d1"
+                        type="date"
+                        class="input"
+                        bind:value={createdD1}
+                      />
+                    </div>
+                    <div>
+                      <label for="created-d2" class="block text-xs mb-1">To</label>
+                      <input
+                        id="created-d2"
+                        type="date"
+                        class="input"
+                        bind:value={createdD2}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label for="created-d2" class="block text-xs mb-1">To</label>
-                    <input
-                      id="created-d2"
-                      type="date"
-                      class="input"
-                      bind:value={createdD2}
-                    />
-                  </div>
-                </div>
-              {/if}
+                {/if}
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      {:else}
+        <div class="mb-6 space-y-3">
+          <label for="inat-url" class="block text-sm font-medium">
+            Paste an iNaturalist observations URL
+          </label>
+          <input
+            id="inat-url"
+            type="text"
+            class="input w-full"
+            placeholder="https://www.inaturalist.org/observations?taxon_id=47790"
+            bind:value={urlInput}
+            onblur={parseUrl}
+            onkeydown={(e) => { if (e.key === 'Enter') parseUrl(); }}
+          />
+          {#if urlParseError}
+            <p class="text-red-600 text-sm">Could not parse URL</p>
+          {:else if effectiveParams}
+            <div class="text-sm text-gray-600">
+              <span class="font-medium">Effective params:</span>
+              <code class="ml-1 break-all">{effectiveParams}</code>
+            </div>
+          {:else if urlInput}
+            <p class="text-gray-500 text-sm">No recognized parameters found</p>
+          {/if}
+        </div>
+      {/if}
     </li>
 
     <li>
