@@ -707,14 +707,14 @@ $effect(() => {
           value={filterMode}
           onValueChange={(e) => { filterMode = (e.value || 'fields') as 'fields' | 'url'; }}
         >
-          <SegmentedControl.Control>
+          <SegmentedControl.Control class="border-0 bg-gray-200 p-0">
             <SegmentedControl.Indicator />
             <SegmentedControl.Item value="fields">
-              <SegmentedControl.ItemText>Fields</SegmentedControl.ItemText>
+              <SegmentedControl.ItemText class="text-xs">Fields</SegmentedControl.ItemText>
               <SegmentedControl.ItemHiddenInput />
             </SegmentedControl.Item>
             <SegmentedControl.Item value="url">
-              <SegmentedControl.ItemText>URL</SegmentedControl.ItemText>
+              <SegmentedControl.ItemText class="text-xs">URL</SegmentedControl.ItemText>
               <SegmentedControl.ItemHiddenInput />
             </SegmentedControl.Item>
           </SegmentedControl.Control>
@@ -840,7 +840,7 @@ $effect(() => {
             id="inat-url"
             type="text"
             class="input w-full"
-            placeholder="https://www.inaturalist.org/observations?taxon_id=47790"
+            placeholder="E.g. https://www.inaturalist.org/observations?taxon_id=47790"
             bind:value={urlInput}
             onblur={parseUrl}
             onkeydown={(e) => { if (e.key === 'Enter') parseUrl(); }}
