@@ -114,7 +114,7 @@ pub fn parse_url_params(query: &str) -> observations_api::ObservationsGetParams 
 
     // Collect all values grouped by key, handling repeated keys and
     // comma-separated values. Drop "any" and empty values.
-    let mut map: std::collections::HashMap<String, Vec<String>> =
+    let mut params_as_string_vecs: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
     for (raw_key, raw_val) in url::form_urlencoded::parse(query.as_bytes()) {
         let key = raw_key.to_string();
@@ -128,18 +128,19 @@ pub fn parse_url_params(query: &str) -> observations_api::ObservationsGetParams 
             if part.is_empty() || part == "any" {
                 continue;
             }
-            map.entry(key.clone()).or_default().push(part);
+            params_as_string_vecs.entry(key.clone()).or_default().push(part);
         }
     }
 
+    // Typed getters for params
     let string_val = |key: &str| -> Option<String> {
-        map.get(key).and_then(|v| v.first().cloned())
+        params_as_string_vecs.get(key).and_then(|v| v.first().cloned())
     };
     let vec_string = |key: &str| -> Option<Vec<String>> {
-        map.get(key).filter(|v| !v.is_empty()).cloned()
+        params_as_string_vecs.get(key).filter(|v| !v.is_empty()).cloned()
     };
     let vec_i32 = |key: &str| -> Option<Vec<i32>> {
-        map.get(key)
+        params_as_string_vecs.get(key)
             .map(|vals| {
                 vals.iter()
                     .filter_map(|v| v.parse::<i32>().ok())
@@ -148,17 +149,17 @@ pub fn parse_url_params(query: &str) -> observations_api::ObservationsGetParams 
             .filter(|v| !v.is_empty())
     };
     let i32_val = |key: &str| -> Option<i32> {
-        map.get(key)
+        params_as_string_vecs.get(key)
             .and_then(|v| v.first())
             .and_then(|s| s.parse::<i32>().ok())
     };
     let f64_val = |key: &str| -> Option<f64> {
-        map.get(key)
+        params_as_string_vecs.get(key)
             .and_then(|v| v.first())
             .and_then(|s| s.parse::<f64>().ok())
     };
     let bool_val = |key: &str| -> Option<bool> {
-        map.get(key)
+        params_as_string_vecs.get(key)
             .and_then(|v| v.first())
             .and_then(|s| match s.as_str() {
                 "true" | "1" => Some(true),
