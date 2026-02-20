@@ -102,6 +102,174 @@ pub static DEFAULT_GET_PARAMS: observations_api::ObservationsGetParams = observa
     year: None,
 };
 
+/// Parse an iNat observations query string into ObservationsGetParams.
+/// Unknown keys and `any` values are silently ignored.
+/// `per_page` is set to PER_PAGE; pagination params are always skipped.
+pub fn parse_url_params(query: &str) -> observations_api::ObservationsGetParams {
+    let query = query.trim_start_matches('?');
+    let mut params = observations_api::ObservationsGetParams {
+        per_page: Some(PER_PAGE.to_string()),
+        ..DEFAULT_GET_PARAMS.clone()
+    };
+
+    // Collect all values grouped by key, handling repeated keys and
+    // comma-separated values. Drop "any" and empty values.
+    let mut map: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for (raw_key, raw_val) in url::form_urlencoded::parse(query.as_bytes()) {
+        let key = raw_key.to_string();
+        let val = raw_val.to_string();
+        if val == "any" || val.is_empty() {
+            continue;
+        }
+        // Support comma-separated multi-values (e.g. taxon_id=1,2)
+        for part in val.split(',') {
+            let part = part.trim().to_string();
+            if !part.is_empty() {
+                map.entry(key.clone()).or_default().push(part);
+            }
+        }
+    }
+
+    let string_val = |key: &str| -> Option<String> {
+        map.get(key).and_then(|v| v.first().cloned())
+    };
+    let vec_string = |key: &str| -> Option<Vec<String>> {
+        map.get(key).filter(|v| !v.is_empty()).cloned()
+    };
+    let vec_i32 = |key: &str| -> Option<Vec<i32>> {
+        map.get(key)
+            .map(|vals| {
+                vals.iter()
+                    .filter_map(|v| v.parse::<i32>().ok())
+                    .collect::<Vec<_>>()
+            })
+            .filter(|v| !v.is_empty())
+    };
+    let i32_val = |key: &str| -> Option<i32> {
+        map.get(key)
+            .and_then(|v| v.first())
+            .and_then(|s| s.parse::<i32>().ok())
+    };
+    let f64_val = |key: &str| -> Option<f64> {
+        map.get(key)
+            .and_then(|v| v.first())
+            .and_then(|s| s.parse::<f64>().ok())
+    };
+    let bool_val = |key: &str| -> Option<bool> {
+        map.get(key)
+            .and_then(|v| v.first())
+            .and_then(|s| match s.as_str() {
+                "true" | "1" => Some(true),
+                "false" | "0" => Some(false),
+                _ => None,
+            })
+    };
+
+    // --- Vec<String> params ---
+    params.taxon_id = vec_string("taxon_id");
+    params.without_taxon_id = vec_string("without_taxon_id");
+    params.taxon_name = vec_string("taxon_name");
+    params.user_id = vec_string("user_id");
+    params.user_login = vec_string("user_login");
+    params.annotation_user_id = vec_string("annotation_user_id");
+    params.project_id = vec_string("project_id");
+    params.rank = vec_string("rank");
+    params.site_id = vec_string("site_id");
+    params.license = vec_string("license");
+    params.photo_license = vec_string("photo_license");
+    params.sound_license = vec_string("sound_license");
+    params.ofv_datatype = vec_string("ofv_datatype");
+    params.iconic_taxa = vec_string("iconic_taxa");
+    params.geoprivacy = vec_string("geoprivacy");
+    params.taxon_geoprivacy = vec_string("taxon_geoprivacy");
+    params.obscuration = vec_string("obscuration");
+    params.csi = vec_string("csi");
+    params.hour = vec_string("hour");
+    params.day = vec_string("day");
+    params.month = vec_string("month");
+    params.year = vec_string("year");
+    params.created_day = vec_string("created_day");
+    params.created_month = vec_string("created_month");
+    params.created_year = vec_string("created_year");
+    params.id = vec_string("id");
+    params.not_id = vec_string("not_id");
+
+    // --- Vec<i32> params ---
+    params.place_id = vec_i32("place_id");
+    params.term_id = vec_i32("term_id");
+    params.term_value_id = vec_i32("term_value_id");
+    params.without_term_value_id = vec_i32("without_term_value_id");
+    params.term_id_or_unknown = vec_i32("term_id_or_unknown");
+    params.observation_accuracy_experiment_id = vec_i32("observation_accuracy_experiment_id");
+
+    // --- Option<i32> params ---
+    params.ident_user_id = i32_val("ident_user_id");
+    params.without_term_id = i32_val("without_term_id");
+    params.list_id = i32_val("list_id");
+    params.unobserved_by_user_id = i32_val("unobserved_by_user_id");
+    params.preferred_place_id = i32_val("preferred_place_id");
+
+    // --- String params ---
+    params.d1 = string_val("d1");
+    params.d2 = string_val("d2");
+    params.created_d1 = string_val("created_d1");
+    params.created_d2 = string_val("created_d2");
+    params.created_on = string_val("created_on");
+    params.observed_on = string_val("observed_on");
+    params.acc_above = string_val("acc_above");
+    params.acc_below = string_val("acc_below");
+    params.acc_below_or_unknown = string_val("acc_below_or_unknown");
+    params.apply_project_rules_for = string_val("apply_project_rules_for");
+    params.cs = string_val("cs");
+    params.csa = string_val("csa");
+    params.hrank = string_val("hrank");
+    params.lrank = string_val("lrank");
+    params.id_above = string_val("id_above");
+    params.id_below = string_val("id_below");
+    params.identifications = string_val("identifications");
+    params.radius = string_val("radius");
+    params.not_in_project = string_val("not_in_project");
+    params.not_matching_project_rules_for = string_val("not_matching_project_rules_for");
+    params.q = string_val("q");
+    params.quality_grade = string_val("quality_grade");
+    params.updated_since = string_val("updated_since");
+    params.viewer_id = string_val("viewer_id");
+
+    // --- Option<f64> params ---
+    params.lat = f64_val("lat");
+    params.lng = f64_val("lng");
+    params.nelat = f64_val("nelat");
+    params.nelng = f64_val("nelng");
+    params.swlat = f64_val("swlat");
+    params.swlng = f64_val("swlng");
+
+    // --- bool params ---
+    params.acc = bool_val("acc");
+    params.captive = bool_val("captive");
+    params.endemic = bool_val("endemic");
+    params.geo = bool_val("geo");
+    params.id_please = bool_val("id_please");
+    params.identified = bool_val("identified");
+    params.introduced = bool_val("introduced");
+    params.mappable = bool_val("mappable");
+    params.native = bool_val("native");
+    params.out_of_range = bool_val("out_of_range");
+    params.pcid = bool_val("pcid");
+    params.photos = bool_val("photos");
+    params.popular = bool_val("popular");
+    params.sounds = bool_val("sounds");
+    params.taxon_is_active = bool_val("taxon_is_active");
+    params.threatened = bool_val("threatened");
+    params.verifiable = bool_val("verifiable");
+    params.licensed = bool_val("licensed");
+    params.photo_licensed = bool_val("photo_licensed");
+    params.expected_nearby = bool_val("expected_nearby");
+    params.reviewed = bool_val("reviewed");
+
+    params
+}
+
 // TODO: accept more options, and maybe make a separate method that just converts a query string to API params
 pub fn build_params(
     taxon: Option<String>,
@@ -207,6 +375,30 @@ pub fn extract_criteria(params: &observations_api::ObservationsGetParams) -> Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod parse_url_params {
+        use super::*;
+
+        #[test]
+        fn test_basic_taxon_id() {
+            let p = parse_url_params("taxon_id=47790");
+            assert_eq!(p.taxon_id, Some(vec!["47790".to_string()]));
+        }
+
+        #[test]
+        fn test_any_value_is_dropped() {
+            let p = parse_url_params("place_id=any");
+            assert_eq!(p.place_id, None);
+        }
+
+        #[test]
+        fn test_unknown_param_is_dropped() {
+            let p = parse_url_params("view=species");
+            assert_eq!(p.taxon_id, None);
+            assert_eq!(p.place_id, None);
+            assert_eq!(p.user_id, None);
+        }
+    }
 
     mod build_params {
         use super::*;
