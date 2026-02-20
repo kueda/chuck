@@ -227,6 +227,13 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 const DEBOUNCE_MS = 500;
 
 async function fetchCount() {
+  // In URL mode with no effective params, don't fetch — no filters entered yet
+  if (filterMode === 'url' && !effectiveParams) {
+    observationCount = null;
+    countLoading = false;
+    countError = null;
+    return;
+  }
   countLoading = true;
   countError = null;
 
@@ -306,6 +313,11 @@ let photoDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function fetchPhotoEstimate() {
   if (!fetchPhotos) {
+    photoEstimate = null;
+    return;
+  }
+  // In URL mode with no effective params, don't fetch
+  if (filterMode === 'url' && !effectiveParams) {
     photoEstimate = null;
     return;
   }
