@@ -271,6 +271,168 @@ pub fn parse_url_params(query: &str) -> observations_api::ObservationsGetParams 
     params
 }
 
+/// Serialize ObservationsGetParams back to a query string.
+/// Omits pagination and internal fields (per_page, page, order, order_by,
+/// ttl, locale, only_id). Returns only filter fields that are Some.
+pub fn serialize_params(params: &observations_api::ObservationsGetParams) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    macro_rules! push_str {
+        ($key:literal, $field:expr) => {
+            if let Some(ref v) = $field {
+                parts.push(format!("{}={}", $key, v));
+            }
+        };
+    }
+    macro_rules! push_vec_str {
+        ($key:literal, $field:expr) => {
+            if let Some(ref v) = $field {
+                if !v.is_empty() {
+                    parts.push(format!("{}={}", $key, v.join(",")));
+                }
+            }
+        };
+    }
+    macro_rules! push_vec_i32 {
+        ($key:literal, $field:expr) => {
+            if let Some(ref v) = $field {
+                if !v.is_empty() {
+                    let joined =
+                        v.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(",");
+                    parts.push(format!("{}={}", $key, joined));
+                }
+            }
+        };
+    }
+    macro_rules! push_i32 {
+        ($key:literal, $field:expr) => {
+            if let Some(ref v) = $field {
+                parts.push(format!("{}={}", $key, v));
+            }
+        };
+    }
+    macro_rules! push_f64 {
+        ($key:literal, $field:expr) => {
+            if let Some(ref v) = $field {
+                parts.push(format!("{}={}", $key, v));
+            }
+        };
+    }
+    macro_rules! push_bool {
+        ($key:literal, $field:expr) => {
+            if let Some(ref v) = $field {
+                parts.push(format!("{}={}", $key, v));
+            }
+        };
+    }
+
+    // Vec<String>
+    push_vec_str!("taxon_id", params.taxon_id);
+    push_vec_str!("without_taxon_id", params.without_taxon_id);
+    push_vec_str!("taxon_name", params.taxon_name);
+    push_vec_str!("user_id", params.user_id);
+    push_vec_str!("user_login", params.user_login);
+    push_vec_str!("annotation_user_id", params.annotation_user_id);
+    push_vec_str!("project_id", params.project_id);
+    push_vec_str!("rank", params.rank);
+    push_vec_str!("site_id", params.site_id);
+    push_vec_str!("license", params.license);
+    push_vec_str!("photo_license", params.photo_license);
+    push_vec_str!("sound_license", params.sound_license);
+    push_vec_str!("ofv_datatype", params.ofv_datatype);
+    push_vec_str!("iconic_taxa", params.iconic_taxa);
+    push_vec_str!("geoprivacy", params.geoprivacy);
+    push_vec_str!("taxon_geoprivacy", params.taxon_geoprivacy);
+    push_vec_str!("obscuration", params.obscuration);
+    push_vec_str!("csi", params.csi);
+    push_vec_str!("hour", params.hour);
+    push_vec_str!("day", params.day);
+    push_vec_str!("month", params.month);
+    push_vec_str!("year", params.year);
+    push_vec_str!("created_day", params.created_day);
+    push_vec_str!("created_month", params.created_month);
+    push_vec_str!("created_year", params.created_year);
+    push_vec_str!("id", params.id);
+    push_vec_str!("not_id", params.not_id);
+
+    // Vec<i32>
+    push_vec_i32!("place_id", params.place_id);
+    push_vec_i32!("term_id", params.term_id);
+    push_vec_i32!("term_value_id", params.term_value_id);
+    push_vec_i32!("without_term_value_id", params.without_term_value_id);
+    push_vec_i32!("term_id_or_unknown", params.term_id_or_unknown);
+    push_vec_i32!(
+        "observation_accuracy_experiment_id",
+        params.observation_accuracy_experiment_id
+    );
+
+    // Option<i32>
+    push_i32!("ident_user_id", params.ident_user_id);
+    push_i32!("without_term_id", params.without_term_id);
+    push_i32!("list_id", params.list_id);
+    push_i32!("unobserved_by_user_id", params.unobserved_by_user_id);
+    push_i32!("preferred_place_id", params.preferred_place_id);
+
+    // String
+    push_str!("d1", params.d1);
+    push_str!("d2", params.d2);
+    push_str!("created_d1", params.created_d1);
+    push_str!("created_d2", params.created_d2);
+    push_str!("created_on", params.created_on);
+    push_str!("observed_on", params.observed_on);
+    push_str!("acc_above", params.acc_above);
+    push_str!("acc_below", params.acc_below);
+    push_str!("acc_below_or_unknown", params.acc_below_or_unknown);
+    push_str!("apply_project_rules_for", params.apply_project_rules_for);
+    push_str!("cs", params.cs);
+    push_str!("csa", params.csa);
+    push_str!("hrank", params.hrank);
+    push_str!("lrank", params.lrank);
+    push_str!("id_above", params.id_above);
+    push_str!("id_below", params.id_below);
+    push_str!("identifications", params.identifications);
+    push_str!("radius", params.radius);
+    push_str!("not_in_project", params.not_in_project);
+    push_str!("not_matching_project_rules_for", params.not_matching_project_rules_for);
+    push_str!("q", params.q);
+    push_str!("quality_grade", params.quality_grade);
+    push_str!("updated_since", params.updated_since);
+    push_str!("viewer_id", params.viewer_id);
+
+    // Option<f64>
+    push_f64!("lat", params.lat);
+    push_f64!("lng", params.lng);
+    push_f64!("nelat", params.nelat);
+    push_f64!("nelng", params.nelng);
+    push_f64!("swlat", params.swlat);
+    push_f64!("swlng", params.swlng);
+
+    // bool
+    push_bool!("acc", params.acc);
+    push_bool!("captive", params.captive);
+    push_bool!("endemic", params.endemic);
+    push_bool!("geo", params.geo);
+    push_bool!("id_please", params.id_please);
+    push_bool!("identified", params.identified);
+    push_bool!("introduced", params.introduced);
+    push_bool!("mappable", params.mappable);
+    push_bool!("native", params.native);
+    push_bool!("out_of_range", params.out_of_range);
+    push_bool!("pcid", params.pcid);
+    push_bool!("photos", params.photos);
+    push_bool!("popular", params.popular);
+    push_bool!("sounds", params.sounds);
+    push_bool!("taxon_is_active", params.taxon_is_active);
+    push_bool!("threatened", params.threatened);
+    push_bool!("verifiable", params.verifiable);
+    push_bool!("licensed", params.licensed);
+    push_bool!("photo_licensed", params.photo_licensed);
+    push_bool!("expected_nearby", params.expected_nearby);
+    push_bool!("reviewed", params.reviewed);
+
+    parts.join("&")
+}
+
 pub fn build_params(
     taxon: Option<String>,
     place_id: Option<i32>,
@@ -464,6 +626,51 @@ mod tests {
             assert_eq!(p.per_page, Some(PER_PAGE.to_string()));
             assert_eq!(p.page, None);
             assert_eq!(p.order_by, None);
+        }
+    }
+
+    mod serialize_params {
+        use super::*;
+
+        #[test]
+        fn test_single_taxon_id() {
+            let mut p = DEFAULT_GET_PARAMS.clone();
+            p.taxon_id = Some(vec!["47790".to_string()]);
+            let s = serialize_params(&p);
+            assert_eq!(s, "taxon_id=47790");
+        }
+
+        #[test]
+        fn test_vec_joined_with_comma() {
+            let mut p = DEFAULT_GET_PARAMS.clone();
+            p.taxon_id = Some(vec!["1".to_string(), "2".to_string()]);
+            let s = serialize_params(&p);
+            assert_eq!(s, "taxon_id=1,2");
+        }
+
+        #[test]
+        fn test_place_id_i32() {
+            let mut p = DEFAULT_GET_PARAMS.clone();
+            p.place_id = Some(vec![122851i32]);
+            let s = serialize_params(&p);
+            assert_eq!(s, "place_id=122851");
+        }
+
+        #[test]
+        fn test_per_page_omitted() {
+            let mut p = DEFAULT_GET_PARAMS.clone();
+            p.per_page = Some("200".to_string());
+            p.taxon_id = Some(vec!["47790".to_string()]);
+            let s = serialize_params(&p);
+            assert!(!s.contains("per_page"));
+        }
+
+        #[test]
+        fn test_roundtrip() {
+            let original = "taxon_id=47790&ident_user_id=1";
+            let p = parse_url_params(original);
+            let s = serialize_params(&p);
+            assert_eq!(s, original);
         }
     }
 
