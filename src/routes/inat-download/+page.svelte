@@ -29,6 +29,7 @@ interface CountParams {
   d2: string | null;
   created_d1: string | null;
   created_d2: string | null;
+  url_params: string | null;
 }
 
 let taxonId = $state<number | null>(null);
@@ -51,6 +52,12 @@ let includeSimpleMultimedia = $state<boolean>(true);
 let includeAudiovisual = $state<boolean>(false);
 let includeIdentifications = $state<boolean>(true);
 let includeComments = $state<boolean>(true);
+
+// Filter mode
+let filterMode = $state<'fields' | 'url'>('fields');
+let urlInput = $state('');
+let effectiveParams = $state('');
+let urlParseError = $state(false);
 
 let observationCount = $state<number | null>(null);
 let countLoading = $state<boolean>(false);
@@ -223,15 +230,32 @@ async function fetchCount() {
   countError = null;
 
   try {
-    const params: CountParams = {
-      taxon_id: taxonId,
-      place_id: placeId,
-      user: userId ? userId.toString() : null,
-      d1: observedDateRange === 'custom' && observedD1 ? observedD1 : null,
-      d2: observedDateRange === 'custom' && observedD2 ? observedD2 : null,
-      created_d1: createdDateRange === 'custom' && createdD1 ? createdD1 : null,
-      created_d2: createdDateRange === 'custom' && createdD2 ? createdD2 : null,
-    };
+    const params: CountParams =
+      filterMode === 'url'
+        ? {
+            taxon_id: null,
+            place_id: null,
+            user: null,
+            d1: null,
+            d2: null,
+            created_d1: null,
+            created_d2: null,
+            url_params: effectiveParams || null,
+          }
+        : {
+            taxon_id: taxonId,
+            place_id: placeId,
+            user: userId ? userId.toString() : null,
+            d1:
+              observedDateRange === 'custom' && observedD1 ? observedD1 : null,
+            d2:
+              observedDateRange === 'custom' && observedD2 ? observedD2 : null,
+            created_d1:
+              createdDateRange === 'custom' && createdD1 ? createdD1 : null,
+            created_d2:
+              createdDateRange === 'custom' && createdD2 ? createdD2 : null,
+            url_params: null,
+          };
 
     const count = await invoke<number>('get_observation_count', { params });
     observationCount = count;
@@ -254,6 +278,28 @@ function scheduleFetchCount() {
   }, DEBOUNCE_MS);
 }
 
+async function parseUrl() {
+  if (!urlInput.trim()) {
+    effectiveParams = '';
+    urlParseError = false;
+    return;
+  }
+  try {
+    const result = await invoke<{ effective_params: string }>(
+      'parse_inat_url',
+      {
+        url: urlInput,
+      },
+    );
+    effectiveParams = result.effective_params;
+    urlParseError = false;
+  } catch (e) {
+    console.error('Failed to parse URL:', e);
+    urlParseError = true;
+    effectiveParams = '';
+  }
+}
+
 // Photo estimate debounce timer
 let photoDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -266,15 +312,32 @@ async function fetchPhotoEstimate() {
   photoEstimateLoading = true;
 
   try {
-    const params: CountParams = {
-      taxon_id: taxonId,
-      place_id: placeId,
-      user: userId ? userId.toString() : null,
-      d1: observedDateRange === 'custom' && observedD1 ? observedD1 : null,
-      d2: observedDateRange === 'custom' && observedD2 ? observedD2 : null,
-      created_d1: createdDateRange === 'custom' && createdD1 ? createdD1 : null,
-      created_d2: createdDateRange === 'custom' && createdD2 ? createdD2 : null,
-    };
+    const params: CountParams =
+      filterMode === 'url'
+        ? {
+            taxon_id: null,
+            place_id: null,
+            user: null,
+            d1: null,
+            d2: null,
+            created_d1: null,
+            created_d2: null,
+            url_params: effectiveParams || null,
+          }
+        : {
+            taxon_id: taxonId,
+            place_id: placeId,
+            user: userId ? userId.toString() : null,
+            d1:
+              observedDateRange === 'custom' && observedD1 ? observedD1 : null,
+            d2:
+              observedDateRange === 'custom' && observedD2 ? observedD2 : null,
+            created_d1:
+              createdDateRange === 'custom' && createdD1 ? createdD1 : null,
+            created_d2:
+              createdDateRange === 'custom' && createdD2 ? createdD2 : null,
+            url_params: null,
+          };
 
     photoEstimate = await invoke<PhotoEstimate>('estimate_photo_count', {
       params,
@@ -389,20 +452,42 @@ async function startDownload(filePath: string) {
 
     // Call generate command
     await invoke('generate_inat_archive', {
-      params: {
-        output_path: filePath,
-        taxon_id: taxonId,
-        place_id: placeId,
-        user: userId ? userId.toString() : null,
-        d1: observedDateRange === 'custom' && observedD1 ? observedD1 : null,
-        d2: observedDateRange === 'custom' && observedD2 ? observedD2 : null,
-        created_d1:
-          createdDateRange === 'custom' && createdD1 ? createdD1 : null,
-        created_d2:
-          createdDateRange === 'custom' && createdD2 ? createdD2 : null,
-        fetch_photos: fetchPhotos,
-        extensions,
-      },
+      params:
+        filterMode === 'url'
+          ? {
+              output_path: filePath,
+              taxon_id: null,
+              place_id: null,
+              user: null,
+              d1: null,
+              d2: null,
+              created_d1: null,
+              created_d2: null,
+              url_params: effectiveParams || null,
+              fetch_photos: fetchPhotos,
+              extensions,
+            }
+          : {
+              output_path: filePath,
+              taxon_id: taxonId,
+              place_id: placeId,
+              user: userId ? userId.toString() : null,
+              d1:
+                observedDateRange === 'custom' && observedD1
+                  ? observedD1
+                  : null,
+              d2:
+                observedDateRange === 'custom' && observedD2
+                  ? observedD2
+                  : null,
+              created_d1:
+                createdDateRange === 'custom' && createdD1 ? createdD1 : null,
+              created_d2:
+                createdDateRange === 'custom' && createdD2 ? createdD2 : null,
+              url_params: null,
+              fetch_photos: fetchPhotos,
+              extensions,
+            },
     });
 
     // Success handled by progress event listener
@@ -498,16 +583,22 @@ onMount(() => {
 $effect(() => {
   // Track dependencies
   const deps = [
-    taxonId,
-    placeId,
-    userId,
-    observedDateRange,
-    observedD1,
-    observedD2,
-    createdDateRange,
-    createdD1,
-    createdD2,
+    filterMode,
+    ...(filterMode === 'url'
+      ? [effectiveParams]
+      : [
+          taxonId,
+          placeId,
+          userId,
+          observedDateRange,
+          observedD1,
+          observedD2,
+          createdDateRange,
+          createdD1,
+          createdD2,
+        ]),
   ];
+  void deps;
 
   // Clear previous count while debouncing
   observationCount = null;
@@ -519,17 +610,23 @@ $effect(() => {
 $effect(() => {
   // Track dependencies
   const deps = [
-    taxonId,
-    placeId,
-    userId,
-    observedDateRange,
-    observedD1,
-    observedD2,
-    createdDateRange,
-    createdD1,
-    createdD2,
+    filterMode,
+    ...(filterMode === 'url'
+      ? [effectiveParams]
+      : [
+          taxonId,
+          placeId,
+          userId,
+          observedDateRange,
+          observedD1,
+          observedD2,
+          createdDateRange,
+          createdD1,
+          createdD2,
+        ]),
     fetchPhotos,
   ];
+  void deps;
 
   // Clear previous estimate while debouncing
   photoEstimate = null;
