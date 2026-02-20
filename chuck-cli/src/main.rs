@@ -97,6 +97,16 @@ enum Commands {
         #[arg(long)]
         created_d2: Option<String>,
 
+        /// iNaturalist observations URL or query string; any recognized
+        /// search params will be used as filters, e.g.
+        /// user_id=1&lrank=genus. Cannot be combined with --taxon,
+        /// --place-id, --user, --d1, --d2, --created-d1, or --created-d2.
+        #[arg(
+            long,
+            conflicts_with_all = ["taxon", "place_id", "user", "d1", "d2", "created_d1", "created_d2"]
+        )]
+        url: Option<String>,
+
         /// Path to write CSV if format is csv, path of DarwinCore Archive if
         /// format is dwc
         #[arg(long)]
@@ -156,9 +166,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             format,
             place_id,
             taxon,
+            url,
             user,
-        } => commands::fetch_observations(
+        } => commands::fetch_observations(commands::FetchObservationsOptions {
             file,
+            url,
             taxon,
             place_id,
             user,
@@ -168,8 +180,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             created_d2,
             fetch_photos,
             format,
-            dwc_extensions
-        ).await?,
+            dwc_extensions,
+        }).await?,
     }
     Ok(())
 }

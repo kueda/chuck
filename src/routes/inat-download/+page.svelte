@@ -1,4 +1,5 @@
 <script lang="ts">
+import { SegmentedControl } from '@skeletonlabs/skeleton-svelte';
 import { onMount } from 'svelte';
 import InatPlaceChooser from '$lib/components/InatPlaceChooser.svelte';
 import InatProgressOverlay from '$lib/components/InatProgressOverlay.svelte';
@@ -29,6 +30,7 @@ interface CountParams {
   d2: string | null;
   created_d1: string | null;
   created_d2: string | null;
+  url_params: string | null;
 }
 
 let taxonId = $state<number | null>(null);
@@ -51,6 +53,12 @@ let includeSimpleMultimedia = $state<boolean>(true);
 let includeAudiovisual = $state<boolean>(false);
 let includeIdentifications = $state<boolean>(true);
 let includeComments = $state<boolean>(true);
+
+// Filter mode
+let filterMode = $state<'fields' | 'url'>('fields');
+let urlInput = $state('');
+let effectiveParams = $state('');
+let urlParseError = $state(false);
 
 let observationCount = $state<number | null>(null);
 let countLoading = $state<boolean>(false);
@@ -219,19 +227,43 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 const DEBOUNCE_MS = 500;
 
 async function fetchCount() {
+  // In URL mode with no effective params, don't fetch — no filters entered yet
+  if (filterMode === 'url' && !effectiveParams) {
+    observationCount = null;
+    countLoading = false;
+    countError = null;
+    return;
+  }
   countLoading = true;
   countError = null;
 
   try {
-    const params: CountParams = {
-      taxon_id: taxonId,
-      place_id: placeId,
-      user: userId ? userId.toString() : null,
-      d1: observedDateRange === 'custom' && observedD1 ? observedD1 : null,
-      d2: observedDateRange === 'custom' && observedD2 ? observedD2 : null,
-      created_d1: createdDateRange === 'custom' && createdD1 ? createdD1 : null,
-      created_d2: createdDateRange === 'custom' && createdD2 ? createdD2 : null,
-    };
+    const params: CountParams =
+      filterMode === 'url'
+        ? {
+            taxon_id: null,
+            place_id: null,
+            user: null,
+            d1: null,
+            d2: null,
+            created_d1: null,
+            created_d2: null,
+            url_params: effectiveParams || null,
+          }
+        : {
+            taxon_id: taxonId,
+            place_id: placeId,
+            user: userId ? userId.toString() : null,
+            d1:
+              observedDateRange === 'custom' && observedD1 ? observedD1 : null,
+            d2:
+              observedDateRange === 'custom' && observedD2 ? observedD2 : null,
+            created_d1:
+              createdDateRange === 'custom' && createdD1 ? createdD1 : null,
+            created_d2:
+              createdDateRange === 'custom' && createdD2 ? createdD2 : null,
+            url_params: null,
+          };
 
     const count = await invoke<number>('get_observation_count', { params });
     observationCount = count;
@@ -254,6 +286,28 @@ function scheduleFetchCount() {
   }, DEBOUNCE_MS);
 }
 
+async function parseUrl() {
+  if (!urlInput.trim()) {
+    effectiveParams = '';
+    urlParseError = false;
+    return;
+  }
+  try {
+    const result = await invoke<{ effective_params: string }>(
+      'parse_inat_url',
+      {
+        url: urlInput,
+      },
+    );
+    effectiveParams = result.effective_params;
+    urlParseError = false;
+  } catch (e) {
+    console.error('Failed to parse URL:', e);
+    urlParseError = true;
+    effectiveParams = '';
+  }
+}
+
 // Photo estimate debounce timer
 let photoDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -262,19 +316,41 @@ async function fetchPhotoEstimate() {
     photoEstimate = null;
     return;
   }
+  // In URL mode with no effective params, don't fetch
+  if (filterMode === 'url' && !effectiveParams) {
+    photoEstimate = null;
+    return;
+  }
 
   photoEstimateLoading = true;
 
   try {
-    const params: CountParams = {
-      taxon_id: taxonId,
-      place_id: placeId,
-      user: userId ? userId.toString() : null,
-      d1: observedDateRange === 'custom' && observedD1 ? observedD1 : null,
-      d2: observedDateRange === 'custom' && observedD2 ? observedD2 : null,
-      created_d1: createdDateRange === 'custom' && createdD1 ? createdD1 : null,
-      created_d2: createdDateRange === 'custom' && createdD2 ? createdD2 : null,
-    };
+    const params: CountParams =
+      filterMode === 'url'
+        ? {
+            taxon_id: null,
+            place_id: null,
+            user: null,
+            d1: null,
+            d2: null,
+            created_d1: null,
+            created_d2: null,
+            url_params: effectiveParams || null,
+          }
+        : {
+            taxon_id: taxonId,
+            place_id: placeId,
+            user: userId ? userId.toString() : null,
+            d1:
+              observedDateRange === 'custom' && observedD1 ? observedD1 : null,
+            d2:
+              observedDateRange === 'custom' && observedD2 ? observedD2 : null,
+            created_d1:
+              createdDateRange === 'custom' && createdD1 ? createdD1 : null,
+            created_d2:
+              createdDateRange === 'custom' && createdD2 ? createdD2 : null,
+            url_params: null,
+          };
 
     photoEstimate = await invoke<PhotoEstimate>('estimate_photo_count', {
       params,
@@ -389,20 +465,42 @@ async function startDownload(filePath: string) {
 
     // Call generate command
     await invoke('generate_inat_archive', {
-      params: {
-        output_path: filePath,
-        taxon_id: taxonId,
-        place_id: placeId,
-        user: userId ? userId.toString() : null,
-        d1: observedDateRange === 'custom' && observedD1 ? observedD1 : null,
-        d2: observedDateRange === 'custom' && observedD2 ? observedD2 : null,
-        created_d1:
-          createdDateRange === 'custom' && createdD1 ? createdD1 : null,
-        created_d2:
-          createdDateRange === 'custom' && createdD2 ? createdD2 : null,
-        fetch_photos: fetchPhotos,
-        extensions,
-      },
+      params:
+        filterMode === 'url'
+          ? {
+              output_path: filePath,
+              taxon_id: null,
+              place_id: null,
+              user: null,
+              d1: null,
+              d2: null,
+              created_d1: null,
+              created_d2: null,
+              url_params: effectiveParams || null,
+              fetch_photos: fetchPhotos,
+              extensions,
+            }
+          : {
+              output_path: filePath,
+              taxon_id: taxonId,
+              place_id: placeId,
+              user: userId ? userId.toString() : null,
+              d1:
+                observedDateRange === 'custom' && observedD1
+                  ? observedD1
+                  : null,
+              d2:
+                observedDateRange === 'custom' && observedD2
+                  ? observedD2
+                  : null,
+              created_d1:
+                createdDateRange === 'custom' && createdD1 ? createdD1 : null,
+              created_d2:
+                createdDateRange === 'custom' && createdD2 ? createdD2 : null,
+              url_params: null,
+              fetch_photos: fetchPhotos,
+              extensions,
+            },
     });
 
     // Success handled by progress event listener
@@ -498,16 +596,22 @@ onMount(() => {
 $effect(() => {
   // Track dependencies
   const deps = [
-    taxonId,
-    placeId,
-    userId,
-    observedDateRange,
-    observedD1,
-    observedD2,
-    createdDateRange,
-    createdD1,
-    createdD2,
+    filterMode,
+    ...(filterMode === 'url'
+      ? [effectiveParams]
+      : [
+          taxonId,
+          placeId,
+          userId,
+          observedDateRange,
+          observedD1,
+          observedD2,
+          createdDateRange,
+          createdD1,
+          createdD2,
+        ]),
   ];
+  void deps;
 
   // Clear previous count while debouncing
   observationCount = null;
@@ -519,17 +623,23 @@ $effect(() => {
 $effect(() => {
   // Track dependencies
   const deps = [
-    taxonId,
-    placeId,
-    userId,
-    observedDateRange,
-    observedD1,
-    observedD2,
-    createdDateRange,
-    createdD1,
-    createdD2,
+    filterMode,
+    ...(filterMode === 'url'
+      ? [effectiveParams]
+      : [
+          taxonId,
+          placeId,
+          userId,
+          observedDateRange,
+          observedD1,
+          observedD2,
+          createdDateRange,
+          createdD1,
+          createdD2,
+        ]),
     fetchPhotos,
   ];
+  void deps;
 
   // Clear previous estimate while debouncing
   photoEstimate = null;
@@ -591,117 +701,162 @@ $effect(() => {
     </li>
 
     <li>
-      <h2 class="h4 mb-3">Filter observations</h2>
+      <h2 class="h4 mb-3 flex items-center justify-between">
+        <span>Filter observations</span>
+        <SegmentedControl
+          value={filterMode}
+          onValueChange={(e) => { filterMode = (e.value || 'fields') as 'fields' | 'url'; }}
+        >
+          <SegmentedControl.Control class="border-0 bg-gray-200 p-0">
+            <SegmentedControl.Indicator />
+            <SegmentedControl.Item value="fields">
+              <SegmentedControl.ItemText class="text-xs">Fields</SegmentedControl.ItemText>
+              <SegmentedControl.ItemHiddenInput />
+            </SegmentedControl.Item>
+            <SegmentedControl.Item value="url">
+              <SegmentedControl.ItemText class="text-xs">URL</SegmentedControl.ItemText>
+              <SegmentedControl.ItemHiddenInput />
+            </SegmentedControl.Item>
+          </SegmentedControl.Control>
+        </SegmentedControl>
+      </h2>
 
-      <div class="mb-6">
-        <div class="space-y-4">
-          <InatTaxonChooser bind:selectedId={taxonId} />
+      {#if filterMode === 'fields'}
+        <div class="mb-6">
+          <div class="space-y-4">
+            <InatTaxonChooser bind:selectedId={taxonId} />
 
-          <InatPlaceChooser bind:selectedId={placeId} />
+            <InatPlaceChooser bind:selectedId={placeId} />
 
-          <InatUserChooser bind:selectedId={userId} />
+            <InatUserChooser bind:selectedId={userId} />
 
-          <div>
-            <div class="block text-sm font-medium mb-2">
-              Observation Date Range
+            <div>
+              <div class="block text-sm font-medium mb-2">
+                Observation Date Range
+              </div>
+              <div class="space-y-2">
+                <label class="flex items-center w-fit">
+                  <input
+                    type="radio"
+                    name="observed-range"
+                    value="all"
+                    checked={observedDateRange === 'all'}
+                    onchange={() => observedDateRange = 'all'}
+                  />
+                  <span class="ml-2">All time</span>
+                </label>
+                <label class="flex items-center w-fit">
+                  <input
+                    type="radio"
+                    name="observed-range"
+                    value="custom"
+                    checked={observedDateRange === 'custom'}
+                    onchange={() => observedDateRange = 'custom'}
+                  />
+                  <span class="ml-2">Custom range</span>
+                </label>
+                {#if observedDateRange === 'custom'}
+                  <div class="ml-6 space-y-2">
+                    <div>
+                      <label for="observed-d1" class="block text-xs mb-1">From</label>
+                      <input
+                        id="observed-d1"
+                        type="date"
+                        class="input"
+                        bind:value={observedD1}
+                      />
+                    </div>
+                    <div>
+                      <label for="observed-d2" class="block text-xs mb-1">To</label>
+                      <input
+                        id="observed-d2"
+                        type="date"
+                        class="input"
+                        bind:value={observedD2}
+                      />
+                    </div>
+                  </div>
+                {/if}
+              </div>
             </div>
-            <div class="space-y-2">
-              <label class="flex items-center w-fit">
-                <input
-                  type="radio"
-                  name="observed-range"
-                  value="all"
-                  checked={observedDateRange === 'all'}
-                  onchange={() => observedDateRange = 'all'}
-                />
-                <span class="ml-2">All time</span>
-              </label>
-              <label class="flex items-center w-fit">
-                <input
-                  type="radio"
-                  name="observed-range"
-                  value="custom"
-                  checked={observedDateRange === 'custom'}
-                  onchange={() => observedDateRange = 'custom'}
-                />
-                <span class="ml-2">Custom range</span>
-              </label>
-              {#if observedDateRange === 'custom'}
-                <div class="ml-6 space-y-2">
-                  <div>
-                    <label for="observed-d1" class="block text-xs mb-1">From</label>
-                    <input
-                      id="observed-d1"
-                      type="date"
-                      class="input"
-                      bind:value={observedD1}
-                    />
-                  </div>
-                  <div>
-                    <label for="observed-d2" class="block text-xs mb-1">To</label>
-                    <input
-                      id="observed-d2"
-                      type="date"
-                      class="input"
-                      bind:value={observedD2}
-                    />
-                  </div>
-                </div>
-              {/if}
-            </div>
-          </div>
 
-          <div>
-            <div class="block text-sm font-medium mb-2">
-              Created Date Range
-            </div>
-            <div class="space-y-2">
-              <label class="flex items-center w-fit">
-                <input
-                  type="radio"
-                  name="created-range"
-                  value="all"
-                  checked={createdDateRange === 'all'}
-                  onchange={() => createdDateRange = 'all'}
-                />
-                <span class="ml-2">All time</span>
-              </label>
-              <label class="flex items-center w-fit">
-                <input
-                  type="radio"
-                  name="created-range"
-                  value="custom"
-                  checked={createdDateRange === 'custom'}
-                  onchange={() => createdDateRange = 'custom'}
-                />
-                <span class="ml-2">Custom range</span>
-              </label>
-              {#if createdDateRange === 'custom'}
-                <div class="ml-6 space-y-2">
-                  <div>
-                    <label for="created-d1" class="block text-xs mb-1">From</label>
-                    <input
-                      id="created-d1"
-                      type="date"
-                      class="input"
-                      bind:value={createdD1}
-                    />
+            <div>
+              <div class="block text-sm font-medium mb-2">
+                Created Date Range
+              </div>
+              <div class="space-y-2">
+                <label class="flex items-center w-fit">
+                  <input
+                    type="radio"
+                    name="created-range"
+                    value="all"
+                    checked={createdDateRange === 'all'}
+                    onchange={() => createdDateRange = 'all'}
+                  />
+                  <span class="ml-2">All time</span>
+                </label>
+                <label class="flex items-center w-fit">
+                  <input
+                    type="radio"
+                    name="created-range"
+                    value="custom"
+                    checked={createdDateRange === 'custom'}
+                    onchange={() => createdDateRange = 'custom'}
+                  />
+                  <span class="ml-2">Custom range</span>
+                </label>
+                {#if createdDateRange === 'custom'}
+                  <div class="ml-6 space-y-2">
+                    <div>
+                      <label for="created-d1" class="block text-xs mb-1">From</label>
+                      <input
+                        id="created-d1"
+                        type="date"
+                        class="input"
+                        bind:value={createdD1}
+                      />
+                    </div>
+                    <div>
+                      <label for="created-d2" class="block text-xs mb-1">To</label>
+                      <input
+                        id="created-d2"
+                        type="date"
+                        class="input"
+                        bind:value={createdD2}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label for="created-d2" class="block text-xs mb-1">To</label>
-                    <input
-                      id="created-d2"
-                      type="date"
-                      class="input"
-                      bind:value={createdD2}
-                    />
-                  </div>
-                </div>
-              {/if}
+                {/if}
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      {:else}
+        <div class="mb-6 space-y-3">
+          <label for="inat-url" class="block text-sm font-medium">
+            Paste an iNaturalist observations URL
+          </label>
+          <input
+            id="inat-url"
+            type="text"
+            class="input w-full"
+            placeholder="E.g. https://www.inaturalist.org/observations?taxon_id=47790"
+            bind:value={urlInput}
+            onblur={parseUrl}
+            onkeydown={(e) => { if (e.key === 'Enter') parseUrl(); }}
+          />
+          {#if urlParseError}
+            <p class="text-red-600 text-sm">Could not parse URL</p>
+          {:else if effectiveParams}
+            <div class="text-sm text-gray-600">
+              <span class="font-medium">Effective params:</span>
+              <code class="ml-1 break-all">{effectiveParams}</code>
+            </div>
+          {:else if urlInput}
+            <p class="text-gray-500 text-sm">No recognized parameters found</p>
+          {/if}
+        </div>
+      {/if}
     </li>
 
     <li>
