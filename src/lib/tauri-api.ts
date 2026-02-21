@@ -185,3 +185,10 @@ export async function exportKml(
 ): Promise<void> {
   return invoke('export_kml', { searchParams, path });
 }
+
+export async function exportDwca(
+  searchParams: SearchParams,
+  path: string,
+): Promise<void> {
+  return invoke('export_dwca', { searchParams, path });
+}

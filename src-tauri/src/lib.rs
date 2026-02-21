@@ -47,6 +47,7 @@ pub fn run() {
             commands::inat_auth::inat_get_jwt,
             commands::export::export_csv,
             commands::export::export_kml,
+            commands::export::export_dwca,
             basemap::commands::list_basemaps,
             basemap::commands::download_basemap,
             basemap::commands::download_regional_basemap,
@@ -71,9 +72,12 @@ pub fn run() {
 
             let export_csv_item = MenuItemBuilder::with_id("export-csv", "CSV...").build(app)?;
             let export_kml_item = MenuItemBuilder::with_id("export-kml", "KML...").build(app)?;
+            let export_dwca_item =
+                MenuItemBuilder::with_id("export-dwca", "DarwinCore Archive...").build(app)?;
             let export_submenu = SubmenuBuilder::new(app, "Export occurrences")
                 .item(&export_csv_item)
                 .item(&export_kml_item)
+                .item(&export_dwca_item)
                 .build()?;
 
             let download_item = MenuItemBuilder::with_id(
@@ -263,6 +267,8 @@ pub fn run() {
                     app.emit("menu-export-csv", ()).unwrap();
                 } else if event.id() == "export-kml" {
                     app.emit("menu-export-kml", ()).unwrap();
+                } else if event.id() == "export-dwca" {
+                    app.emit("menu-export-dwca", ()).unwrap();
                 } else if event.id() == "show-metadata" {
                     // Open new window for archive metadata
                     let window = tauri::WebviewWindowBuilder::new(

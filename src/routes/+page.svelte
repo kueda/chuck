@@ -7,6 +7,7 @@ import Filters from '$lib/components/Filters.svelte';
 import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
 import {
   exportCsv,
+  exportDwca,
   exportKml,
   getCurrentWebview,
   getCurrentWindow,
@@ -394,6 +395,15 @@ async function handleExportKml() {
   await exportKml(searchParams, path as string);
 }
 
+async function handleExportDwca() {
+  const path = await showSaveDialog({
+    defaultPath: 'occurrences.zip',
+    filters: [{ name: 'DarwinCore Archive', extensions: ['zip'] }],
+  });
+  if (!path) return;
+  await exportDwca(searchParams, path as string);
+}
+
 onMount(() => {
   invoke('current_archive')
     .then((result) => {
@@ -422,6 +432,11 @@ onMount(() => {
   let unlistenExportKml: (() => void) | undefined;
   listen('menu-export-kml', handleExportKml).then((fn) => {
     unlistenExportKml = fn;
+  });
+
+  let unlistenExportDwca: (() => void) | undefined;
+  listen('menu-export-dwca', handleExportDwca).then((fn) => {
+    unlistenExportDwca = fn;
   });
 
   // Listen for file association events (e.g. drop on Dock icon, "Open With")
@@ -512,6 +527,7 @@ onMount(() => {
     unlistenMenu?.();
     unlistenExportCsv?.();
     unlistenExportKml?.();
+    unlistenExportDwca?.();
     unlistenFileOpen?.();
     unlistenProgress?.();
     unlistenDragDrop?.();
@@ -571,6 +587,14 @@ onMount(() => {
           >
             <FileDown size={16} />
             KML
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm hover:preset-tonal text-sm"
+            onclick={handleExportDwca}
+          >
+            <FileDown size={16} />
+            DwC-A
           </button>
         </div>
       {/if}

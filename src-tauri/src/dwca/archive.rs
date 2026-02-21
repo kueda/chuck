@@ -26,6 +26,20 @@ pub struct ExtensionInfo {
     /// Field declarations from meta.xml: (column index, term name)
     /// Used to rename CSV columns to canonical term names during import
     pub fields: Vec<(usize, String)>,
+    /// Field delimiter parsed from fieldsTerminatedBy attribute (default: ',')
+    pub delimiter: char,
+}
+
+/// Parses the `fieldsTerminatedBy` XML attribute value into a delimiter char.
+/// DwC-A uses escape sequences like `\t` (literal two chars) for tab.
+pub(crate) fn parse_delimiter(attr: Option<&str>) -> char {
+    match attr {
+        Some(r"\t") => '\t',
+        Some(r"\n") => '\n',
+        Some(r"\\") => '\\',
+        Some(s) if s.len() == 1 => s.chars().next().unwrap_or(','),
+        _ => ',',
+    }
 }
 
 
@@ -83,7 +97,7 @@ impl Archive {
         progress_callback("extracting");
         extract_archive(archive_path, &storage_dir)?;
 
-        let (core_files, core_id_column, extensions) = parse_meta_xml(&storage_dir)?;
+        let (core_files, core_id_column, _, extensions) = parse_meta_xml(&storage_dir)?;
         log::debug!("extensions: {extensions:?}");
 
         // Create database from core files and extensions
@@ -150,7 +164,7 @@ impl Archive {
             .ok_or_else(|| ChuckError::NoArchiveFound(storage_dir.clone()))?;
 
         // Parse meta.xml to get extension information
-        let (_core_files, core_id_column, extensions) = parse_meta_xml(&storage_dir)?;
+        let (_core_files, core_id_column, _, extensions) = parse_meta_xml(&storage_dir)?;
 
         let db = Database::open(&db_path, core_id_column.clone(), &extensions)?;
 
@@ -215,6 +229,19 @@ impl Archive {
         limit: usize,
     ) -> Result<Vec<String>> {
         self.db.get_autocomplete_suggestions(column_name, search_term, limit)
+    }
+
+    /// Returns the extension table metadata (extension type + core ID column)
+    pub fn extension_tables(&self) -> &[(chuck_core::DwcaExtension, String)] {
+        self.db.extension_tables()
+    }
+
+    /// Returns all core IDs matching the given search params (for export filtering)
+    pub fn query_matching_ids(
+        &self,
+        search_params: SearchParams,
+    ) -> Result<std::collections::HashSet<String>> {
+        self.db.query_matching_ids(search_params)
     }
 
     /// Aggregates occurrences by a field (GROUP BY)
@@ -738,7 +765,9 @@ fn parse_core_id_column(node: Node, index_elt_name: &str) -> Option<String> {
     }
 }
 
-fn parse_meta_xml(storage_dir: &Path) -> Result<(Vec<PathBuf>, String, Vec<ExtensionInfo>)> {
+pub(crate) fn parse_meta_xml(
+    storage_dir: &Path,
+) -> Result<(Vec<PathBuf>, String, char, Vec<ExtensionInfo>)> {
     let meta_path = storage_dir.join("meta.xml");
     let contents = std::fs::read_to_string(&meta_path).map_err(|e| ChuckError::FileRead {
         path: meta_path.clone(),
@@ -775,6 +804,8 @@ fn parse_meta_xml(storage_dir: &Path) -> Result<(Vec<PathBuf>, String, Vec<Exten
         "occurrenceID".to_string()
     });
 
+    let core_delimiter = parse_delimiter(core_node.attribute("fieldsTerminatedBy"));
+
     // Parse extensions (only supported types)
     let extensions: Vec<ExtensionInfo> = doc
         .descendants()
@@ -797,6 +828,8 @@ fn parse_meta_xml(storage_dir: &Path) -> Result<(Vec<PathBuf>, String, Vec<Exten
             let ext_core_id_column = parse_core_id_column(ext_node, "coreid")
                 .ok_or_else(|| ChuckError::NoExtensionCoreId(row_type.to_string()));
 
+            let delimiter = parse_delimiter(ext_node.attribute("fieldsTerminatedBy"));
+
             // Extract field declarations: (index, term_name) for each <field>
             let fields: Vec<(usize, String)> = ext_node
                 .descendants()
@@ -818,11 +851,12 @@ fn parse_meta_xml(storage_dir: &Path) -> Result<(Vec<PathBuf>, String, Vec<Exten
                 extension,
                 core_id_column: ext_core_id_column.unwrap(),
                 fields,
+                delimiter,
             })
         })
         .collect();
 
-    Ok((core_files, core_id_column, extensions))
+    Ok((core_files, core_id_column, core_delimiter, extensions))
 }
 
 #[cfg(test)]
@@ -1001,7 +1035,7 @@ mod tests {
         let result = parse_meta_xml(fixture.dir());
         assert!(result.is_ok());
 
-        let (core_files, core_id_column, extensions) = result.unwrap();
+        let (core_files, core_id_column, _, extensions) = result.unwrap();
         assert_eq!(core_files.len(), 1);
         assert_eq!(
             core_files[0].file_name().unwrap(),
@@ -1030,7 +1064,7 @@ mod tests {
         let result = parse_meta_xml(fixture.dir());
         assert!(result.is_ok());
 
-        let (core_files, _core_id_column, extensions) = result.unwrap();
+        let (core_files, _core_id_column, _, extensions) = result.unwrap();
         assert_eq!(core_files.len(), 2);
         assert_eq!(
             core_files[0].file_name().unwrap(),
@@ -1098,7 +1132,7 @@ mod tests {
         let result = parse_meta_xml(fixture.dir());
         assert!(result.is_ok());
 
-        let (core_files, _core_id_column, extensions) = result.unwrap();
+        let (core_files, _core_id_column, _, extensions) = result.unwrap();
         assert_eq!(core_files.len(), 1);
         assert_eq!(extensions.len(), 3);
 
@@ -1172,7 +1206,7 @@ mod tests {
         let result = parse_meta_xml(fixture.dir());
         assert!(result.is_ok());
 
-        let (core_files, _core_id_column, extensions) = result.unwrap();
+        let (core_files, _core_id_column, _, extensions) = result.unwrap();
         assert_eq!(core_files.len(), 1);
 
         // Should only have 2 extensions (Multimedia and Identification)
@@ -1218,7 +1252,7 @@ mod tests {
         let result = parse_meta_xml(fixture.dir());
         assert!(result.is_ok());
 
-        let (core_files, core_id_column, extensions) = result.unwrap();
+        let (core_files, core_id_column, _, extensions) = result.unwrap();
         assert_eq!(core_files.len(), 1);
         assert_eq!(core_id_column, "gbifID");
         assert_eq!(extensions.len(), 1);

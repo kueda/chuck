@@ -428,6 +428,35 @@ impl Database {
         &self.conn
     }
 
+    /// Returns the extension table metadata
+    pub fn extension_tables(&self) -> &[(chuck_core::DwcaExtension, String)] {
+        &self.extension_tables
+    }
+
+    /// Returns the set of core IDs matching the given search params (for export filtering)
+    pub(crate) fn query_matching_ids(
+        &self,
+        search_params: SearchParams,
+    ) -> crate::error::Result<std::collections::HashSet<String>> {
+        let (_, where_clause, where_interpolations, _) =
+            Self::sql_parts(search_params, None, &self.core_id_column, &[]);
+
+        let quoted = Self::quote_identifier(&self.core_id_column);
+        let query = format!("SELECT {quoted} FROM occurrences{where_clause}");
+
+        let mut stmt = self.conn.prepare(&query)?;
+        let param_refs: Vec<&dyn duckdb::ToSql> =
+            where_interpolations.iter().map(|p| p.as_ref()).collect();
+
+        let rows = stmt.query_map(param_refs.as_slice(), |row| row.get::<_, String>(0))?;
+
+        let mut ids = std::collections::HashSet::new();
+        for row in rows {
+            ids.insert(row?);
+        }
+        Ok(ids)
+    }
+
     /// Helper to convert a DuckDB column value to serde_json::Value
     fn get_column_as_json(row: &Row, idx: usize) -> serde_json::Value {
         let col_type = row.as_ref().column_type(idx);
@@ -1382,6 +1411,7 @@ mod tests {
             extension: chuck_core::DwcaExtension::SimpleMultimedia,
             core_id_column: "occurrenceID".to_string(),
             fields: vec![],
+            delimiter: ',',
         }];
 
         // Create database with extensions
@@ -1470,6 +1500,7 @@ mod tests {
             extension: chuck_core::DwcaExtension::SimpleMultimedia,
             core_id_column: "occurrenceID".to_string(),
             fields: vec![],
+            delimiter: ',',
         }];
 
         // Create database
@@ -1605,6 +1636,7 @@ mod tests {
             extension: chuck_core::DwcaExtension::SimpleMultimedia,
             core_id_column: "occurrenceID".to_string(),
             fields: vec![],
+            delimiter: ',',
         }];
 
         let db = Database::create_from_core_files(
@@ -2141,6 +2173,7 @@ mod tests {
                 (1, "type".to_string()),
                 (2, "identifier".to_string()),
             ],
+            delimiter: ',',
         }];
 
         let result = Database::create_from_core_files(
