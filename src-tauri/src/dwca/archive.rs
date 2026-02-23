@@ -249,7 +249,7 @@ impl Archive {
         &self,
         field_name: &str,
         search_params: &SearchParams,
-        limit: usize,
+        limit: Option<usize>,
     ) -> Result<Vec<crate::db::AggregationResult>> {
         self.db.aggregate_by_field(field_name, search_params, limit, &self.core_id_column)
     }

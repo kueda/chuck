@@ -223,7 +223,7 @@ fn test_aggregate_by_field_with_audiovisual_extension() {
     let results = archive.aggregate_by_field(
         "scientificName",
         &SearchParams::default(),
-        10,
+        Some(10),
     ).unwrap();
 
     // Should have 3 distinct scientificName values
@@ -319,7 +319,7 @@ fn test_aggregate_by_field_with_mismatched_csv_headers() {
     let results = archive.aggregate_by_field(
         "scientificName",
         &SearchParams::default(),
-        10,
+        Some(10),
     ).unwrap();
 
     assert_eq!(results.len(), 2);

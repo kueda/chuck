@@ -1,10 +1,13 @@
 <script lang="ts">
+import { Menu, Portal } from '@skeletonlabs/skeleton-svelte';
 import { invoke } from '@tauri-apps/api/core';
+import { FileDown, Sheet } from 'lucide-svelte';
 import BottomControls from '$lib/components/BottomControls.svelte';
 import GroupRow from '$lib/components/GroupRow.svelte';
 import MediaItem from '$lib/components/MediaItem.svelte';
 import OccurrenceDrawer from '$lib/components/OccurrenceDrawer.svelte';
 import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
+import { exportGroupsCsv, showSaveDialog } from '$lib/tauri-api';
 import type { Occurrence } from '$lib/types/archive';
 import type { SearchParams } from '$lib/utils/filterCategories';
 
@@ -65,6 +68,16 @@ async function fetchAggregation() {
 function handleCountClick(value: string | null) {
   if (!selectedField) return;
   onCountClick(selectedField, value);
+}
+
+async function handleExportGroupsCsv() {
+  if (!selectedField) return;
+  const path = await showSaveDialog({
+    defaultPath: `${selectedField}_groups.csv`,
+    filters: [{ name: 'CSV', extensions: ['csv'] }],
+  });
+  if (!path) return;
+  await exportGroupsCsv(searchParams, selectedField, path as string);
 }
 
 // Automatically fetch when selectedField, searchParams, or currentView change
@@ -193,7 +206,26 @@ $effect(() => {
       </select>
     </div>
     <ViewSwitcher bind:view={currentView} views={['table', 'cards', 'rows']}/>
-    <div class="w-1/4 flex justify-end">&nbsp;</div>
+    <div class="w-1/4 flex justify-end">
+      <Menu onSelect={handleExportGroupsCsv}>
+        <Menu.Trigger class="btn hover:preset-tonal" disabled={!selectedField}>
+          <FileDown size={16} />
+          Export
+        </Menu.Trigger>
+        <Portal>
+          <Menu.Positioner>
+            <Menu.Content>
+              <Menu.Item value="csv">
+                <Menu.ItemText class="flex flex-row gap-1 items-center">
+                  <Sheet size={16} />
+                  CSV
+                </Menu.ItemText>
+              </Menu.Item>
+            </Menu.Content>
+          </Menu.Positioner>
+        </Portal>
+      </Menu>
+    </div>
   </BottomControls>
 </div>
 

@@ -917,7 +917,7 @@ impl Database {
         &self,
         field_name: &str,
         search_params: &SearchParams,
-        limit: usize,
+        limit: Option<usize>,
         core_id_column: &str,
     ) -> Result<Vec<AggregationResult>> {
         // Validate field name against allowlist to prevent SQL injection
@@ -1003,8 +1003,11 @@ impl Database {
         }
 
         // Build final query
+        let limit_clause = limit
+            .map(|n| format!(" LIMIT {n}"))
+            .unwrap_or_default();
         let sql = format!(
-            "SELECT DISTINCT ON (agg.value) agg.value, agg.count, {photo_select} as photo_url FROM ({subquery}) agg{joins} ORDER BY count DESC LIMIT {limit}"
+            "SELECT DISTINCT ON (agg.value) agg.value, agg.count, {photo_select} as photo_url FROM ({subquery}) agg{joins} ORDER BY count DESC{limit_clause}"
         );
         // log::debug!("sql: {sql}");
 
@@ -1963,7 +1966,7 @@ mod tests {
         let db = Database::open(&db_path, "".to_string(), &[]).unwrap();
 
         let params = SearchParams::default();
-        let result = db.aggregate_by_field("basisOfRecord", &params, 1000, "occurrenceID").unwrap();
+        let result = db.aggregate_by_field("basisOfRecord", &params, Some(1000), "occurrenceID").unwrap();
 
         assert_eq!(result.len(), 3);
         // First result should be HumanObservation with count 2 (highest count)
@@ -2001,18 +2004,18 @@ mod tests {
         let params = SearchParams::default();
 
         // Test that a valid field name works
-        let result = db.aggregate_by_field("basisOfRecord", &params, 1000, "occurrenceID");
+        let result = db.aggregate_by_field("basisOfRecord", &params, Some(1000), "occurrenceID");
         assert!(result.is_ok(), "Valid field name should succeed");
 
         // Test that an invalid field name (not in allowlist) is rejected
-        let result = db.aggregate_by_field("malicious_field", &params, 1000, "occurrenceID");
+        let result = db.aggregate_by_field("malicious_field", &params, Some(1000), "occurrenceID");
         assert!(result.is_err(), "Invalid field name should be rejected");
 
         // Test that SQL injection attempt is rejected
         let result = db.aggregate_by_field(
             "basisOfRecord; DROP TABLE occurrences; --",
             &params,
-            1000,
+            Some(1000),
             "occurrenceID"
         );
         assert!(result.is_err(), "SQL injection attempt should be rejected");
@@ -2081,7 +2084,7 @@ mod tests {
 
         // Test 4: Aggregate by "order" column
         let params = SearchParams::default();
-        let agg_result = db.aggregate_by_field("order", &params, 10, "occurrenceID").unwrap();
+        let agg_result = db.aggregate_by_field("order", &params, Some(10), "occurrenceID").unwrap();
         assert_eq!(agg_result.len(), 3); // Fagales, Pinales, Rosales
 
         // Verify Pinales appears in aggregation with count of 2

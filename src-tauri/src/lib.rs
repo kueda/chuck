@@ -48,6 +48,7 @@ pub fn run() {
             commands::export::export_csv,
             commands::export::export_kml,
             commands::export::export_dwca,
+            commands::export::export_groups_csv,
             basemap::commands::list_basemaps,
             basemap::commands::download_basemap,
             basemap::commands::download_regional_basemap,

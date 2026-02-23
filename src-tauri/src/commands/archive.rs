@@ -271,8 +271,14 @@ pub fn aggregate_by_field(
     search_params: SearchParams,
     limit: usize,
 ) -> Result<Vec<crate::db::AggregationResult>> {
-    let archive = Archive::current(&get_archives_dir(app)?)?;
-    archive.aggregate_by_field(&field_name, &search_params, limit)
+    let archive = Archive::current(&get_archives_dir(app)?).map_err(|e| {
+        log::error!("caught error opening current: {}, backtrace: {}", e, Backtrace::capture());
+        e
+    })?;
+    archive.aggregate_by_field(&field_name, &search_params, Some(limit)).map_err(|e| {
+        log::error!("caught aggregate_by_field error: {}, backtrace: {}", e, Backtrace::capture());
+        e
+    })
 }
 
 #[tauri::command]

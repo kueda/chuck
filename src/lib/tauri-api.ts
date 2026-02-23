@@ -192,3 +192,11 @@ export async function exportDwca(
 ): Promise<void> {
   return invoke('export_dwca', { searchParams, path });
 }
+
+export async function exportGroupsCsv(
+  searchParams: SearchParams,
+  fieldName: string,
+  path: string,
+): Promise<void> {
+  return invoke('export_groups_csv', { searchParams, fieldName, path });
+}
