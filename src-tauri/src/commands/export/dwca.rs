@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
 use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
@@ -153,25 +153,35 @@ fn build_filter_description(params: &SearchParams, count: usize) -> String {
 
 /// Filters a source CSV/TSV to only rows whose `id_column` value is in `ids`.
 /// The header row is always included. Returns the filtered bytes.
+///
+/// Streams the file line-by-line via BufReader to avoid loading large archives
+/// (potentially hundreds of MB) into memory all at once.
 fn filter_csv(
     source: &Path,
     delimiter: char,
     id_column: &str,
     ids: &HashSet<String>,
 ) -> Result<Vec<u8>> {
-    let raw = std::fs::read_to_string(source).map_err(|e| ChuckError::FileRead {
+    let file = std::fs::File::open(source).map_err(|e| ChuckError::FileRead {
         path: source.to_path_buf(),
         source: e,
     })?;
-    // Strip UTF-8 BOM (\u{FEFF}) — common in GBIF and iNat archives
-    let content = raw.strip_prefix('\u{FEFF}').unwrap_or(&raw);
+    let mut reader = BufReader::new(file);
 
-    let mut lines = content.lines();
+    let mut header_raw = String::new();
+    reader.read_line(&mut header_raw).map_err(|e| ChuckError::FileRead {
+        path: source.to_path_buf(),
+        source: e,
+    })?;
+    // Strip UTF-8 BOM (\u{FEFF}) and trailing newline — common in GBIF archives
+    let header_line = header_raw
+        .strip_prefix('\u{FEFF}')
+        .unwrap_or(&header_raw)
+        .trim_end_matches(['\n', '\r']);
 
-    let header_line = match lines.next() {
-        Some(l) => l,
-        None => return Err(ChuckError::CsvColumnNotFound(id_column.to_string())),
-    };
+    if header_line.is_empty() {
+        return Err(ChuckError::CsvColumnNotFound(id_column.to_string()));
+    }
 
     let headers = parse_csv_row(header_line, delimiter);
     let col_idx = headers
@@ -183,12 +193,15 @@ fn filter_csv(
     output.extend_from_slice(header_line.as_bytes());
     output.push(b'\n');
 
-    for line in lines {
+    for line_result in reader.lines() {
+        let line = line_result.map_err(|e| ChuckError::FileRead {
+            path: source.to_path_buf(),
+            source: e,
+        })?;
         if line.is_empty() {
             continue;
         }
-        let fields = parse_csv_row(line, delimiter);
-        if let Some(val) = fields.get(col_idx) {
+        if let Some(val) = extract_nth_field(&line, delimiter, col_idx) {
             if ids.contains(val.as_str()) {
                 output.extend_from_slice(line.as_bytes());
                 output.push(b'\n');
@@ -226,6 +239,45 @@ fn parse_csv_row(line: &str, delimiter: char) -> Vec<String> {
     }
     fields.push(current);
     fields
+}
+
+/// Extracts the value at `index` from a delimited row without allocating a
+/// full Vec. Stops parsing as soon as the target field is found, avoiding
+/// unnecessary work on rows with many columns (GBIF archives often have 200+).
+/// Returns `None` if the row has fewer fields than `index`.
+fn extract_nth_field(line: &str, delimiter: char, index: usize) -> Option<String> {
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut current_index = 0;
+    let mut chars = line.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        match c {
+            '"' if !in_quotes => in_quotes = true,
+            '"' if in_quotes => {
+                if chars.peek() == Some(&'"') {
+                    chars.next();
+                    current.push('"');
+                } else {
+                    in_quotes = false;
+                }
+            }
+            c if c == delimiter && !in_quotes => {
+                if current_index == index {
+                    return Some(current);
+                }
+                current_index += 1;
+                current.clear();
+            }
+            _ => current.push(c),
+        }
+    }
+
+    if current_index == index {
+        Some(current)
+    } else {
+        None
+    }
 }
 
 /// Collects relative photo paths from a (filtered) multimedia CSV/TSV.
@@ -522,37 +574,55 @@ fn parse_all_extensions_for_export(storage_dir: &Path) -> Result<Vec<ExtForExpor
 }
 
 /// Filters a file to only rows whose column at `coreid_index` is in `ids`.
+///
+/// Streams the file line-by-line via BufReader to avoid loading large archives
+/// (potentially hundreds of MB) into memory all at once.
 fn filter_csv_by_index(
     source: &Path,
     delimiter: char,
     coreid_index: usize,
     ids: &HashSet<String>,
 ) -> Result<Vec<u8>> {
-    let raw = std::fs::read_to_string(source).map_err(|e| ChuckError::FileRead {
+    let file = std::fs::File::open(source).map_err(|e| ChuckError::FileRead {
         path: source.to_path_buf(),
         source: e,
     })?;
-    let content = raw.strip_prefix('\u{FEFF}').unwrap_or(&raw);
-    let mut lines = content.lines();
-    let header_line = match lines.next() {
-        Some(l) => l,
-        None => return Ok(Vec::new()),
-    };
+    let mut reader = BufReader::new(file);
+
+    let mut header_raw = String::new();
+    reader.read_line(&mut header_raw).map_err(|e| ChuckError::FileRead {
+        path: source.to_path_buf(),
+        source: e,
+    })?;
+    let header_line = header_raw
+        .strip_prefix('\u{FEFF}')
+        .unwrap_or(&header_raw)
+        .trim_end_matches(['\n', '\r']);
+
+    if header_line.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let mut output = Vec::new();
     output.extend_from_slice(header_line.as_bytes());
     output.push(b'\n');
-    for line in lines {
+
+    for line_result in reader.lines() {
+        let line = line_result.map_err(|e| ChuckError::FileRead {
+            path: source.to_path_buf(),
+            source: e,
+        })?;
         if line.is_empty() {
             continue;
         }
-        let fields = parse_csv_row(line, delimiter);
-        if let Some(val) = fields.get(coreid_index) {
+        if let Some(val) = extract_nth_field(&line, delimiter, coreid_index) {
             if ids.contains(val.as_str()) {
                 output.extend_from_slice(line.as_bytes());
                 output.push(b'\n');
             }
         }
     }
+
     Ok(output)
 }
 
@@ -786,6 +856,35 @@ mod tests {
         assert!(result.is_err(), "should error when column not found");
 
         std::fs::remove_file(&path).ok();
+    }
+
+    // ── extract_nth_field ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_nth_field_basic() {
+        assert_eq!(extract_nth_field("a,b,c", ',', 0), Some("a".to_string()));
+        assert_eq!(extract_nth_field("a,b,c", ',', 1), Some("b".to_string()));
+        assert_eq!(extract_nth_field("a,b,c", ',', 2), Some("c".to_string()));
+        assert_eq!(extract_nth_field("a,b,c", ',', 3), None);
+    }
+
+    #[test]
+    fn test_extract_nth_field_quoted() {
+        assert_eq!(
+            extract_nth_field(r#""hello,world",b,c"#, ',', 0),
+            Some("hello,world".to_string())
+        );
+        assert_eq!(
+            extract_nth_field(r#""hello,world",b,c"#, ',', 1),
+            Some("b".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_nth_field_stops_early() {
+        // Should return the correct field without parsing the rest
+        let row = "id1\tfield2\tfield3\tfield4\tfield5";
+        assert_eq!(extract_nth_field(row, '\t', 0), Some("id1".to_string()));
     }
 
     // ── collect_photo_paths ───────────────────────────────────────────────────
