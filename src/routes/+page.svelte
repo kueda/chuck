@@ -1,8 +1,24 @@
 <script lang="ts">
-import { Dialog, Portal, Progress, Tabs } from '@skeletonlabs/skeleton-svelte';
+import {
+  Dialog,
+  Menu,
+  Popover,
+  Portal,
+  Progress,
+  Tabs,
+} from '@skeletonlabs/skeleton-svelte';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { Combine, FileDown, Grid3x3, Import } from 'lucide-svelte';
+import {
+  Combine,
+  FileDown,
+  Grid3x3,
+  Import,
+  Map as MapIcon,
+  Package,
+  Sheet,
+} from 'lucide-svelte';
 import { onMount } from 'svelte';
+import BottomControls from '$lib/components/BottomControls.svelte';
 import Filters from '$lib/components/Filters.svelte';
 import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
 import {
@@ -570,7 +586,7 @@ onMount(() => {
           {searchParams}
         />
       </div>
-      {#if archive}
+      <!-- {#if archive}
         <div class="flex justify-center items-center gap-2 absolute bottom-0 w-full bg-white p-2">
           <button
             type="button"
@@ -597,7 +613,7 @@ onMount(() => {
             DwC-A
           </button>
         </div>
-      {/if}
+      {/if} -->
     </aside>
     <main class="overflow-hidden w-full relative flex flex-col">
       <Tabs
@@ -617,7 +633,9 @@ onMount(() => {
           <Tabs.Indicator class="bg-surface-950-50" />
         </Tabs.List>
 
-        <Tabs.Content value="occurrences" class="flex-1 overflow-hidden">
+        <Tabs.Content value="occurrences" class="flex overflow-hidden flex-col grow">
+          <!-- <div class="bg-red-200 grow">hey</div>
+          <div class="bg-blue-200 shrink">now</div> -->
           <div class="h-full overflow-y-auto" bind:this={scrollElement} data-testid="occurrences-scroll-container">
             {#if currentView === 'table'}
               <Table
@@ -674,9 +692,101 @@ onMount(() => {
               />
             {/if}
           </div>
-          <div class="absolute bottom-10 right-10 z-10">
+          <BottomControls>
+            <div class="w-1/4">
+              {#if filteredTotal < archive.coreCount}
+                <strong>{filteredTotal}</strong> / {archive.coreCount} occurrences
+              {/if}
+            </div>
             <ViewSwitcher bind:view={currentView} {onViewChange} />
-          </div>
+            <div class="w-1/4 flex justify-end">
+              <Menu
+                onSelect={details => {
+                  switch (details.value) {
+                  case 'kml':
+                    handleExportKml();
+                    break;
+                  case 'dwca':
+                    handleExportDwca();
+                    break;
+                  default:
+                    handleExportCsv();
+                  }
+                }}
+              >
+                <Menu.Trigger class="btn hover:preset-tonal">
+                  <FileDown size={16} />
+                  Export
+                </Menu.Trigger>
+                <Portal>
+                  <Menu.Positioner>
+                    <Menu.Content>
+                      <Menu.Item value="csv">
+                        <Menu.ItemText class="flex flex-row gap-1 items-center">
+                          <Sheet size={16} />
+                          CSV
+                        </Menu.ItemText>
+                      </Menu.Item>
+                      <Menu.Item value="kml">
+                        <Menu.ItemText class="flex flex-row gap-1 items-center">
+                          <MapIcon size={16} />
+                          KML
+                        </Menu.ItemText>
+                      </Menu.Item>
+                      <Menu.Item value="dwca" title="DarwinCore Archive">
+                        <Menu.ItemText class="flex flex-row gap-1 items-center">
+                          <Package size={16} />
+                          DwC-A
+                        </Menu.ItemText>
+                      </Menu.Item>
+                    </Menu.Content>
+                  </Menu.Positioner>
+                </Portal>
+              </Menu>
+
+              <!-- <Popover>
+                <Popover.Trigger class="btn hover:preset-tonal">
+                  <FileDown size={16} />
+                  Export
+                </Popover.Trigger>
+                <Portal>
+                  <Popover.Positioner>
+                    <Popover.Content class="card max-w-md p-2 bg-white shadow-xl">
+                      <Popover.Description class="flex flex-col items-start">
+                        <button
+                          type="button"
+                          class="btn btn-sm hover:preset-tonal text-sm justify-start w-full"
+                          onclick={handleExportCsv}
+                        >
+                          <Sheet size={16} />
+                          CSV
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-sm hover:preset-tonal text-sm justify-start w-full"
+                          onclick={handleExportKml}
+                        >
+                          <MapIcon size={16} />
+                          KML
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-sm hover:preset-tonal text-sm justify-start w-full"
+                          onclick={handleExportDwca}
+                        >
+                          <Package size={16} />
+                          DwC-A
+                        </button>
+                      </Popover.Description>
+                      <Popover.Arrow class="[--arrow-size:--spacing(2)] [--arrow-background:var(--color-white)]">
+                        <Popover.ArrowTip />
+                      </Popover.Arrow>
+                    </Popover.Content>
+                  </Popover.Positioner>
+                </Portal>
+              </Popover> -->
+            </div>
+          </BottomControls>
         </Tabs.Content>
 
         <Tabs.Content value="groups" class="flex-1 overflow-auto">

@@ -24,7 +24,7 @@ test.describe('Groups Tab', () => {
     await openArchive(page);
 
     await page.click('button:has-text("Groups")');
-    await expect(page.locator('label:has-text("Group by:")')).toBeVisible();
+    await expect(page.locator('label:has-text("Group")')).toBeVisible();
     await expect(page.locator('select#group-by-field')).toBeVisible();
   });
 

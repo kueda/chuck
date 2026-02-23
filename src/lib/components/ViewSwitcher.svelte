@@ -20,10 +20,10 @@ let {
     return view = e.value || 'table';
   }}
 >
-  <SegmentedControl.Control class="bg-white shadow-lg">
+  <SegmentedControl.Control class="bg-white shadow-lg border-0 p-0 shadow-none">
     <SegmentedControl.Indicator />
     {#if views.includes('table')}
-      <SegmentedControl.Item value="table">
+      <SegmentedControl.Item value="table" class="hover:preset-tonal">
         <SegmentedControl.ItemText>
           <div class="flex flex-row gap-1 justify-center items-center">
             <Sheet size={20} />
@@ -34,7 +34,7 @@ let {
       </SegmentedControl.Item>
     {/if}
     {#if views.includes('cards')}
-      <SegmentedControl.Item value="cards">
+      <SegmentedControl.Item value="cards" class="hover:preset-tonal">
         <SegmentedControl.ItemText>
           <div class="flex flex-row gap-1 justify-center items-center">
             <BookImage size={20} />
@@ -45,7 +45,7 @@ let {
       </SegmentedControl.Item>
     {/if}
     {#if views.includes('map')}
-      <SegmentedControl.Item value="map">
+      <SegmentedControl.Item value="map" class="hover:preset-tonal">
         <SegmentedControl.ItemText>
           <div class="flex flex-row gap-1 justify-center items-center">
             <MapIcon size={20} />
