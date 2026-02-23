@@ -586,34 +586,6 @@ onMount(() => {
           {searchParams}
         />
       </div>
-      <!-- {#if archive}
-        <div class="flex justify-center items-center gap-2 absolute bottom-0 w-full bg-white p-2">
-          <button
-            type="button"
-            class="btn btn-sm hover:preset-tonal text-sm"
-            onclick={handleExportCsv}
-          >
-            <FileDown size={16} />
-            CSV
-          </button>
-          <button
-            type="button"
-            class="btn btn-sm hover:preset-tonal text-sm"
-            onclick={handleExportKml}
-          >
-            <FileDown size={16} />
-            KML
-          </button>
-          <button
-            type="button"
-            class="btn btn-sm hover:preset-tonal text-sm"
-            onclick={handleExportDwca}
-          >
-            <FileDown size={16} />
-            DwC-A
-          </button>
-        </div>
-      {/if} -->
     </aside>
     <main class="overflow-hidden w-full relative flex flex-col">
       <Tabs
@@ -634,8 +606,6 @@ onMount(() => {
         </Tabs.List>
 
         <Tabs.Content value="occurrences" class="flex overflow-hidden flex-col grow">
-          <!-- <div class="bg-red-200 grow">hey</div>
-          <div class="bg-blue-200 shrink">now</div> -->
           <div class="h-full overflow-y-auto" bind:this={scrollElement} data-testid="occurrences-scroll-container">
             {#if currentView === 'table'}
               <Table
@@ -743,48 +713,6 @@ onMount(() => {
                   </Menu.Positioner>
                 </Portal>
               </Menu>
-
-              <!-- <Popover>
-                <Popover.Trigger class="btn hover:preset-tonal">
-                  <FileDown size={16} />
-                  Export
-                </Popover.Trigger>
-                <Portal>
-                  <Popover.Positioner>
-                    <Popover.Content class="card max-w-md p-2 bg-white shadow-xl">
-                      <Popover.Description class="flex flex-col items-start">
-                        <button
-                          type="button"
-                          class="btn btn-sm hover:preset-tonal text-sm justify-start w-full"
-                          onclick={handleExportCsv}
-                        >
-                          <Sheet size={16} />
-                          CSV
-                        </button>
-                        <button
-                          type="button"
-                          class="btn btn-sm hover:preset-tonal text-sm justify-start w-full"
-                          onclick={handleExportKml}
-                        >
-                          <MapIcon size={16} />
-                          KML
-                        </button>
-                        <button
-                          type="button"
-                          class="btn btn-sm hover:preset-tonal text-sm justify-start w-full"
-                          onclick={handleExportDwca}
-                        >
-                          <Package size={16} />
-                          DwC-A
-                        </button>
-                      </Popover.Description>
-                      <Popover.Arrow class="[--arrow-size:--spacing(2)] [--arrow-background:var(--color-white)]">
-                        <Popover.ArrowTip />
-                      </Popover.Arrow>
-                    </Popover.Content>
-                  </Popover.Positioner>
-                </Portal>
-              </Popover> -->
             </div>
           </BottomControls>
         </Tabs.Content>

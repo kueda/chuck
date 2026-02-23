@@ -732,15 +732,19 @@ pub(super) fn export_dwca_inner(
         let rel = rel.replace('\\', "/");
         let filtered = if ext.location.exists() {
             // Prefer filtering by column name (handles old-format archives with
-            // a separate blank coreid column). Fall back to index if the name
-            // isn't present in the header.
+            // a separate blank coreid column). Fall back to index only when the
+            // column name isn't present in the header — any other error (I/O,
+            // etc.) is propagated immediately so it isn't silently swallowed.
             filter_csv(&ext.location, ext.delimiter, &ext.coreid_col_name, &matching_ids)
-                .or_else(|_| filter_csv_by_index(
-                    &ext.location,
-                    ext.delimiter,
-                    ext.coreid_index,
-                    &matching_ids,
-                ))?
+                .or_else(|e| match e {
+                    ChuckError::CsvColumnNotFound(_) => filter_csv_by_index(
+                        &ext.location,
+                        ext.delimiter,
+                        ext.coreid_index,
+                        &matching_ids,
+                    ),
+                    other => Err(other),
+                })?
         } else {
             Vec::new()
         };
