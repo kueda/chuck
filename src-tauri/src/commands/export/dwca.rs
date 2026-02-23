@@ -1,15 +1,12 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
-use serde_json::{Map, Value};
-
-use crate::commands::archive::get_archives_dir;
-use crate::db::AggregationResult;
-use crate::dwca::{parse_delimiter, parse_meta_xml, Archive};
 use roxmltree;
+
+use crate::dwca::{parse_delimiter, parse_meta_xml, Archive};
 use crate::error::{ChuckError, Result};
 use crate::search_params::SearchParams;
 
@@ -366,7 +363,9 @@ fn modify_eml(eml: &str, params: &SearchParams, count: usize) -> String {
                                 state.inside_abstract = false;
                                 state.abstract_seen = true;
                             }
-                            "geographicDescription" if state.inside_geo_coverage && has_bbox => {
+                            "geographicDescription"
+                                if state.inside_geo_coverage && has_bbox =>
+                            {
                                 let geo_text = format!(
                                     " (bounding box N={}/S={}/E={}/W={})",
                                     params.nelat.as_deref().unwrap_or(""),
@@ -406,7 +405,9 @@ fn modify_eml(eml: &str, params: &SearchParams, count: usize) -> String {
                                     if !state.geo_coverage_seen && has_bbox {
                                         write_geo_block(&mut writer, params);
                                     }
-                                    if !state.taxonomic_coverage_seen && !tax_filters.is_empty() {
+                                    if !state.taxonomic_coverage_seen
+                                        && !tax_filters.is_empty()
+                                    {
                                         write_full_tax_block(&mut writer, &tax_filters);
                                     }
                                 }
@@ -442,161 +443,13 @@ fn modify_eml(eml: &str, params: &SearchParams, count: usize) -> String {
     String::from_utf8(writer.into_inner()).unwrap_or_default()
 }
 
-// ─── Tauri commands ──────────────────────────────────────────────────────────
-
-/// Escapes XML special characters in a string
-fn xml_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
-
-/// Builds a KML string from a slice of occurrence rows
-fn build_kml(rows: &[Map<String, Value>], core_id_column: &str) -> String {
-    let mut placemarks = String::new();
-
-    for row in rows {
-        let lat = match row.get("decimalLatitude").and_then(|v| v.as_f64()) {
-            Some(v) => v,
-            None => continue,
-        };
-        let lng = match row.get("decimalLongitude").and_then(|v| v.as_f64()) {
-            Some(v) => v,
-            None => continue,
-        };
-
-        let name = row
-            .get("scientificName")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(xml_escape)
-            .or_else(|| {
-                row.get(core_id_column).map(|v| {
-                    xml_escape(v.as_str().unwrap_or(&v.to_string()))
-                })
-            })
-            .unwrap_or_default();
-
-        // Build ExtendedData from all non-null, non-empty scalar fields
-        // Sort keys for deterministic output
-        let sorted: BTreeMap<&str, &Value> = row
-            .iter()
-            .map(|(k, v)| (k.as_str(), v))
-            .collect();
-
-        let mut extended_data = String::new();
-        for (key, value) in &sorted {
-            match value {
-                Value::Null => continue,
-                Value::Array(_) | Value::Object(_) => continue,
-                Value::String(s) if s.is_empty() => continue,
-                _ => {
-                    let display = match value {
-                        Value::String(s) => xml_escape(s),
-                        other => xml_escape(&other.to_string()),
-                    };
-                    extended_data.push_str(&format!(
-                        "      <Data name=\"{}\"><value>{}</value></Data>\n",
-                        xml_escape(key),
-                        display,
-                    ));
-                }
-            }
-        }
-
-        placemarks.push_str(&format!(
-            "  <Placemark>\n    <name>{name}</name>\n    <Point><coordinates>{lng},{lat},0</coordinates></Point>\n    <ExtendedData>\n{extended_data}    </ExtendedData>\n  </Placemark>\n"
-        ));
-    }
-
-    format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<kml xmlns=\"http://www.opengis.net/kml/2.2\">\n<Document>\n{placemarks}</Document>\n</kml>\n"
-    )
-}
-
-/// Escapes a CSV field value per RFC 4180
-fn csv_escape(s: &str) -> String {
-    if s.contains(',') || s.contains('"') || s.contains('\n') {
-        format!("\"{}\"", s.replace('"', "\"\""))
-    } else {
-        s.to_string()
-    }
-}
-
-/// Builds a CSV string from a slice of occurrence rows
-fn build_csv(rows: &[Map<String, Value>]) -> String {
-    let columns: BTreeSet<String> = rows
-        .iter()
-        .flat_map(|row| row.keys().cloned())
-        .collect();
-
-    let mut output = String::new();
-
-    // Header row
-    let header: Vec<String> = columns.iter().map(|c| csv_escape(c)).collect();
-    output.push_str(&header.join(","));
-    output.push('\n');
-
-    // Data rows
-    for row in rows {
-        let fields: Vec<String> = columns
-            .iter()
-            .map(|col| match row.get(col) {
-                None | Some(Value::Null) => String::new(),
-                Some(Value::String(s)) => csv_escape(s),
-                Some(other) => csv_escape(&other.to_string()),
-            })
-            .collect();
-        output.push_str(&fields.join(","));
-        output.push('\n');
-    }
-
-    output
-}
-
-/// Exports filtered occurrences as a CSV file
-#[tauri::command]
-pub fn export_csv(
-    app: tauri::AppHandle,
-    search_params: SearchParams,
-    path: String,
-) -> Result<()> {
-    let archive = Archive::current(&get_archives_dir(app)?)?;
-    let rows = archive.query_all_occurrences(search_params)?;
-    let csv = build_csv(&rows);
-    let dest = PathBuf::from(&path);
-    std::fs::write(&dest, csv).map_err(|source| ChuckError::FileWrite {
-        path: dest,
-        source,
-    })
-}
-
-/// Exports filtered occurrences as a KML file
-#[tauri::command]
-pub fn export_kml(
-    app: tauri::AppHandle,
-    search_params: SearchParams,
-    path: String,
-) -> Result<()> {
-    let archive = Archive::current(&get_archives_dir(app)?)?;
-    let core_id_column = archive.core_id_column.clone();
-    let rows = archive.query_all_occurrences(search_params)?;
-    let kml = build_kml(&rows, &core_id_column);
-    let dest = PathBuf::from(&path);
-    std::fs::write(&dest, kml).map_err(|source| ChuckError::FileWrite {
-        path: dest,
-        source,
-    })
-}
-
 /// Minimal extension info needed for export (covers all rowTypes, not just
 /// those loaded into DuckDB).
 struct ExtForExport {
     location: PathBuf,
     /// Column name of the core-ID foreign key, derived from the field declaration
     /// at the coreid index. In old-format archives a separate blank `coreid`/`id`
-    /// column precedes the declared fields, so the raw index points at that blank
+    /// column precedes the indexed fields, so the raw index points at that blank
     /// column. Looking up the column by name avoids that trap.
     coreid_col_name: String,
     /// Raw column index from `<coreid index="N"/>` — used as a fallback when the
@@ -703,7 +556,7 @@ fn filter_csv_by_index(
     Ok(output)
 }
 
-fn export_dwca_inner(
+pub(super) fn export_dwca_inner(
     archives_dir: PathBuf,
     search_params: SearchParams,
     path: String,
@@ -871,63 +724,10 @@ fn export_dwca_inner(
     Ok(())
 }
 
-/// Builds a CSV string from aggregation results, using the field name as the
-/// first column header and `occurrence_count` as the second.
-fn build_groups_csv(field_name: &str, rows: &[AggregationResult]) -> String {
-    let mut output = String::new();
-    output.push_str(&csv_escape(field_name));
-    output.push_str(",occurrence_count\n");
-    for row in rows {
-        let value = row.value.as_deref().unwrap_or("");
-        output.push_str(&csv_escape(value));
-        output.push(',');
-        output.push_str(&row.count.to_string());
-        output.push('\n');
-    }
-    output
-}
-
-/// Exports aggregated group counts as a CSV file
-#[tauri::command]
-pub fn export_groups_csv(
-    app: tauri::AppHandle,
-    search_params: SearchParams,
-    field_name: String,
-    path: String,
-) -> Result<()> {
-    let archive = Archive::current(&get_archives_dir(app)?)?;
-    let rows = archive.aggregate_by_field(&field_name, &search_params, None)?;
-    let csv = build_groups_csv(&field_name, &rows);
-    let dest = PathBuf::from(&path);
-    std::fs::write(&dest, csv).map_err(|source| ChuckError::FileWrite {
-        path: dest,
-        source,
-    })
-}
-
-/// Exports filtered occurrences as a DarwinCore Archive ZIP.
-#[tauri::command]
-pub fn export_dwca(
-    app: tauri::AppHandle,
-    search_params: SearchParams,
-    path: String,
-) -> Result<()> {
-    export_dwca_inner(get_archives_dir(app)?, search_params, path)
-}
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-    use std::collections::HashSet;
-
-    fn make_row(fields: &[(&str, serde_json::Value)]) -> Map<String, serde_json::Value> {
-        fields.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
-    }
-
-    // ── filter_csv ────────────────────────────────────────────────────────────
 
     fn write_temp_csv(name: &str, content: &[u8]) -> PathBuf {
         let path = std::env::temp_dir().join(format!("chuck_test_filter_csv_{name}.csv"));
@@ -935,6 +735,8 @@ mod tests {
         f.write_all(content).unwrap();
         path
     }
+
+    // ── filter_csv ────────────────────────────────────────────────────────────
 
     #[test]
     fn test_filter_csv_filters_rows_by_id() {
@@ -1122,95 +924,6 @@ mod tests {
             result.contains("Genus"),
             "should include rank name: {result}"
         );
-    }
-
-    // ── build_csv / build_kml (existing tests kept) ───────────────────────────
-
-    #[test]
-    fn test_build_csv_writes_header_and_rows() {
-        let rows = vec![
-            make_row(&[
-                ("occurrenceID", json!("abc-1")),
-                ("scientificName", json!("Homo sapiens")),
-            ]),
-            make_row(&[
-                ("occurrenceID", json!("abc-2")),
-                ("scientificName", json!("Canis lupus")),
-            ]),
-        ];
-        let csv = build_csv(&rows);
-        let lines: Vec<&str> = csv.lines().collect();
-        assert_eq!(lines[0], "occurrenceID,scientificName");
-        assert_eq!(lines[1], "abc-1,Homo sapiens");
-        assert_eq!(lines[2], "abc-2,Canis lupus");
-    }
-
-    #[test]
-    fn test_build_csv_escapes_commas_and_quotes() {
-        let rows = vec![make_row(&[
-            ("name", json!("Smith, John")),
-            ("note", json!("said \"hello\"")),
-        ])];
-        let csv = build_csv(&rows);
-        let lines: Vec<&str> = csv.lines().collect();
-        assert_eq!(lines[1], "\"Smith, John\",\"said \"\"hello\"\"\"");
-    }
-
-    #[test]
-    fn test_build_csv_uses_empty_string_for_null_or_missing() {
-        let rows = vec![
-            make_row(&[
-                ("a", json!("present")),
-                ("b", serde_json::Value::Null),
-            ]),
-            make_row(&[("a", json!("only_a"))]),
-        ];
-        let csv = build_csv(&rows);
-        let lines: Vec<&str> = csv.lines().collect();
-        assert_eq!(lines[0], "a,b");
-        assert_eq!(lines[1], "present,");
-        assert_eq!(lines[2], "only_a,");
-    }
-
-    #[test]
-    fn test_build_kml_includes_placemarks_with_coordinates() {
-        let rows = vec![make_row(&[
-            ("decimalLatitude", json!(37.5)),
-            ("decimalLongitude", json!(-122.0)),
-            ("scientificName", json!("Homo sapiens")),
-        ])];
-        let kml = build_kml(&rows, "occurrenceID");
-        assert!(kml.contains("<Placemark>"));
-        assert!(kml.contains("<name>Homo sapiens</name>"));
-        assert!(kml.contains("<coordinates>-122,37.5,0</coordinates>"));
-    }
-
-    #[test]
-    fn test_build_kml_skips_occurrences_without_coordinates() {
-        let rows = vec![
-            make_row(&[
-                ("decimalLatitude", json!(37.5)),
-                ("scientificName", json!("With lat only")),
-            ]),
-            make_row(&[
-                ("decimalLongitude", json!(-122.0)),
-                ("scientificName", json!("With lng only")),
-            ]),
-            make_row(&[("scientificName", json!("No coords"))]),
-        ];
-        let kml = build_kml(&rows, "occurrenceID");
-        assert!(!kml.contains("<Placemark>"));
-    }
-
-    #[test]
-    fn test_build_kml_uses_core_id_as_name_when_no_scientific_name() {
-        let rows = vec![make_row(&[
-            ("decimalLatitude", json!(10.0)),
-            ("decimalLongitude", json!(20.0)),
-            ("occurrenceID", json!("abc-123")),
-        ])];
-        let kml = build_kml(&rows, "occurrenceID");
-        assert!(kml.contains("<name>abc-123</name>"));
     }
 
     // ── export_dwca_inner ─────────────────────────────────────────────────────
@@ -1748,62 +1461,5 @@ mod tests {
 
         std::fs::remove_dir_all(&base_dir).ok();
         std::fs::remove_file(&output_path).ok();
-    }
-
-    // ── build_groups_csv ─────────────────────────────────────────────────────
-
-    fn make_agg(value: Option<&str>, count: i64) -> AggregationResult {
-        AggregationResult { value: value.map(|s| s.to_string()), count, photo_url: None }
-    }
-
-    #[test]
-    fn test_build_groups_csv_writes_header_and_rows() {
-        let rows = vec![
-            make_agg(Some("Homo sapiens"), 12),
-            make_agg(Some("Canis lupus"), 3),
-        ];
-        let csv = build_groups_csv("scientificName", &rows);
-        let lines: Vec<&str> = csv.lines().collect();
-        assert_eq!(lines[0], "scientificName,occurrence_count");
-        assert_eq!(lines[1], "Homo sapiens,12");
-        assert_eq!(lines[2], "Canis lupus,3");
-    }
-
-    #[test]
-    fn test_build_groups_csv_handles_null_value() {
-        let rows = vec![make_agg(None, 5)];
-        let csv = build_groups_csv("scientificName", &rows);
-        let lines: Vec<&str> = csv.lines().collect();
-        assert_eq!(lines[0], "scientificName,occurrence_count");
-        assert_eq!(lines[1], ",5");
-    }
-
-    #[test]
-    fn test_build_groups_csv_escapes_commas_in_values() {
-        let rows = vec![make_agg(Some("Smith, Jane"), 2)];
-        let csv = build_groups_csv("recordedBy", &rows);
-        let lines: Vec<&str> = csv.lines().collect();
-        assert_eq!(lines[1], "\"Smith, Jane\",2");
-    }
-
-    #[test]
-    fn test_build_groups_csv_empty_results() {
-        let csv = build_groups_csv("scientificName", &[]);
-        let lines: Vec<&str> = csv.lines().collect();
-        assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0], "scientificName,occurrence_count");
-    }
-
-    #[test]
-    fn test_build_kml_escapes_xml_special_chars() {
-        let rows = vec![make_row(&[
-            ("decimalLatitude", json!(1.0)),
-            ("decimalLongitude", json!(2.0)),
-            ("scientificName", json!("A & B <species>")),
-            ("occurrenceRemarks", json!("note with \"quotes\"")),
-        ])];
-        let kml = build_kml(&rows, "occurrenceID");
-        assert!(kml.contains("A &amp; B &lt;species&gt;"));
-        assert!(kml.contains("note with &quot;quotes&quot;"));
     }
 }
