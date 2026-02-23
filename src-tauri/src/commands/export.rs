@@ -593,7 +593,13 @@ pub fn export_kml(
 /// those loaded into DuckDB).
 struct ExtForExport {
     location: PathBuf,
-    /// Column index (0-based) of the core-ID foreign key (`<coreid index="N"/>`)
+    /// Column name of the core-ID foreign key, derived from the field declaration
+    /// at the coreid index. In old-format archives a separate blank `coreid`/`id`
+    /// column precedes the declared fields, so the raw index points at that blank
+    /// column. Looking up the column by name avoids that trap.
+    coreid_col_name: String,
+    /// Raw column index from `<coreid index="N"/>` — used as a fallback when the
+    /// column name cannot be found in the CSV header.
     coreid_index: usize,
     delimiter: char,
     row_type: String,
@@ -628,9 +634,35 @@ fn parse_all_extensions_for_export(storage_dir: &Path) -> Result<Vec<ExtForExpor
                 .and_then(|n| n.attribute("index"))
                 .and_then(|s| s.parse::<usize>().ok())
                 .unwrap_or(0);
+            // Resolve the column NAME by looking up the <field> whose index
+            // matches the coreid index. Old-format archives have a separate
+            // blank `coreid` column *before* the indexed fields, so the raw
+            // index 0 would point at that blank column; the declared field at
+            // the same index gives us the correct column name (e.g. occurrenceID).
+            let coreid_col_name = ext_node
+                .descendants()
+                .filter(|n| n.has_tag_name("field"))
+                .find(|field_node| {
+                    field_node
+                        .attribute("index")
+                        .and_then(|idx| idx.parse::<usize>().ok())
+                        == Some(coreid_index)
+                })
+                .and_then(|field_node| field_node.attribute("term"))
+                .and_then(|term| {
+                    term.rsplit('/').next().or_else(|| term.rsplit('#').next())
+                })
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "coreid".to_string());
             let delimiter =
                 parse_delimiter(ext_node.attribute("fieldsTerminatedBy"));
-            Some(ExtForExport { location, coreid_index, delimiter, row_type })
+            Some(ExtForExport {
+                location,
+                coreid_col_name,
+                coreid_index,
+                delimiter,
+                row_type,
+            })
         })
         .collect())
 }
@@ -775,12 +807,16 @@ fn export_dwca_inner(
             });
         let rel = rel.replace('\\', "/");
         let filtered = if ext.location.exists() {
-            filter_csv_by_index(
-                &ext.location,
-                ext.delimiter,
-                ext.coreid_index,
-                &matching_ids,
-            )?
+            // Prefer filtering by column name (handles old-format archives with
+            // a separate blank coreid column). Fall back to index if the name
+            // isn't present in the header.
+            filter_csv(&ext.location, ext.delimiter, &ext.coreid_col_name, &matching_ids)
+                .or_else(|_| filter_csv_by_index(
+                    &ext.location,
+                    ext.delimiter,
+                    ext.coreid_index,
+                    &matching_ids,
+                ))?
         } else {
             Vec::new()
         };
@@ -1401,6 +1437,282 @@ mod tests {
 
         assert!(content.contains("Quercus agrifolia"), "should keep matching row");
         assert!(!content.contains("Pinus ponderosa"), "should exclude non-matching row");
+    }
+
+    #[test]
+    fn test_export_dwca_identification_csv_contains_data_rows() {
+        // Reproduces bug: identification.csv in export was empty (header only).
+        // The occurrence IDs in identification.csv must match what DuckDB returns
+        // for the core occurrence IDs.
+        use crate::db::Database;
+
+        let test_name = "export_dwca_identification_data";
+        let base_dir =
+            std::env::temp_dir().join(format!("chuck_test_export_dwca_{test_name}"));
+        std::fs::remove_dir_all(&base_dir).ok();
+        let storage_dir = base_dir.join("test_archive.zip-abc123");
+        std::fs::create_dir_all(&storage_dir).unwrap();
+
+        // Simulate a chuck-generated archive where occurrenceID is a URL
+        let occ_id1 = "https://www.inaturalist.org/observations/123";
+        let occ_id2 = "https://www.inaturalist.org/observations/456";
+
+        let meta_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<archive xmlns="http://rs.tdwg.org/dwc/text/">
+  <core encoding="UTF-8" fieldsTerminatedBy="," fieldsEnclosedBy="&quot;"
+        ignoreHeaderLines="1" rowType="http://rs.tdwg.org/dwc/terms/Occurrence">
+    <files><location>occurrence.csv</location></files>
+    <id index="0"/>
+    <field index="0" term="http://rs.tdwg.org/dwc/terms/occurrenceID"/>
+    <field index="1" term="http://rs.tdwg.org/dwc/terms/scientificName"/>
+  </core>
+  <extension encoding="UTF-8" fieldsTerminatedBy="," fieldsEnclosedBy="&quot;"
+             ignoreHeaderLines="1" rowType="http://rs.tdwg.org/dwc/terms/Identification">
+    <files><location>identification.csv</location></files>
+    <coreid index="0"/>
+    <field index="0" term="http://rs.tdwg.org/dwc/terms/occurrenceID"/>
+    <field index="1" term="http://rs.tdwg.org/dwc/terms/identificationID"/>
+    <field index="2" term="http://rs.tdwg.org/dwc/terms/scientificName"/>
+  </extension>
+</archive>"#;
+
+        let occurrence_csv = format!(
+            "occurrenceID,scientificName\n{occ_id1},Quercus agrifolia\n{occ_id2},Pinus ponderosa\n"
+        );
+        let identification_csv = format!(
+            "occurrenceID,identificationID,scientificName\n\
+             {occ_id1},id1,Quercus agrifolia\n\
+             {occ_id1},id2,Quercus robur\n\
+             {occ_id2},id3,Pinus ponderosa\n"
+        );
+
+        std::fs::write(storage_dir.join("meta.xml"), meta_xml).unwrap();
+        std::fs::write(storage_dir.join("occurrence.csv"), occurrence_csv.as_bytes()).unwrap();
+        std::fs::write(
+            storage_dir.join("identification.csv"),
+            identification_csv.as_bytes(),
+        ).unwrap();
+
+        let db_path = storage_dir.join("test_archive.db");
+        let db = Database::create_from_core_files(
+            &[storage_dir.join("occurrence.csv")],
+            &[],
+            &db_path,
+            "occurrenceID",
+        ).unwrap();
+        drop(db);
+
+        let output_path =
+            std::env::temp_dir().join(format!("chuck_test_{test_name}_output.zip"));
+        export_dwca_inner(
+            base_dir.clone(),
+            SearchParams::default(),
+            output_path.to_string_lossy().to_string(),
+        ).unwrap();
+
+        let file = std::fs::File::open(&output_path).unwrap();
+        let mut zip = zip::ZipArchive::new(file).unwrap();
+        let names: Vec<String> = (0..zip.len())
+            .map(|i| zip.by_index(i).unwrap().name().to_string())
+            .collect();
+        assert!(
+            names.contains(&"identification.csv".to_string()),
+            "ZIP should contain identification.csv, got: {names:?}"
+        );
+
+        let mut ident = zip.by_name("identification.csv").unwrap();
+        let mut content = String::new();
+        std::io::Read::read_to_string(&mut ident, &mut content).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert!(
+            lines.len() > 1,
+            "identification.csv should have header + data rows, got {} lines: {content:?}",
+            lines.len()
+        );
+        assert!(content.contains("id1"), "should contain identification id1");
+        assert!(content.contains("id3"), "should contain identification id3");
+
+        std::fs::remove_dir_all(&base_dir).ok();
+        std::fs::remove_file(&output_path).ok();
+    }
+
+    #[test]
+    fn test_export_dwca_identification_filtered_by_occurrence() {
+        // When a filter is applied, identification rows must only include rows
+        // for occurrences that pass the filter (not all occurrences).
+        use crate::db::Database;
+
+        let test_name = "export_dwca_identification_filtered";
+        let base_dir =
+            std::env::temp_dir().join(format!("chuck_test_export_dwca_{test_name}"));
+        std::fs::remove_dir_all(&base_dir).ok();
+        let storage_dir = base_dir.join("test_archive.zip-abc123");
+        std::fs::create_dir_all(&storage_dir).unwrap();
+
+        let meta_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<archive xmlns="http://rs.tdwg.org/dwc/text/">
+  <core encoding="UTF-8" fieldsTerminatedBy="," fieldsEnclosedBy="&quot;"
+        ignoreHeaderLines="1" rowType="http://rs.tdwg.org/dwc/terms/Occurrence">
+    <files><location>occurrence.csv</location></files>
+    <id index="0"/>
+    <field index="0" term="http://rs.tdwg.org/dwc/terms/occurrenceID"/>
+    <field index="1" term="http://rs.tdwg.org/dwc/terms/scientificName"/>
+  </core>
+  <extension encoding="UTF-8" fieldsTerminatedBy="," fieldsEnclosedBy="&quot;"
+             ignoreHeaderLines="1" rowType="http://rs.tdwg.org/dwc/terms/Identification">
+    <files><location>identification.csv</location></files>
+    <coreid index="0"/>
+    <field index="0" term="http://rs.tdwg.org/dwc/terms/occurrenceID"/>
+    <field index="1" term="http://rs.tdwg.org/dwc/terms/identificationID"/>
+    <field index="2" term="http://rs.tdwg.org/dwc/terms/scientificName"/>
+  </extension>
+</archive>"#;
+
+        let occurrence_csv =
+            b"occurrenceID,scientificName\nobs1,Quercus agrifolia\nobs2,Pinus ponderosa\n";
+        let identification_csv =
+            b"occurrenceID,identificationID,scientificName\n\
+              obs1,id1,Quercus agrifolia\n\
+              obs1,id2,Quercus robur\n\
+              obs2,id3,Pinus ponderosa\n";
+
+        std::fs::write(storage_dir.join("meta.xml"), meta_xml).unwrap();
+        std::fs::write(storage_dir.join("occurrence.csv"), occurrence_csv).unwrap();
+        std::fs::write(storage_dir.join("identification.csv"), identification_csv).unwrap();
+
+        let db_path = storage_dir.join("test_archive.db");
+        let db = Database::create_from_core_files(
+            &[storage_dir.join("occurrence.csv")],
+            &[],
+            &db_path,
+            "occurrenceID",
+        ).unwrap();
+        drop(db);
+
+        // Filter to only Quercus (obs1); obs2 should be excluded
+        let mut params = SearchParams::default();
+        params.filters.insert("scientificName".to_string(), "Quercus agrifolia".to_string());
+
+        let output_path =
+            std::env::temp_dir().join(format!("chuck_test_{test_name}_output.zip"));
+        export_dwca_inner(
+            base_dir.clone(),
+            params,
+            output_path.to_string_lossy().to_string(),
+        ).unwrap();
+
+        let file = std::fs::File::open(&output_path).unwrap();
+        let mut zip = zip::ZipArchive::new(file).unwrap();
+
+        let mut ident = zip.by_name("identification.csv").unwrap();
+        let mut content = String::new();
+        std::io::Read::read_to_string(&mut ident, &mut content).unwrap();
+
+        // obs1 has identifications id1 and id2
+        assert!(
+            content.contains("id1"),
+            "should contain id1 (obs1 identification): {content:?}"
+        );
+        assert!(
+            content.contains("id2"),
+            "should contain id2 (obs1 identification): {content:?}"
+        );
+        // obs2 was filtered out, so id3 should not be present
+        assert!(
+            !content.contains("id3"),
+            "should not contain id3 (obs2 identification was filtered): {content:?}"
+        );
+
+        std::fs::remove_dir_all(&base_dir).ok();
+        std::fs::remove_file(&output_path).ok();
+    }
+
+    #[test]
+    fn test_export_dwca_identification_old_format_separate_coreid_column() {
+        // Some archives (including chuck's older output) write a separate blank
+        // `coreid` column at position 0, then declare fields starting at index 0
+        // pointing to occurrenceID in the second column. filter_csv_by_index was
+        // reading column 0 (always empty), never matching anything in matching_ids.
+        // The fix: look up the coreid column by NAME (from the field declaration)
+        // rather than by raw index.
+        use crate::db::Database;
+
+        let test_name = "export_dwca_old_coreid_format";
+        let base_dir =
+            std::env::temp_dir().join(format!("chuck_test_export_dwca_{test_name}"));
+        std::fs::remove_dir_all(&base_dir).ok();
+        let storage_dir = base_dir.join("test_archive.zip-abc123");
+        std::fs::create_dir_all(&storage_dir).unwrap();
+
+        // Old-style meta.xml: <coreid index="0"/> AND <field index="0" term="...occurrenceID"/>
+        // both claim index 0, but the CSV has a SEPARATE `coreid` column before the fields.
+        let meta_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<archive xmlns="http://rs.tdwg.org/dwc/text/">
+  <core encoding="UTF-8" fieldsTerminatedBy="," fieldsEnclosedBy="&quot;"
+        ignoreHeaderLines="1" rowType="http://rs.tdwg.org/dwc/terms/Occurrence">
+    <files><location>occurrence.csv</location></files>
+    <id index="0"/>
+    <field index="0" term="http://rs.tdwg.org/dwc/terms/occurrenceID"/>
+    <field index="1" term="http://rs.tdwg.org/dwc/terms/scientificName"/>
+  </core>
+  <extension encoding="UTF-8" fieldsTerminatedBy="," fieldsEnclosedBy="&quot;"
+             ignoreHeaderLines="1" rowType="http://rs.tdwg.org/dwc/terms/Identification">
+    <files><location>identification.csv</location></files>
+    <coreid index="0"/>
+    <field index="0" term="http://rs.tdwg.org/dwc/terms/occurrenceID"/>
+    <field index="1" term="http://rs.tdwg.org/dwc/terms/identificationID"/>
+    <field index="2" term="http://rs.tdwg.org/dwc/terms/scientificName"/>
+  </extension>
+</archive>"#;
+
+        // Old-style occurrence CSV: blank `id` column first, then occurrenceID
+        let occurrence_csv =
+            b"id,occurrenceID,scientificName\n,obs1,Quercus agrifolia\n,obs2,Pinus ponderosa\n";
+        // Old-style identification CSV: blank `coreid` column first, then occurrenceID
+        let identification_csv =
+            b"coreid,occurrenceID,identificationID,scientificName\n\
+              ,obs1,id1,Quercus agrifolia\n\
+              ,obs1,id2,Quercus robur\n\
+              ,obs2,id3,Pinus ponderosa\n";
+
+        std::fs::write(storage_dir.join("meta.xml"), meta_xml).unwrap();
+        std::fs::write(storage_dir.join("occurrence.csv"), occurrence_csv).unwrap();
+        std::fs::write(storage_dir.join("identification.csv"), identification_csv).unwrap();
+
+        let db_path = storage_dir.join("test_archive.db");
+        let db = Database::create_from_core_files(
+            &[storage_dir.join("occurrence.csv")],
+            &[],
+            &db_path,
+            "occurrenceID",
+        ).unwrap();
+        drop(db);
+
+        let output_path =
+            std::env::temp_dir().join(format!("chuck_test_{test_name}_output.zip"));
+        export_dwca_inner(
+            base_dir.clone(),
+            SearchParams::default(),
+            output_path.to_string_lossy().to_string(),
+        ).unwrap();
+
+        let file = std::fs::File::open(&output_path).unwrap();
+        let mut zip = zip::ZipArchive::new(file).unwrap();
+
+        let mut ident = zip.by_name("identification.csv").unwrap();
+        let mut content = String::new();
+        std::io::Read::read_to_string(&mut ident, &mut content).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert!(
+            lines.len() > 1,
+            "identification.csv should have header + data rows (old coreid format), \
+             got {} lines: {content:?}",
+            lines.len()
+        );
+        assert!(content.contains("id1"), "should contain identification id1");
+
+        std::fs::remove_dir_all(&base_dir).ok();
+        std::fs::remove_file(&output_path).ok();
     }
 
     #[test]
