@@ -30,6 +30,7 @@ keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync
 log = { workspace = true }
 rayon = "1.10"
 reqwest = { version = "0.12.24", features = ["json", "stream"] }
+quick-xml = "0.37"
 roxmltree = "0.20"
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -47,3 +48,6 @@ pointy = "0.4"
 url = "2.5.7"
 filetime = "0.2"
 pmtiles = { version = "0.19", default-features = false, features = ["mmap-async-tokio", "http-async", "write", "reqwest-rustls"] }
+
+[dev-dependencies]
+tempfile = "3"

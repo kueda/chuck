@@ -19,7 +19,7 @@ test.describe('Groups Tab - Count Click', () => {
     await page.waitForTimeout(500);
 
     // Verify we're on Groups tab
-    await expect(page.getByText('Group by:')).toBeVisible();
+    await expect(page.locator('label:has-text("Group")')).toBeVisible();
 
     // Verify default grouping is by scientificName
     const groupBySelect = page.locator('select#group-by-field');

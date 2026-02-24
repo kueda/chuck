@@ -46,6 +46,10 @@ pub fn run() {
             commands::inat_auth::inat_get_auth_status,
             commands::inat_auth::inat_sign_out,
             commands::inat_auth::inat_get_jwt,
+            commands::export::export_csv,
+            commands::export::export_kml,
+            commands::export::export_dwca,
+            commands::export::export_groups_csv,
             basemap::commands::list_basemaps,
             basemap::commands::download_basemap,
             basemap::commands::download_regional_basemap,
@@ -67,6 +71,16 @@ pub fn run() {
             let open_item = MenuItemBuilder::with_id("open", "Open...")
                 .accelerator("CmdOrCtrl+O")
                 .build(app)?;
+
+            let export_csv_item = MenuItemBuilder::with_id("export-csv", "CSV...").build(app)?;
+            let export_kml_item = MenuItemBuilder::with_id("export-kml", "KML...").build(app)?;
+            let export_dwca_item =
+                MenuItemBuilder::with_id("export-dwca", "DarwinCore Archive...").build(app)?;
+            let export_submenu = SubmenuBuilder::new(app, "Export occurrences")
+                .item(&export_csv_item)
+                .item(&export_kml_item)
+                .item(&export_dwca_item)
+                .build()?;
 
             let download_item = MenuItemBuilder::with_id(
                 "download-from-inaturalist",
@@ -142,6 +156,7 @@ pub fn run() {
                     && text == "File"
                 {
                     submenu.prepend(&open_item)?;
+                    submenu.append(&export_submenu)?;
                     file_submenu_exists = true;
                     break;
                 }
@@ -151,6 +166,7 @@ pub fn run() {
             if !file_submenu_exists {
                 let file_submenu = SubmenuBuilder::new(app, "File")
                     .item(&open_item)
+                    .item(&export_submenu)
                     .build()?;
                 menu.insert(&file_submenu, 0)?;
             }
@@ -249,6 +265,12 @@ pub fn run() {
                             "Failed to open offline basemaps window: {e}"
                         );
                     }
+                } else if event.id() == "export-csv" {
+                    app.emit("menu-export-csv", ()).unwrap();
+                } else if event.id() == "export-kml" {
+                    app.emit("menu-export-kml", ()).unwrap();
+                } else if event.id() == "export-dwca" {
+                    app.emit("menu-export-dwca", ()).unwrap();
                 } else if event.id() == "show-metadata" {
                     // Open new window for archive metadata
                     let window = tauri::WebviewWindowBuilder::new(

@@ -428,6 +428,35 @@ impl Database {
         &self.conn
     }
 
+    /// Returns the extension table metadata
+    pub fn extension_tables(&self) -> &[(chuck_core::DwcaExtension, String)] {
+        &self.extension_tables
+    }
+
+    /// Returns the set of core IDs matching the given search params (for export filtering)
+    pub(crate) fn query_matching_ids(
+        &self,
+        search_params: SearchParams,
+    ) -> crate::error::Result<std::collections::HashSet<String>> {
+        let (_, where_clause, where_interpolations, _) =
+            Self::sql_parts(search_params, None, &self.core_id_column, &[]);
+
+        let quoted = Self::quote_identifier(&self.core_id_column);
+        let query = format!("SELECT {quoted} FROM occurrences{where_clause}");
+
+        let mut stmt = self.conn.prepare(&query)?;
+        let param_refs: Vec<&dyn duckdb::ToSql> =
+            where_interpolations.iter().map(|p| p.as_ref()).collect();
+
+        let rows = stmt.query_map(param_refs.as_slice(), |row| row.get::<_, String>(0))?;
+
+        let mut ids = std::collections::HashSet::new();
+        for row in rows {
+            ids.insert(row?);
+        }
+        Ok(ids)
+    }
+
     /// Helper to convert a DuckDB column value to serde_json::Value
     fn get_column_as_json(row: &Row, idx: usize) -> serde_json::Value {
         let col_type = row.as_ref().column_type(idx);
@@ -797,6 +826,51 @@ impl Database {
         })
     }
 
+    /// Calls `f` once per occurrence matching `search_params`, in query order.
+    /// Column names are extracted from the executed statement before the first
+    /// call so the caller can write headers without a separate query.
+    /// Avoids materialising all rows in memory — suitable for large exports.
+    pub(crate) fn for_each_occurrence<F>(
+        &self,
+        search_params: SearchParams,
+        mut f: F,
+    ) -> Result<()>
+    where
+        F: FnMut(&[String], serde_json::Map<String, serde_json::Value>) -> Result<()>,
+    {
+        let (select_fields, where_clause, where_interpolations, order_clause) =
+            Self::sql_parts(search_params, None, &self.core_id_column, &[]);
+
+        let select_query = format!(
+            "SELECT {select_fields} FROM occurrences{where_clause}{order_clause}"
+        );
+
+        let mut stmt = self.conn.prepare(&select_query)?;
+        let param_refs: Vec<&dyn duckdb::ToSql> = where_interpolations
+            .iter()
+            .map(|p| p.as_ref())
+            .collect();
+
+        let mut rows = stmt.query(param_refs.as_slice())?;
+
+        // Column names are available from the executed statement before iterating.
+        let column_names: Vec<String> = rows
+            .as_ref()
+            .map(|s| s.column_names())
+            .unwrap_or_default();
+
+        while let Some(row) = rows.next()? {
+            let mut map = serde_json::Map::new();
+            for (i, name) in column_names.iter().enumerate() {
+                let value = Self::get_column_as_json(row, i);
+                map.insert(name.clone(), value);
+            }
+            f(&column_names, map)?;
+        }
+
+        Ok(())
+    }
+
     /// Get autocomplete suggestions for a column
     pub fn get_autocomplete_suggestions(
         &self,
@@ -842,7 +916,7 @@ impl Database {
         &self,
         field_name: &str,
         search_params: &SearchParams,
-        limit: usize,
+        limit: Option<usize>,
         core_id_column: &str,
     ) -> Result<Vec<AggregationResult>> {
         // Validate field name against allowlist to prevent SQL injection
@@ -928,8 +1002,11 @@ impl Database {
         }
 
         // Build final query
+        let limit_clause = limit
+            .map(|n| format!(" LIMIT {n}"))
+            .unwrap_or_default();
         let sql = format!(
-            "SELECT DISTINCT ON (agg.value) agg.value, agg.count, {photo_select} as photo_url FROM ({subquery}) agg{joins} ORDER BY count DESC LIMIT {limit}"
+            "SELECT DISTINCT ON (agg.value) agg.value, agg.count, {photo_select} as photo_url FROM ({subquery}) agg{joins} ORDER BY count DESC{limit_clause}"
         );
         // log::debug!("sql: {sql}");
 
@@ -1336,6 +1413,7 @@ mod tests {
             extension: chuck_core::DwcaExtension::SimpleMultimedia,
             core_id_column: "occurrenceID".to_string(),
             fields: vec![],
+            delimiter: ',',
         }];
 
         // Create database with extensions
@@ -1424,6 +1502,7 @@ mod tests {
             extension: chuck_core::DwcaExtension::SimpleMultimedia,
             core_id_column: "occurrenceID".to_string(),
             fields: vec![],
+            delimiter: ',',
         }];
 
         // Create database
@@ -1559,6 +1638,7 @@ mod tests {
             extension: chuck_core::DwcaExtension::SimpleMultimedia,
             core_id_column: "occurrenceID".to_string(),
             fields: vec![],
+            delimiter: ',',
         }];
 
         let db = Database::create_from_core_files(
@@ -1885,7 +1965,7 @@ mod tests {
         let db = Database::open(&db_path, "".to_string(), &[]).unwrap();
 
         let params = SearchParams::default();
-        let result = db.aggregate_by_field("basisOfRecord", &params, 1000, "occurrenceID").unwrap();
+        let result = db.aggregate_by_field("basisOfRecord", &params, Some(1000), "occurrenceID").unwrap();
 
         assert_eq!(result.len(), 3);
         // First result should be HumanObservation with count 2 (highest count)
@@ -1923,18 +2003,18 @@ mod tests {
         let params = SearchParams::default();
 
         // Test that a valid field name works
-        let result = db.aggregate_by_field("basisOfRecord", &params, 1000, "occurrenceID");
+        let result = db.aggregate_by_field("basisOfRecord", &params, Some(1000), "occurrenceID");
         assert!(result.is_ok(), "Valid field name should succeed");
 
         // Test that an invalid field name (not in allowlist) is rejected
-        let result = db.aggregate_by_field("malicious_field", &params, 1000, "occurrenceID");
+        let result = db.aggregate_by_field("malicious_field", &params, Some(1000), "occurrenceID");
         assert!(result.is_err(), "Invalid field name should be rejected");
 
         // Test that SQL injection attempt is rejected
         let result = db.aggregate_by_field(
             "basisOfRecord; DROP TABLE occurrences; --",
             &params,
-            1000,
+            Some(1000),
             "occurrenceID"
         );
         assert!(result.is_err(), "SQL injection attempt should be rejected");
@@ -2003,7 +2083,7 @@ mod tests {
 
         // Test 4: Aggregate by "order" column
         let params = SearchParams::default();
-        let agg_result = db.aggregate_by_field("order", &params, 10, "occurrenceID").unwrap();
+        let agg_result = db.aggregate_by_field("order", &params, Some(10), "occurrenceID").unwrap();
         assert_eq!(agg_result.len(), 3); // Fagales, Pinales, Rosales
 
         // Verify Pinales appears in aggregation with count of 2
@@ -2095,6 +2175,7 @@ mod tests {
                 (1, "type".to_string()),
                 (2, "identifier".to_string()),
             ],
+            delimiter: ',',
         }];
 
         let result = Database::create_from_core_files(

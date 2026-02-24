@@ -1,9 +1,17 @@
 <script lang="ts">
-import { invoke } from '@tauri-apps/api/core';
+import { Menu, Portal } from '@skeletonlabs/skeleton-svelte';
+import { FileDown, Sheet } from 'lucide-svelte';
+import BottomControls from '$lib/components/BottomControls.svelte';
 import GroupRow from '$lib/components/GroupRow.svelte';
 import MediaItem from '$lib/components/MediaItem.svelte';
 import OccurrenceDrawer from '$lib/components/OccurrenceDrawer.svelte';
 import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
+import type { AggregationResult } from '$lib/tauri-api';
+import {
+  aggregateByField,
+  exportGroupsCsv,
+  showSaveDialog,
+} from '$lib/tauri-api';
 import type { Occurrence } from '$lib/types/archive';
 import type { SearchParams } from '$lib/utils/filterCategories';
 
@@ -23,12 +31,6 @@ const {
   onCountClick,
 }: Props = $props();
 
-interface AggregationResult {
-  count: number;
-  photoUrl?: string | null;
-  value: string | null;
-}
-
 const AGGREGATION_LIMIT = 1000;
 
 let selectedField = $state(defaultSelectedField);
@@ -47,11 +49,11 @@ async function fetchAggregation() {
   error = null;
 
   try {
-    const data = await invoke<AggregationResult[]>('aggregate_by_field', {
-      fieldName: selectedField,
+    const data = await aggregateByField(
+      selectedField,
       searchParams,
-      limit: AGGREGATION_LIMIT,
-    });
+      AGGREGATION_LIMIT,
+    );
     results = data;
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
@@ -64,6 +66,16 @@ async function fetchAggregation() {
 function handleCountClick(value: string | null) {
   if (!selectedField) return;
   onCountClick(selectedField, value);
+}
+
+async function handleExportGroupsCsv() {
+  if (!selectedField) return;
+  const path = await showSaveDialog({
+    defaultPath: `${selectedField}_groups.csv`,
+    filters: [{ name: 'CSV', extensions: ['csv'] }],
+  });
+  if (!path) return;
+  await exportGroupsCsv(searchParams, selectedField, path as string);
 }
 
 // Automatically fetch when selectedField, searchParams, or currentView change
@@ -79,137 +91,140 @@ $effect(() => {
 });
 </script>
 
-<div class="flex h-full flex-col gap-4 p-4">
-  <div
-    class="
-      absolute
-      bottom-10
-      start-10
-      z-10
-      flex
-      items-center
-      gap-2
-
-      bg-white
-      shadow-lg
-      p-2
-      border-1
-      border-gray-300
-      rounded
-      text-nowrap
-    "
-  >
-    <label for="group-by-field" class="text-sm font-medium">Group by:</label>
-    <select
-      id="group-by-field"
-      bind:value={selectedField}
-      class="select max-w-xs"
-    >
-      <option value="">Select a field...</option>
-      {#each varcharFields as field}
-        <option value={field}>{field}</option>
-      {/each}
-    </select>
-  </div>
-
-  <div class="absolute bottom-10 right-10 z-10">
-    <ViewSwitcher bind:view={currentView} views={['table', 'cards', 'rows']} />
-  </div>
-
-  {#if loading}
-    <div class="flex items-center justify-center p-8">
-      <span class="text-surface-500">Loading aggregation...</span>
-    </div>
-  {:else if error}
-    <div class="alert preset-filled-error">
-      <p>Error: {error}</p>
-    </div>
-  {:else if results.length > 0}
-    {#if currentView === 'table'}
-      <div class="table-container">
-        <table class="table table-hover">
-          <thead>
-            <tr>
-              <th>Field Value</th>
-              <th class="text-end!">Occurrences</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each results as result}
+<div class="flex h-full flex-col">
+  <div class="h-full overflow-y-auto gap-4 p-4">
+    {#if loading}
+      <div class="flex items-center justify-center p-8">
+        <span class="text-surface-500">Loading aggregation...</span>
+      </div>
+    {:else if error}
+      <div class="alert preset-filled-error">
+        <p>Error: {error}</p>
+      </div>
+    {:else if results.length > 0}
+      {#if currentView === 'table'}
+        <div class="table-container">
+          <table class="table table-hover">
+            <thead>
               <tr>
-                <!-- Display NULL/empty values as "None" -->
-                <td>{result.value ?? 'None'}</td>
-                <td class="text-right">
-                  <button
-                    type="button"
-                    class="btn btn-sm hover:preset-tonal-primary"
-                    onclick={() => handleCountClick(result.value)}
-                  >
-                    {result.count.toLocaleString()}
-                  </button>
-                </td>
+                <th>Field Value</th>
+                <th class="text-end!">Occurrences</th>
               </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-    {:else if currentView === 'cards'}
-      <div class="grid gap-4 grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-        {#each results as result}
-          <div
-            class="card preset-filled-surface-100-900 border-surface-200-800
-            rounded-md border-2 divide-surface-200-800 w-full divide-y flex flex-col"
-          >
-            <header class="rounded-t-sm">
-              <div class="h-[200px] preset-filled-surface-200-800 flex justify-center items-center relative">
-                <MediaItem multimediaItem={result.photoUrl ? { identifier: result.photoUrl, occurrenceID: '' } : undefined} />
-              </div>
-            </header>
-            <article class="space-y-2 p-3">
-              <div class="font-medium text-base truncate">
-                {result.value || "[None]"}
-              </div>
-            </article>
-            <footer class="flex flex-col">
-              <button
-                type="button"
-                class="w-full text-sm text-surface-600-400 truncate border-2
-                border-surface-200-800 grid grid-cols-2 hover:bg-surface-100"
-                onclick={() => handleCountClick(result.value)}
-              >
-                <div class="p-1 text-center bg-surface-200-800">Occurrences</div>
-                <div class="p-1 text-center">{result.count.toLocaleString()}</div>
-              </button>
-            </footer>
-          </div>
-        {/each}
-      </div>
-    {:else}
-      <div class="grid gap-4 grid-cols-1">
-        {#each results as result}
-          <GroupRow
-            groupValue={result.value}
-            groupCount={result.count}
-            {searchParams}
-            fieldName={selectedField}
-            onClick={occ => {
-              if (!coreIdColumn) return;
-              const coreId = occ[coreIdColumn as keyof Occurrence];
-              if (typeof (coreId) === 'string' || typeof (coreId) === 'number') {
-                selectedOccurrenceId = coreId;
-                drawerOpen = true;
-              }
-            }}
-            onCountClick={() => handleCountClick(result.value)}
-          />
-        {/each}
+            </thead>
+            <tbody>
+              {#each results as result}
+                <tr>
+                  <!-- Display NULL/empty values as "None" -->
+                  <td>{result.value ?? 'None'}</td>
+                  <td class="text-right">
+                    <button
+                      type="button"
+                      class="btn btn-sm hover:preset-tonal-primary"
+                      onclick={() => handleCountClick(result.value)}
+                    >
+                      {result.count.toLocaleString()}
+                    </button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {:else if currentView === 'cards'}
+        <div class="grid gap-4 grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+          {#each results as result}
+            <div
+              class="card preset-filled-surface-100-900 border-surface-200-800
+              rounded-md border-2 divide-surface-200-800 w-full divide-y flex flex-col"
+            >
+              <header class="rounded-t-sm">
+                <div class="h-[200px] preset-filled-surface-200-800 flex justify-center items-center relative">
+                  <MediaItem multimediaItem={result.photoUrl ? { identifier: result.photoUrl, occurrenceID: '' } : undefined} />
+                </div>
+              </header>
+              <article class="space-y-2 p-3">
+                <div class="font-medium text-base truncate">
+                  {result.value || "[None]"}
+                </div>
+              </article>
+              <footer class="flex flex-col">
+                <button
+                  type="button"
+                  class="w-full text-sm text-surface-600-400 truncate border-2
+                  border-surface-200-800 grid grid-cols-2 hover:bg-surface-100"
+                  onclick={() => handleCountClick(result.value)}
+                >
+                  <div class="p-1 text-center bg-surface-200-800">Occurrences</div>
+                  <div class="p-1 text-center">{result.count.toLocaleString()}</div>
+                </button>
+              </footer>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <div class="grid gap-4 grid-cols-1">
+          {#each results as result}
+            <GroupRow
+              groupValue={result.value}
+              groupCount={result.count}
+              {searchParams}
+              fieldName={selectedField}
+              onClick={occ => {
+                if (!coreIdColumn) return;
+                const coreId = occ[coreIdColumn as keyof Occurrence];
+                if (typeof (coreId) === 'string' || typeof (coreId) === 'number') {
+                  selectedOccurrenceId = coreId;
+                  drawerOpen = true;
+                }
+              }}
+              onCountClick={() => handleCountClick(result.value)}
+            />
+          {/each}
+        </div>
+      {/if}
+    {:else if selectedField}
+      <div class="flex items-center justify-center p-8">
+        <span class="text-surface-500">No results found</span>
       </div>
     {/if}
-  {:else if selectedField}
-    <div class="flex items-center justify-center p-8">
-      <span class="text-surface-500">No results found</span>
+  </div>
+
+  <BottomControls>
+    <div class="w-1/4 flex items-center gap-2 text-nowrap text-sm">
+      <label for="group-by-field" class="font-medium">Group</label>
+      <select
+        id="group-by-field"
+        bind:value={selectedField}
+        class="select max-w-xs text-sm"
+      >
+        <option value="">Select a field...</option>
+        {#each varcharFields as field}
+          <option value={field}>{field}</option>
+        {/each}
+      </select>
     </div>
-  {/if}
+    <ViewSwitcher bind:view={currentView} views={['table', 'cards', 'rows']}/>
+    <div class="w-1/4 flex justify-end">
+      <Menu onSelect={handleExportGroupsCsv}>
+        <Menu.Trigger class="btn hover:preset-tonal" disabled={!selectedField}>
+          <FileDown size={16} />
+          Export
+        </Menu.Trigger>
+        <Portal>
+          <Menu.Positioner>
+            <Menu.Content>
+              <Menu.Item value="csv">
+                <Menu.ItemText class="flex flex-row gap-1 items-center">
+                  <Sheet size={16} />
+                  CSV
+                </Menu.ItemText>
+              </Menu.Item>
+            </Menu.Content>
+          </Menu.Positioner>
+        </Portal>
+      </Menu>
+    </div>
+  </BottomControls>
 </div>
 
 <OccurrenceDrawer

@@ -151,7 +151,6 @@ onMount(async () => {
       const coreId = feature.properties?.core_id;
 
       if (coreId) {
-        console.log(`clicked occ ${coreId}`);
         // Create temporary occurrence object for handler
         const occurrence = { [coreIdColumn]: coreId } as Occurrence;
         drawerHandlers.handleOccurrenceClick(occurrence, 0);

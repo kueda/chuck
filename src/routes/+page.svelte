@@ -1,16 +1,36 @@
 <script lang="ts">
-import { Dialog, Portal, Progress, Tabs } from '@skeletonlabs/skeleton-svelte';
+import {
+  Dialog,
+  Menu,
+  Popover,
+  Portal,
+  Progress,
+  Tabs,
+} from '@skeletonlabs/skeleton-svelte';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { Combine, Grid3x3, Import } from 'lucide-svelte';
+import {
+  Combine,
+  FileDown,
+  Grid3x3,
+  Import,
+  Map as MapIcon,
+  Package,
+  Sheet,
+} from 'lucide-svelte';
 import { onMount } from 'svelte';
+import BottomControls from '$lib/components/BottomControls.svelte';
 import Filters from '$lib/components/Filters.svelte';
 import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
 import {
+  exportCsv,
+  exportDwca,
+  exportKml,
   getCurrentWebview,
   getCurrentWindow,
   invoke,
   listen,
   showOpenDialog,
+  showSaveDialog,
 } from '$lib/tauri-api';
 import type { ArchiveInfo, Occurrence, SearchResult } from '$lib/types/archive';
 import type { SearchParams } from '$lib/utils/filterCategories';
@@ -373,6 +393,33 @@ async function openArchive() {
   await openArchiveFromPath(path as string);
 }
 
+async function handleExportCsv() {
+  const path = await showSaveDialog({
+    defaultPath: 'occurrences.csv',
+    filters: [{ name: 'CSV', extensions: ['csv'] }],
+  });
+  if (!path) return;
+  await exportCsv(searchParams, path as string);
+}
+
+async function handleExportKml() {
+  const path = await showSaveDialog({
+    defaultPath: 'occurrences.kml',
+    filters: [{ name: 'KML', extensions: ['kml'] }],
+  });
+  if (!path) return;
+  await exportKml(searchParams, path as string);
+}
+
+async function handleExportDwca() {
+  const path = await showSaveDialog({
+    defaultPath: 'occurrences.zip',
+    filters: [{ name: 'DarwinCore Archive', extensions: ['zip'] }],
+  });
+  if (!path) return;
+  await exportDwca(searchParams, path as string);
+}
+
 onMount(() => {
   invoke('current_archive')
     .then((result) => {
@@ -391,6 +438,21 @@ onMount(() => {
   let unlistenMenu: (() => void) | undefined;
   listen('menu-open', openArchive).then((unlistenFn) => {
     unlistenMenu = unlistenFn;
+  });
+
+  let unlistenExportCsv: (() => void) | undefined;
+  listen('menu-export-csv', handleExportCsv).then((fn) => {
+    unlistenExportCsv = fn;
+  });
+
+  let unlistenExportKml: (() => void) | undefined;
+  listen('menu-export-kml', handleExportKml).then((fn) => {
+    unlistenExportKml = fn;
+  });
+
+  let unlistenExportDwca: (() => void) | undefined;
+  listen('menu-export-dwca', handleExportDwca).then((fn) => {
+    unlistenExportDwca = fn;
   });
 
   // Listen for file association events (e.g. drop on Dock icon, "Open With")
@@ -479,6 +541,9 @@ onMount(() => {
 
   return () => {
     unlistenMenu?.();
+    unlistenExportCsv?.();
+    unlistenExportKml?.();
+    unlistenExportDwca?.();
     unlistenFileOpen?.();
     unlistenProgress?.();
     unlistenDragDrop?.();
@@ -513,12 +578,14 @@ onMount(() => {
   </div>
 {:else if archive}
   <div class="flex flex-row p-4 fixed w-full h-screen">
-    <aside class="pe-4 w-82 overflow-y-auto">
-      <Filters
-        onSearchChange={handleSearchChange}
-        availableColumns={archive?.availableColumns ?? []}
-        {searchParams}
-      />
+    <aside class="pe-4 w-82  flex flex-col relative">
+      <div class="overflow-y-auto">
+        <Filters
+          onSearchChange={handleSearchChange}
+          availableColumns={archive?.availableColumns ?? []}
+          {searchParams}
+        />
+      </div>
     </aside>
     <main class="overflow-hidden w-full relative flex flex-col">
       <Tabs
@@ -538,7 +605,7 @@ onMount(() => {
           <Tabs.Indicator class="bg-surface-950-50" />
         </Tabs.List>
 
-        <Tabs.Content value="occurrences" class="flex-1 overflow-hidden">
+        <Tabs.Content value="occurrences" class="flex overflow-hidden flex-col grow">
           <div class="h-full overflow-y-auto" bind:this={scrollElement} data-testid="occurrences-scroll-container">
             {#if currentView === 'table'}
               <Table
@@ -595,9 +662,59 @@ onMount(() => {
               />
             {/if}
           </div>
-          <div class="absolute bottom-10 right-10 z-10">
+          <BottomControls>
+            <div class="w-1/4">
+              {#if filteredTotal < archive.coreCount}
+                <strong>{filteredTotal}</strong> / {archive.coreCount} occurrences
+              {/if}
+            </div>
             <ViewSwitcher bind:view={currentView} {onViewChange} />
-          </div>
+            <div class="w-1/4 flex justify-end">
+              <Menu
+                onSelect={details => {
+                  switch (details.value) {
+                  case 'kml':
+                    handleExportKml();
+                    break;
+                  case 'dwca':
+                    handleExportDwca();
+                    break;
+                  default:
+                    handleExportCsv();
+                  }
+                }}
+              >
+                <Menu.Trigger class="btn hover:preset-tonal">
+                  <FileDown size={16} />
+                  Export
+                </Menu.Trigger>
+                <Portal>
+                  <Menu.Positioner>
+                    <Menu.Content>
+                      <Menu.Item value="csv">
+                        <Menu.ItemText class="flex flex-row gap-1 items-center">
+                          <Sheet size={16} />
+                          CSV
+                        </Menu.ItemText>
+                      </Menu.Item>
+                      <Menu.Item value="kml">
+                        <Menu.ItemText class="flex flex-row gap-1 items-center">
+                          <MapIcon size={16} />
+                          KML
+                        </Menu.ItemText>
+                      </Menu.Item>
+                      <Menu.Item value="dwca" title="DarwinCore Archive">
+                        <Menu.ItemText class="flex flex-row gap-1 items-center">
+                          <Package size={16} />
+                          DwC-A
+                        </Menu.ItemText>
+                      </Menu.Item>
+                    </Menu.Content>
+                  </Menu.Positioner>
+                </Portal>
+              </Menu>
+            </div>
+          </BottomControls>
         </Tabs.Content>
 
         <Tabs.Content value="groups" class="flex-1 overflow-auto">

@@ -17,6 +17,13 @@ pub enum ChuckError {
         source: std::io::Error,
     },
 
+    #[error("Failed to write file: {path}")]
+    FileWrite {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
     #[error("Failed to create directory: {path}")]
     DirectoryCreate {
         path: PathBuf,
@@ -66,6 +73,9 @@ pub enum ChuckError {
 
     #[error("TYPE_OVERRIDES contains core_id column '{0}' - core ID must always be VARCHAR to handle all ID formats (numeric, text, UUIDs, etc.)")]
     CoreIdTypeOverride(String),
+
+    #[error("Column '{0}' not found in CSV header")]
+    CsvColumnNotFound(String),
 }
 
 impl Serialize for ChuckError {

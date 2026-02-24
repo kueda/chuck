@@ -28,9 +28,7 @@
       },
       "assetProtocol": {
         "enable": true,
-        "scope": [
-          "$APPLOCALDATA/**"
-        ]
+        "scope": ["$APPLOCALDATA/**"]
       }
     }
   },
@@ -39,9 +37,7 @@
     "targets": "all",
     "fileAssociations": [
       {
-        "ext": [
-          "zip"
-        ],
+        "ext": ["zip"],
         "name": "DarwinCore Archive",
         "role": "Viewer",
         "mimeType": "application/zip"

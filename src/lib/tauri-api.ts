@@ -17,6 +17,7 @@ import {
   open as tauriOpen,
   save as tauriSave,
 } from '@tauri-apps/plugin-dialog';
+import type { SearchParams } from '$lib/utils/filterCategories';
 
 // Interface for mock Tauri object used in tests
 interface MockTauri {
@@ -30,6 +31,12 @@ interface MockTauri {
   getCurrentWindow(): ReturnType<typeof tauriGetCurrentWindow>;
   getCurrentWebview(): ReturnType<typeof tauriGetCurrentWebview>;
   listen<T>(event: string, handler: EventCallback<T>): Promise<() => void>;
+}
+
+export interface AggregationResult {
+  count: number;
+  photoUrl?: string | null;
+  value: string | null;
 }
 
 // Check if we're in test mode with mocks available
@@ -169,4 +176,45 @@ export function getBasemapUrlBase(): string {
     typeof navigator !== 'undefined' &&
     navigator.userAgent.toLowerCase().includes('windows');
   return isWindows ? 'http://basemap.localhost' : 'basemap://localhost';
+}
+
+export async function exportCsv(
+  searchParams: SearchParams,
+  path: string,
+): Promise<void> {
+  return invoke('export_csv', { searchParams, path });
+}
+
+export async function exportKml(
+  searchParams: SearchParams,
+  path: string,
+): Promise<void> {
+  return invoke('export_kml', { searchParams, path });
+}
+
+export async function exportDwca(
+  searchParams: SearchParams,
+  path: string,
+): Promise<void> {
+  return invoke('export_dwca', { searchParams, path });
+}
+
+export async function exportGroupsCsv(
+  searchParams: SearchParams,
+  fieldName: string,
+  path: string,
+): Promise<void> {
+  return invoke('export_groups_csv', { searchParams, fieldName, path });
+}
+
+export async function aggregateByField(
+  selectedField: string,
+  searchParams: SearchParams,
+  limit: number,
+) {
+  return invoke<AggregationResult[]>('aggregate_by_field', {
+    fieldName: selectedField,
+    searchParams,
+    limit,
+  });
 }
