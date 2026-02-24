@@ -654,7 +654,9 @@ pub(super) fn export_dwca_inner(
     let matching_ids = archive.query_matching_ids(search_params.clone())?;
 
     // Parse meta.xml for source file paths and delimiter
-    let (core_files, _, core_delimiter, _) = parse_meta_xml(&archive.storage_dir)?;
+    let meta = parse_meta_xml(&archive.storage_dir)?;
+    let core_files = meta.core_files;
+    let core_delimiter = meta.core_delimiter;
 
     // Parse ALL extension entries (including types not loaded into DuckDB)
     let all_exts = parse_all_extensions_for_export(&archive.storage_dir)?;

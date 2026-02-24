@@ -10,6 +10,14 @@ use crate::search_params::SearchParams;
 use crate::db::Database;
 use crate::error::{ChuckError, Result};
 
+/// Parsed contents of a DarwinCore Archive meta.xml file
+pub(crate) struct MetaXmlInfo {
+    pub core_files: Vec<PathBuf>,
+    pub core_id_column: String,
+    pub core_delimiter: char,
+    pub extensions: Vec<ExtensionInfo>,
+}
+
 /// Information about an extension in a DarwinCore Archive
 #[derive(Debug, Clone)]
 pub struct ExtensionInfo {
@@ -97,8 +105,8 @@ impl Archive {
         progress_callback("extracting");
         extract_archive(archive_path, &storage_dir)?;
 
-        let (core_files, core_id_column, _, extensions) = parse_meta_xml(&storage_dir)?;
-        log::debug!("extensions: {extensions:?}");
+        let meta = parse_meta_xml(&storage_dir)?;
+        log::debug!("extensions: {:?}", meta.extensions);
 
         // Create database from core files and extensions
         progress_callback("creating_database");
@@ -107,7 +115,13 @@ impl Archive {
             .and_then(|s| s.to_str())
             .unwrap_or("archive");
         let db_path = storage_dir.join(format!("{db_name}.db"));
-        let db = Database::create_from_core_files(&core_files, &extensions, &db_path, &core_id_column)?;
+        let db = Database::create_from_core_files(
+            &meta.core_files,
+            &meta.extensions,
+            &db_path,
+            &meta.core_id_column,
+        )?;
+        let core_id_column = meta.core_id_column;
 
         Ok(Self {
             // archive_path: archive_path.to_path_buf(),
@@ -164,9 +178,10 @@ impl Archive {
             .ok_or_else(|| ChuckError::NoArchiveFound(storage_dir.clone()))?;
 
         // Parse meta.xml to get extension information
-        let (_core_files, core_id_column, _, extensions) = parse_meta_xml(&storage_dir)?;
+        let meta = parse_meta_xml(&storage_dir)?;
 
-        let db = Database::open(&db_path, core_id_column.clone(), &extensions)?;
+        let db = Database::open(&db_path, meta.core_id_column.clone(), &meta.extensions)?;
+        let core_id_column = meta.core_id_column;
 
         Ok(Self {
             storage_dir,
@@ -770,9 +785,7 @@ fn parse_core_id_column(node: Node, index_elt_name: &str) -> Option<String> {
     }
 }
 
-pub(crate) fn parse_meta_xml(
-    storage_dir: &Path,
-) -> Result<(Vec<PathBuf>, String, char, Vec<ExtensionInfo>)> {
+pub(crate) fn parse_meta_xml(storage_dir: &Path) -> Result<MetaXmlInfo> {
     let meta_path = storage_dir.join("meta.xml");
     let contents = std::fs::read_to_string(&meta_path).map_err(|e| ChuckError::FileRead {
         path: meta_path.clone(),
@@ -861,7 +874,7 @@ pub(crate) fn parse_meta_xml(
         })
         .collect();
 
-    Ok((core_files, core_id_column, core_delimiter, extensions))
+    Ok(MetaXmlInfo { core_files, core_id_column, core_delimiter, extensions })
 }
 
 #[cfg(test)]
@@ -1040,14 +1053,11 @@ mod tests {
         let result = parse_meta_xml(fixture.dir());
         assert!(result.is_ok());
 
-        let (core_files, core_id_column, _, extensions) = result.unwrap();
-        assert_eq!(core_files.len(), 1);
-        assert_eq!(
-            core_files[0].file_name().unwrap(),
-            "occurrence.csv"
-        );
-        assert_eq!(core_id_column, "occurrenceID");
-        assert_eq!(extensions.len(), 0);
+        let meta = result.unwrap();
+        assert_eq!(meta.core_files.len(), 1);
+        assert_eq!(meta.core_files[0].file_name().unwrap(), "occurrence.csv");
+        assert_eq!(meta.core_id_column, "occurrenceID");
+        assert_eq!(meta.extensions.len(), 0);
     }
 
     #[test]
@@ -1069,17 +1079,11 @@ mod tests {
         let result = parse_meta_xml(fixture.dir());
         assert!(result.is_ok());
 
-        let (core_files, _core_id_column, _, extensions) = result.unwrap();
-        assert_eq!(core_files.len(), 2);
-        assert_eq!(
-            core_files[0].file_name().unwrap(),
-            "occurrence1.csv"
-        );
-        assert_eq!(
-            core_files[1].file_name().unwrap(),
-            "occurrence2.csv"
-        );
-        assert_eq!(extensions.len(), 0);
+        let meta = result.unwrap();
+        assert_eq!(meta.core_files.len(), 2);
+        assert_eq!(meta.core_files[0].file_name().unwrap(), "occurrence1.csv");
+        assert_eq!(meta.core_files[1].file_name().unwrap(), "occurrence2.csv");
+        assert_eq!(meta.extensions.len(), 0);
     }
 
     #[test]
@@ -1137,37 +1141,28 @@ mod tests {
         let result = parse_meta_xml(fixture.dir());
         assert!(result.is_ok());
 
-        let (core_files, _core_id_column, _, extensions) = result.unwrap();
-        assert_eq!(core_files.len(), 1);
-        assert_eq!(extensions.len(), 3);
+        let meta = result.unwrap();
+        assert_eq!(meta.core_files.len(), 1);
+        assert_eq!(meta.extensions.len(), 3);
 
         // Check that extensions are mapped correctly
-        assert_eq!(extensions[0].extension, chuck_core::DwcaExtension::SimpleMultimedia);
-        assert_eq!(extensions[0].extension.table_name(), "multimedia");
-        assert_eq!(extensions[0].row_type, "http://rs.gbif.org/terms/1.0/Multimedia");
-        assert_eq!(extensions[0].core_id_column, "gbifID");
-        assert_eq!(
-            extensions[0].location.file_name().unwrap(),
-            "multimedia.csv"
-        );
+        assert_eq!(meta.extensions[0].extension, chuck_core::DwcaExtension::SimpleMultimedia);
+        assert_eq!(meta.extensions[0].extension.table_name(), "multimedia");
+        assert_eq!(meta.extensions[0].row_type, "http://rs.gbif.org/terms/1.0/Multimedia");
+        assert_eq!(meta.extensions[0].core_id_column, "gbifID");
+        assert_eq!(meta.extensions[0].location.file_name().unwrap(), "multimedia.csv");
 
-        assert_eq!(extensions[1].extension, chuck_core::DwcaExtension::Audiovisual);
-        assert_eq!(extensions[1].extension.table_name(), "audiovisual");
-        assert_eq!(extensions[1].row_type, "http://rs.tdwg.org/ac/terms/Multimedia");
-        assert_eq!(extensions[1].core_id_column, "gbifID");
-        assert_eq!(
-            extensions[1].location.file_name().unwrap(),
-            "audiovisual.csv"
-        );
+        assert_eq!(meta.extensions[1].extension, chuck_core::DwcaExtension::Audiovisual);
+        assert_eq!(meta.extensions[1].extension.table_name(), "audiovisual");
+        assert_eq!(meta.extensions[1].row_type, "http://rs.tdwg.org/ac/terms/Multimedia");
+        assert_eq!(meta.extensions[1].core_id_column, "gbifID");
+        assert_eq!(meta.extensions[1].location.file_name().unwrap(), "audiovisual.csv");
 
-        assert_eq!(extensions[2].extension, chuck_core::DwcaExtension::Identifications);
-        assert_eq!(extensions[2].extension.table_name(), "identifications");
-        assert_eq!(extensions[2].row_type, "http://rs.tdwg.org/dwc/terms/Identification");
-        assert_eq!(extensions[2].core_id_column, "gbifID");
-        assert_eq!(
-            extensions[2].location.file_name().unwrap(),
-            "identification.csv"
-        );
+        assert_eq!(meta.extensions[2].extension, chuck_core::DwcaExtension::Identifications);
+        assert_eq!(meta.extensions[2].extension.table_name(), "identifications");
+        assert_eq!(meta.extensions[2].row_type, "http://rs.tdwg.org/dwc/terms/Identification");
+        assert_eq!(meta.extensions[2].core_id_column, "gbifID");
+        assert_eq!(meta.extensions[2].location.file_name().unwrap(), "identification.csv");
     }
 
     #[test]
@@ -1211,22 +1206,22 @@ mod tests {
         let result = parse_meta_xml(fixture.dir());
         assert!(result.is_ok());
 
-        let (core_files, _core_id_column, _, extensions) = result.unwrap();
-        assert_eq!(core_files.len(), 1);
+        let meta = result.unwrap();
+        assert_eq!(meta.core_files.len(), 1);
 
         // Should only have 2 extensions (Multimedia and Identification)
         // Occurrence extension should be filtered out as unsupported
-        assert_eq!(extensions.len(), 2);
+        assert_eq!(meta.extensions.len(), 2);
 
-        assert_eq!(extensions[0].extension, chuck_core::DwcaExtension::SimpleMultimedia);
-        assert_eq!(extensions[0].extension.table_name(), "multimedia");
-        assert_eq!(extensions[0].core_id_column, "gbifID");
-        assert_eq!(extensions[1].extension, chuck_core::DwcaExtension::Identifications);
-        assert_eq!(extensions[1].extension.table_name(), "identifications");
-        assert_eq!(extensions[1].core_id_column, "gbifID");
+        assert_eq!(meta.extensions[0].extension, chuck_core::DwcaExtension::SimpleMultimedia);
+        assert_eq!(meta.extensions[0].extension.table_name(), "multimedia");
+        assert_eq!(meta.extensions[0].core_id_column, "gbifID");
+        assert_eq!(meta.extensions[1].extension, chuck_core::DwcaExtension::Identifications);
+        assert_eq!(meta.extensions[1].extension.table_name(), "identifications");
+        assert_eq!(meta.extensions[1].core_id_column, "gbifID");
 
         // Verify Occurrence extension was not included
-        assert!(!extensions.iter().any(|ext| ext.row_type == "http://rs.tdwg.org/dwc/terms/Occurrence"));
+        assert!(!meta.extensions.iter().any(|ext| ext.row_type == "http://rs.tdwg.org/dwc/terms/Occurrence"));
     }
 
     #[test]
@@ -1257,13 +1252,13 @@ mod tests {
         let result = parse_meta_xml(fixture.dir());
         assert!(result.is_ok());
 
-        let (core_files, core_id_column, _, extensions) = result.unwrap();
-        assert_eq!(core_files.len(), 1);
-        assert_eq!(core_id_column, "gbifID");
-        assert_eq!(extensions.len(), 1);
+        let meta = result.unwrap();
+        assert_eq!(meta.core_files.len(), 1);
+        assert_eq!(meta.core_id_column, "gbifID");
+        assert_eq!(meta.extensions.len(), 1);
 
         // Should detect gbifID as the core ID column
-        assert_eq!(extensions[0].core_id_column, "gbifID");
+        assert_eq!(meta.extensions[0].core_id_column, "gbifID");
     }
 
     #[test]
