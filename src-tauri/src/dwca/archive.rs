@@ -897,17 +897,6 @@ mod tests {
             Self { _temp: temp, storage_dir }
         }
 
-        fn with_files(files: &[(&str, &[u8])]) -> Self {
-            let temp = tempfile::tempdir().unwrap();
-            let storage_dir = temp.path().to_path_buf();
-            for (filename, content) in files {
-                let file_path = storage_dir.join(filename);
-                let mut file = std::fs::File::create(&file_path).unwrap();
-                file.write_all(content).unwrap();
-            }
-            Self { _temp: temp, storage_dir }
-        }
-
         fn with_structure(
             archive_name: &str,
             files: &[(&str, &[u8])],
