@@ -55,17 +55,6 @@ test.describe('Frontend', () => {
     expect(rows.length).toBeGreaterThan(0);
   });
 
-  test('should display archive info in window title', async ({ page }) => {
-    // This tests that the mock window.setTitle is being called
-    // In a real app, we'd check the actual window title, but in our mock
-    // we just verify the function is called (checked via console logs)
-
-    await openArchive(page);
-
-    // Just verify the main content loaded, which triggers setTitle
-    await expect(page.locator('main')).toBeVisible();
-  });
-
   test('should display sort controls in filters sidebar', async ({ page }) => {
     await openArchive(page);
 

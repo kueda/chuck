@@ -99,7 +99,11 @@ pub(crate) fn get_archives_dir<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> R
 }
 
 #[tauri::command]
-pub async fn open_archive(app: tauri::AppHandle, path: String) -> Result<ArchiveInfo> {
+pub async fn open_archive(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    path: String,
+) -> Result<ArchiveInfo> {
     use std::sync::mpsc;
 
     let base_dir = get_archives_dir(app.clone())?;
@@ -150,6 +154,10 @@ pub async fn open_archive(app: tauri::AppHandle, path: String) -> Result<Archive
             )
             .map_err(|e| ChuckError::Tauri(e.to_string()))?;
 
+            // Set window title from Rust for reliable cross-platform behavior.
+            // The JS setTitle() call does not work on Linux (Ubuntu).
+            set_archive_window_title(&window, &info);
+
             Ok(info)
         }
         Ok(Err(e)) => {
@@ -191,16 +199,33 @@ pub fn get_opened_file(app: tauri::AppHandle) -> Option<String> {
     state.0.lock().ok()?.take()
 }
 
+fn set_archive_window_title(window: &tauri::WebviewWindow, info: &ArchiveInfo) {
+    let title = format!("{} \u{2013} {} occurrences", info.name, info.core_count);
+    if let Err(e) = window.set_title(&title) {
+        log::warn!("Failed to set window title: {e}");
+    }
+}
+
 #[tauri::command]
 pub fn current_archive(app: tauri::AppHandle) -> Result<ArchiveInfo> {
-    Archive::current(&get_archives_dir(app)?).map_err(|e| {
+    let info = Archive::current(&get_archives_dir(app.clone())?).map_err(|e| {
         log::error!(
             "Failed to get current archive: {}, backtrace: {}",
             e,
             Backtrace::capture()
         );
         e
-    })?.info()
+    })?.info()?;
+    // Set window title in a spawned task to avoid interfering with the command response.
+    // Using WebviewWindow as a command parameter breaks the return value in Tauri 2.
+    let app_clone = app;
+    let info_clone = info.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Some(window) = app_clone.get_webview_window("main") {
+            set_archive_window_title(&window, &info_clone);
+        }
+    });
+    Ok(info)
 }
 
 #[tauri::command]
