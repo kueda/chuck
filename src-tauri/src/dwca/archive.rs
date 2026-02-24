@@ -213,12 +213,17 @@ impl Archive {
         )
     }
 
-    /// Queries all occurrences matching search_params (no pagination) for export
-    pub fn query_all_occurrences(
+    /// Calls `f` once per occurrence matching `search_params`.
+    /// See `Database::for_each_occurrence` for details.
+    pub fn for_each_occurrence<F>(
         &self,
         search_params: SearchParams,
-    ) -> Result<Vec<serde_json::Map<String, serde_json::Value>>> {
-        self.db.query_all_occurrences(search_params)
+        f: F,
+    ) -> Result<()>
+    where
+        F: FnMut(&[String], serde_json::Map<String, serde_json::Value>) -> Result<()>,
+    {
+        self.db.for_each_occurrence(search_params, f)
     }
 
     /// Get autocomplete suggestions for a given column

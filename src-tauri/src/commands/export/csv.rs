@@ -1,7 +1,7 @@
-use std::collections::BTreeSet;
+use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use crate::commands::archive::get_archives_dir;
 use crate::dwca::Archive;
@@ -10,22 +10,38 @@ use crate::search_params::SearchParams;
 
 use super::csv_escape;
 
-/// Builds a CSV string from a slice of occurrence rows
-fn build_csv(rows: &[Map<String, Value>]) -> String {
-    let columns: BTreeSet<String> = rows
-        .iter()
-        .flat_map(|row| row.keys().cloned())
-        .collect();
+/// Exports filtered occurrences as a CSV file, streaming rows directly to
+/// disk via BufWriter to avoid materialising the full result set in memory.
+pub(super) fn export_csv(
+    app: tauri::AppHandle,
+    search_params: SearchParams,
+    path: String,
+) -> Result<()> {
+    export_csv_inner(get_archives_dir(app)?, search_params, path)
+}
 
-    let mut output = String::new();
+pub(super) fn export_csv_inner(
+    archives_dir: PathBuf,
+    search_params: SearchParams,
+    path: String,
+) -> Result<()> {
+    let archive = Archive::current(&archives_dir)?;
+    let dest = PathBuf::from(&path);
+    let file = std::fs::File::create(&dest).map_err(|e| ChuckError::FileOpen {
+        path: dest.clone(),
+        source: e,
+    })?;
+    let mut writer = BufWriter::new(file);
+    let mut header_written = false;
 
-    // Header row
-    let header: Vec<String> = columns.iter().map(|c| csv_escape(c)).collect();
-    output.push_str(&header.join(","));
-    output.push('\n');
-
-    // Data rows
-    for row in rows {
+    archive.for_each_occurrence(search_params, |columns, row| {
+        if !header_written {
+            let header = columns.iter().map(|c| csv_escape(c)).collect::<Vec<_>>().join(",");
+            writer.write_all(header.as_bytes())
+                .and_then(|_| writer.write_all(b"\n"))
+                .map_err(|e| ChuckError::FileWrite { path: dest.clone(), source: e })?;
+            header_written = true;
+        }
         let fields: Vec<String> = columns
             .iter()
             .map(|col| match row.get(col) {
@@ -34,81 +50,124 @@ fn build_csv(rows: &[Map<String, Value>]) -> String {
                 Some(other) => csv_escape(&other.to_string()),
             })
             .collect();
-        output.push_str(&fields.join(","));
-        output.push('\n');
-    }
+        writer.write_all(fields.join(",").as_bytes())
+            .and_then(|_| writer.write_all(b"\n"))
+            .map_err(|e| ChuckError::FileWrite { path: dest.clone(), source: e })
+    })?;
 
-    output
-}
-
-/// Exports filtered occurrences as a CSV file
-pub(super) fn export_csv(
-    app: tauri::AppHandle,
-    search_params: SearchParams,
-    path: String,
-) -> Result<()> {
-    let archive = Archive::current(&get_archives_dir(app)?)?;
-    let rows = archive.query_all_occurrences(search_params)?;
-    let csv = build_csv(&rows);
-    let dest = PathBuf::from(&path);
-    std::fs::write(&dest, csv).map_err(|source| ChuckError::FileWrite {
-        path: dest,
-        source,
-    })
+    writer.flush().map_err(|e| ChuckError::FileWrite { path: dest, source: e })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use crate::db::Database;
 
-    fn make_row(fields: &[(&str, serde_json::Value)]) -> Map<String, serde_json::Value> {
-        fields.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+    fn setup_archive(test_name: &str, csv_content: &str) -> (PathBuf, PathBuf) {
+        let base_dir =
+            std::env::temp_dir().join(format!("chuck_test_export_csv_{test_name}"));
+        std::fs::remove_dir_all(&base_dir).ok();
+        let storage_dir = base_dir.join("test.zip-abc123");
+        std::fs::create_dir_all(&storage_dir).unwrap();
+
+        let meta_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<archive xmlns="http://rs.tdwg.org/dwc/text/">
+  <core rowType="http://rs.tdwg.org/dwc/terms/Occurrence" fieldsTerminatedBy=",">
+    <files><location>occurrence.csv</location></files>
+    <id index="0"/>
+    <field index="0" term="http://rs.tdwg.org/dwc/terms/occurrenceID"/>
+  </core>
+</archive>"#;
+        std::fs::write(storage_dir.join("meta.xml"), meta_xml).unwrap();
+        std::fs::write(storage_dir.join("occurrence.csv"), csv_content).unwrap();
+
+        let db_path = storage_dir.join("test.db");
+        let db = Database::create_from_core_files(
+            &[storage_dir.join("occurrence.csv")],
+            &[],
+            &db_path,
+            "occurrenceID",
+        )
+        .unwrap();
+        drop(db);
+
+        let output =
+            std::env::temp_dir().join(format!("chuck_test_export_csv_{test_name}_out.csv"));
+        (base_dir, output)
     }
 
     #[test]
-    fn test_build_csv_writes_header_and_rows() {
-        let rows = vec![
-            make_row(&[
-                ("occurrenceID", json!("abc-1")),
-                ("scientificName", json!("Homo sapiens")),
-            ]),
-            make_row(&[
-                ("occurrenceID", json!("abc-2")),
-                ("scientificName", json!("Canis lupus")),
-            ]),
-        ];
-        let csv = build_csv(&rows);
-        let lines: Vec<&str> = csv.lines().collect();
+    fn test_export_csv_writes_header_and_rows() {
+        let csv = "occurrenceID,scientificName\nabc-1,Homo sapiens\nabc-2,Canis lupus\n";
+        let (base_dir, out) = setup_archive("header_rows", csv);
+
+        export_csv_inner(
+            base_dir.clone(),
+            SearchParams::default(),
+            out.to_string_lossy().to_string(),
+        )
+        .unwrap();
+
+        let result = std::fs::read_to_string(&out).unwrap();
+        let lines: Vec<&str> = result.lines().collect();
         assert_eq!(lines[0], "occurrenceID,scientificName");
-        assert_eq!(lines[1], "abc-1,Homo sapiens");
-        assert_eq!(lines[2], "abc-2,Canis lupus");
+        assert!(result.contains("abc-1,Homo sapiens"), "row 1 missing: {result}");
+        assert!(result.contains("abc-2,Canis lupus"), "row 2 missing: {result}");
+
+        std::fs::remove_dir_all(&base_dir).ok();
+        std::fs::remove_file(&out).ok();
     }
 
     #[test]
-    fn test_build_csv_escapes_commas_and_quotes() {
-        let rows = vec![make_row(&[
-            ("name", json!("Smith, John")),
-            ("note", json!("said \"hello\"")),
-        ])];
-        let csv = build_csv(&rows);
-        let lines: Vec<&str> = csv.lines().collect();
-        assert_eq!(lines[1], "\"Smith, John\",\"said \"\"hello\"\"\"");
+    fn test_export_csv_escapes_commas_and_quotes() {
+        // DuckDB reads the CSV (unquoting as needed) and stores the raw string
+        // values. The exporter must re-escape them when writing the output CSV.
+        let csv =
+            "occurrenceID,name,note\nocc-1,\"Smith, John\",\"said \"\"hello\"\"\"\n";
+        let (base_dir, out) = setup_archive("escaping", csv);
+
+        export_csv_inner(
+            base_dir.clone(),
+            SearchParams::default(),
+            out.to_string_lossy().to_string(),
+        )
+        .unwrap();
+
+        let result = std::fs::read_to_string(&out).unwrap();
+        assert!(
+            result.contains("\"Smith, John\""),
+            "comma not escaped: {result}"
+        );
+        assert!(
+            result.contains("\"said \"\"hello\"\"\""),
+            "quote not escaped: {result}"
+        );
+
+        std::fs::remove_dir_all(&base_dir).ok();
+        std::fs::remove_file(&out).ok();
     }
 
     #[test]
-    fn test_build_csv_uses_empty_string_for_null_or_missing() {
-        let rows = vec![
-            make_row(&[
-                ("a", json!("present")),
-                ("b", serde_json::Value::Null),
-            ]),
-            make_row(&[("a", json!("only_a"))]),
-        ];
-        let csv = build_csv(&rows);
-        let lines: Vec<&str> = csv.lines().collect();
-        assert_eq!(lines[0], "a,b");
-        assert_eq!(lines[1], "present,");
-        assert_eq!(lines[2], "only_a,");
+    fn test_export_csv_uses_empty_string_for_null() {
+        // Row 1 has a value for b (so DuckDB keeps the column); row 2 leaves
+        // b empty. The exporter must produce an empty field for the NULL value.
+        let csv = "occurrenceID,a,b\nocc-1,present,has_value\nocc-2,only_a,\n";
+        let (base_dir, out) = setup_archive("nulls", csv);
+
+        export_csv_inner(
+            base_dir.clone(),
+            SearchParams::default(),
+            out.to_string_lossy().to_string(),
+        )
+        .unwrap();
+
+        let result = std::fs::read_to_string(&out).unwrap();
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines[0], "occurrenceID,a,b", "header: {result}");
+        assert!(lines[1].contains(",present,has_value"), "row 1: {}", lines[1]);
+        assert!(lines[2].ends_with(",only_a,"), "row 2 b should be empty: {}", lines[2]);
+
+        std::fs::remove_dir_all(&base_dir).ok();
+        std::fs::remove_file(&out).ok();
     }
 }
