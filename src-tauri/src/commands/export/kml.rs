@@ -113,11 +113,16 @@ mod tests {
     use super::*;
     use crate::db::Database;
 
-    fn setup_archive(test_name: &str, csv_content: &str) -> (PathBuf, PathBuf) {
-        let base_dir =
-            std::env::temp_dir().join(format!("chuck_test_export_kml_{test_name}"));
-        std::fs::remove_dir_all(&base_dir).ok();
-        let storage_dir = base_dir.join("test.zip-abc123");
+    struct ArchiveFixture {
+        _temp: tempfile::TempDir,
+        archives_dir: PathBuf,
+        output: PathBuf,
+    }
+
+    fn setup_archive(csv_content: &str) -> ArchiveFixture {
+        let temp = tempfile::tempdir().unwrap();
+        let archives_dir = temp.path().to_path_buf();
+        let storage_dir = archives_dir.join("test.zip-abc123");
         std::fs::create_dir_all(&storage_dir).unwrap();
 
         let meta_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -141,31 +146,27 @@ mod tests {
         .unwrap();
         drop(db);
 
-        let output =
-            std::env::temp_dir().join(format!("chuck_test_export_kml_{test_name}_out.kml"));
-        (base_dir, output)
+        let output = archives_dir.join("out.kml");
+        ArchiveFixture { _temp: temp, archives_dir, output }
     }
 
     #[test]
     fn test_export_kml_includes_placemarks_with_coordinates() {
         let csv = "occurrenceID,decimalLatitude,decimalLongitude,scientificName\n\
                    obs1,37.5,-122.0,Homo sapiens\n";
-        let (base_dir, out) = setup_archive("placemarks", csv);
+        let fixture = setup_archive(csv);
 
         export_kml_inner(
-            base_dir.clone(),
+            fixture.archives_dir.clone(),
             SearchParams::default(),
-            out.to_string_lossy().to_string(),
+            fixture.output.to_string_lossy().to_string(),
         )
         .unwrap();
 
-        let result = std::fs::read_to_string(&out).unwrap();
+        let result = std::fs::read_to_string(&fixture.output).unwrap();
         assert!(result.contains("<Placemark>"), "no placemark: {result}");
         assert!(result.contains("<name>Homo sapiens</name>"), "{result}");
         assert!(result.contains("<coordinates>-122,37.5,0</coordinates>"), "{result}");
-
-        std::fs::remove_dir_all(&base_dir).ok();
-        std::fs::remove_file(&out).ok();
     }
 
     #[test]
@@ -174,59 +175,50 @@ mod tests {
                    obs1,37.5,,With lat only\n\
                    obs2,,-122.0,With lng only\n\
                    obs3,,,No coords\n";
-        let (base_dir, out) = setup_archive("no_coords", csv);
+        let fixture = setup_archive(csv);
 
         export_kml_inner(
-            base_dir.clone(),
+            fixture.archives_dir.clone(),
             SearchParams::default(),
-            out.to_string_lossy().to_string(),
+            fixture.output.to_string_lossy().to_string(),
         )
         .unwrap();
 
-        let result = std::fs::read_to_string(&out).unwrap();
+        let result = std::fs::read_to_string(&fixture.output).unwrap();
         assert!(!result.contains("<Placemark>"), "unexpected placemark: {result}");
-
-        std::fs::remove_dir_all(&base_dir).ok();
-        std::fs::remove_file(&out).ok();
     }
 
     #[test]
     fn test_export_kml_uses_core_id_as_name_when_no_scientific_name() {
         let csv = "occurrenceID,decimalLatitude,decimalLongitude\nobs-abc,10.0,20.0\n";
-        let (base_dir, out) = setup_archive("core_id_name", csv);
+        let fixture = setup_archive(csv);
 
         export_kml_inner(
-            base_dir.clone(),
+            fixture.archives_dir.clone(),
             SearchParams::default(),
-            out.to_string_lossy().to_string(),
+            fixture.output.to_string_lossy().to_string(),
         )
         .unwrap();
 
-        let result = std::fs::read_to_string(&out).unwrap();
+        let result = std::fs::read_to_string(&fixture.output).unwrap();
         assert!(result.contains("<name>obs-abc</name>"), "{result}");
-
-        std::fs::remove_dir_all(&base_dir).ok();
-        std::fs::remove_file(&out).ok();
     }
 
     #[test]
     fn test_export_kml_escapes_xml_special_chars() {
         let csv = "occurrenceID,decimalLatitude,decimalLongitude,scientificName,occurrenceRemarks\n\
                    obs1,1.0,2.0,\"A & B <species>\",\"note with \"\"quotes\"\"\"\n";
-        let (base_dir, out) = setup_archive("xml_escape", csv);
+        let fixture = setup_archive(csv);
 
         export_kml_inner(
-            base_dir.clone(),
+            fixture.archives_dir.clone(),
             SearchParams::default(),
-            out.to_string_lossy().to_string(),
+            fixture.output.to_string_lossy().to_string(),
         )
         .unwrap();
 
-        let result = std::fs::read_to_string(&out).unwrap();
+        let result = std::fs::read_to_string(&fixture.output).unwrap();
         assert!(result.contains("A &amp; B &lt;species&gt;"), "{result}");
         assert!(result.contains("note with &quot;quotes&quot;"), "{result}");
-
-        std::fs::remove_dir_all(&base_dir).ok();
-        std::fs::remove_file(&out).ok();
     }
 }

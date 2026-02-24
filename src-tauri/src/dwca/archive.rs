@@ -883,52 +883,38 @@ mod tests {
     use std::io::Write;
 
     struct UnzippedArchiveFixture {
-        base_dir: PathBuf,
+        _temp: tempfile::TempDir,
         storage_dir: PathBuf,
     }
 
     impl UnzippedArchiveFixture {
-        fn new(test_name: &str, meta_xml: &str) -> Self {
-            let temp_dir = std::env::temp_dir()
-                .join(format!("chuck_test_dwca_archive_{test_name}"));
-            std::fs::create_dir_all(&temp_dir).unwrap();
-            let meta_path = temp_dir.join("meta.xml");
+        fn new(meta_xml: &str) -> Self {
+            let temp = tempfile::tempdir().unwrap();
+            let storage_dir = temp.path().to_path_buf();
+            let meta_path = storage_dir.join("meta.xml");
             let mut file = std::fs::File::create(&meta_path).unwrap();
             file.write_all(meta_xml.as_bytes()).unwrap();
-            Self {
-                base_dir: temp_dir.clone(),
-                storage_dir: temp_dir,
-            }
+            Self { _temp: temp, storage_dir }
         }
 
-        fn with_files(test_name: &str, files: &[(&str, &[u8])]) -> Self {
-            let temp_dir = std::env::temp_dir()
-                .join(format!("chuck_test_dwca_archive_{test_name}"));
-            std::fs::create_dir_all(&temp_dir).unwrap();
-
+        fn with_files(files: &[(&str, &[u8])]) -> Self {
+            let temp = tempfile::tempdir().unwrap();
+            let storage_dir = temp.path().to_path_buf();
             for (filename, content) in files {
-                let file_path = temp_dir.join(filename);
+                let file_path = storage_dir.join(filename);
                 let mut file = std::fs::File::create(&file_path).unwrap();
                 file.write_all(content).unwrap();
             }
-
-            Self {
-                base_dir: temp_dir.clone(),
-                storage_dir: temp_dir,
-            }
+            Self { _temp: temp, storage_dir }
         }
 
         fn with_structure(
-            test_name: &str,
             archive_name: &str,
             files: &[(&str, &[u8])],
             create_db: bool,
         ) -> Self {
-            let base_dir = std::env::temp_dir()
-                .join(format!("chuck_test_dwca_archive_{test_name}"));
-            std::fs::create_dir_all(&base_dir).unwrap();
-
-            let storage_dir = base_dir.join(format!("{archive_name}-abc123"));
+            let temp = tempfile::tempdir().unwrap();
+            let storage_dir = temp.path().join(format!("{archive_name}-abc123"));
             std::fs::create_dir_all(&storage_dir).unwrap();
 
             for (filename, content) in files {
@@ -949,15 +935,14 @@ mod tests {
                         .strip_suffix(".zip")
                         .unwrap_or(archive_name);
                     let db_path = storage_dir.join(format!("{db_name}.db"));
-                    let db = Database::create_from_core_files(&csv_paths, &[], &db_path, "occurrenceID").unwrap();
+                    let db = Database::create_from_core_files(
+                        &csv_paths, &[], &db_path, "occurrenceID",
+                    ).unwrap();
                     drop(db);
                 }
             }
 
-            Self {
-                base_dir,
-                storage_dir,
-            }
+            Self { _temp: temp, storage_dir }
         }
 
         fn dir(&self) -> &Path {
@@ -965,24 +950,18 @@ mod tests {
         }
 
         fn base_dir(&self) -> &Path {
-            &self.base_dir
-        }
-    }
-
-    impl Drop for UnzippedArchiveFixture {
-        fn drop(&mut self) {
-            std::fs::remove_dir_all(&self.base_dir).ok();
+            self._temp.path()
         }
     }
 
     struct ZippedArchiveFixture {
-        _unzipped_fixture: UnzippedArchiveFixture,
+        _temp: tempfile::TempDir,
         archive_path: PathBuf,
         base_dir: PathBuf,
     }
 
     impl ZippedArchiveFixture {
-        fn new(test_name: &str, files: Option<&[(&str, &[u8])]>) -> Self {
+        fn new(files: Option<&[(&str, &[u8])]>) -> Self {
             let files = files.unwrap_or(&[
                 ("meta.xml", br#"<?xml version="1.0" encoding="UTF-8"?>
 <archive>
@@ -995,13 +974,10 @@ mod tests {
                 ("occurrence.csv", b"id,name\n1,test\n"),
             ]);
 
-            let unzipped_fixture = UnzippedArchiveFixture::with_files(test_name, files);
+            let temp = tempfile::tempdir().unwrap();
+            let archive_path = temp.path().join("archive.zip");
+            let base_dir = temp.path().join("base");
 
-            let temp_dir = std::env::temp_dir();
-            let archive_path = temp_dir.join(format!("{test_name}.zip"));
-            let base_dir = temp_dir.join(format!("{test_name}_base"));
-
-            // Zip up the unzipped fixture's directory
             let archive_file = std::fs::File::create(&archive_path).unwrap();
             let mut zip = zip::ZipWriter::new(archive_file);
             let options = zip::write::FileOptions::<()>::default();
@@ -1012,11 +988,7 @@ mod tests {
             }
             zip.finish().unwrap();
 
-            Self {
-                _unzipped_fixture: unzipped_fixture,
-                archive_path,
-                base_dir,
-            }
+            Self { _temp: temp, archive_path, base_dir }
         }
 
         fn archive_path(&self) -> &Path {
@@ -1025,13 +997,6 @@ mod tests {
 
         fn base_dir(&self) -> &Path {
             &self.base_dir
-        }
-    }
-
-    impl Drop for ZippedArchiveFixture {
-        fn drop(&mut self) {
-            std::fs::remove_file(&self.archive_path).ok();
-            std::fs::remove_dir_all(&self.base_dir).ok();
         }
     }
 
@@ -1046,7 +1011,6 @@ mod tests {
   </core>
 </archive>"#;
         let fixture = UnzippedArchiveFixture::new(
-            "parse_meta_xml_recognizes_single_core",
             meta_xml
         );
 
@@ -1072,7 +1036,6 @@ mod tests {
   </core>
 </archive>"#;
         let fixture = UnzippedArchiveFixture::new(
-            "parse_meta_xml_multiple_cores",
             meta_xml
         );
 
@@ -1092,7 +1055,6 @@ mod tests {
 <archive>
 </archive>"#;
         let fixture = UnzippedArchiveFixture::new(
-            "parse_meta_xml_no_core_files",
             meta_xml
         );
 
@@ -1134,7 +1096,6 @@ mod tests {
   </extension>
 </archive>"#;
         let fixture = UnzippedArchiveFixture::new(
-            "parse_meta_xml_with_extensions",
             meta_xml
         );
 
@@ -1199,7 +1160,6 @@ mod tests {
   </extension>
 </archive>"#;
         let fixture = UnzippedArchiveFixture::new(
-            "parse_meta_xml_filters_unsupported",
             meta_xml
         );
 
@@ -1245,7 +1205,6 @@ mod tests {
   </extension>
 </archive>"#;
         let fixture = UnzippedArchiveFixture::new(
-            "parse_meta_xml_detects_gbif_id",
             meta_xml
         );
 
@@ -1263,8 +1222,8 @@ mod tests {
 
     #[test]
     fn test_opening_new_archive_removes_other_archive_directories() {
-        let fixture1 = ZippedArchiveFixture::new("test_archive1", None);
-        let fixture2 = ZippedArchiveFixture::new("test_archive2", None);
+        let fixture1 = ZippedArchiveFixture::new(None);
+        let fixture2 = ZippedArchiveFixture::new(None);
 
         // Open first archive
         let archive1 = Archive::open(fixture1.archive_path(), fixture1.base_dir(), |_| {}).unwrap();
@@ -1291,9 +1250,9 @@ mod tests {
 
     #[test]
     fn test_create_storage_dir() {
-        let temp_dir = std::env::temp_dir();
-        let test_archive = temp_dir.join("test_archive.zip");
-        let base_dir = temp_dir.join("chuck_test_storage");
+        let temp = tempfile::tempdir().unwrap();
+        let test_archive = temp.path().join("test_archive.zip");
+        let base_dir = temp.path().join("storage");
 
         // Create a test file
         let mut file = std::fs::File::create(&test_archive).unwrap();
@@ -1305,16 +1264,11 @@ mod tests {
         let storage_dir = result.unwrap();
         assert!(storage_dir.exists());
         assert!(storage_dir.starts_with(&base_dir));
-
-        // Cleanup
-        std::fs::remove_dir_all(&base_dir).ok();
-        std::fs::remove_file(&test_archive).ok();
     }
 
     #[test]
     fn test_current_with_existing_archive() {
         let fixture = UnzippedArchiveFixture::with_structure(
-            "current_existing",
             "test_archive.zip",
             &[
                 ("meta.xml", br#"<?xml version="1.0" encoding="UTF-8"?>
@@ -1338,11 +1292,8 @@ mod tests {
 
     #[test]
     fn test_current_with_no_archive() {
-        let temp_dir = std::env::temp_dir();
-        let base_dir = temp_dir.join("chuck_test_current_no_archive");
-
-        // Ensure base_dir doesn't exist
-        std::fs::remove_dir_all(&base_dir).ok();
+        let temp = tempfile::tempdir().unwrap();
+        let base_dir = temp.path().join("no_archive");
 
         let result = Archive::current(&base_dir);
         assert!(result.is_err());
@@ -1351,15 +1302,11 @@ mod tests {
         std::fs::create_dir_all(&base_dir).unwrap();
         let result = Archive::current(&base_dir);
         assert!(result.is_err());
-
-        // Cleanup
-        std::fs::remove_dir_all(&base_dir).ok();
     }
 
     #[test]
     fn test_current_extracts_name_with_dashes() {
         let fixture = UnzippedArchiveFixture::with_structure(
-            "current_name_extraction",
             "kueda-2017.zip",
             &[
                 ("meta.xml", br#"<?xml version="1.0" encoding="UTF-8"?>
@@ -1382,7 +1329,6 @@ mod tests {
     #[test]
     fn test_current_returns_core_id_column() {
         let fixture = UnzippedArchiveFixture::with_structure(
-            "core_id_column_extraction",
             "kueda-2017.zip",
             &[
                 ("meta.xml", br#"<?xml version="1.0" encoding="UTF-8"?>
@@ -1410,10 +1356,8 @@ mod tests {
         use std::io::Write;
 
         // Create a test archive with photos
-        let test_name = "lazy_photo_extraction";
-        let temp_dir = std::env::temp_dir().join(format!("chuck_test_{test_name}"));
-        std::fs::remove_dir_all(&temp_dir).ok();
-        std::fs::create_dir_all(&temp_dir).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let temp_dir = temp.path().to_path_buf();
 
         // Create a simple ZIP archive with photos
         let archive_path = temp_dir.join("test.zip");
@@ -1498,8 +1442,6 @@ mod tests {
         let content = std::fs::read(&cached_path).unwrap();
         assert_eq!(content, photo_data, "Cached photo content should match original");
 
-        // Clean up
-        std::fs::remove_dir_all(&temp_dir).ok();
     }
 
     #[test]
@@ -1520,7 +1462,7 @@ mod tests {
             ("occurrence.csv", &csv_content[..]),
         ];
 
-        let fixture = ZippedArchiveFixture::new("info_columns", Some(files));
+        let fixture = ZippedArchiveFixture::new(Some(files));
         let archive = Archive::open(fixture.archive_path(), fixture.base_dir(), |_| {}).unwrap();
 
         let info = archive.info().unwrap();
@@ -1553,7 +1495,6 @@ obs789,34.0522,-118.2437,Pinus coulteri
 ";
 
         let fixture = UnzippedArchiveFixture::with_structure(
-            "query_tile_text_core_id",
             "test.zip",
             &[
                 ("meta.xml", meta_xml),
@@ -1594,10 +1535,8 @@ obs789,34.0522,-118.2437,Pinus coulteri
         use std::io::Write;
 
         // Create a test archive with photos
-        let test_name = "get_photo_after_reopen";
-        let temp_dir = std::env::temp_dir().join(format!("chuck_test_{test_name}"));
-        std::fs::remove_dir_all(&temp_dir).ok();
-        std::fs::create_dir_all(&temp_dir).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let temp_dir = temp.path().to_path_buf();
 
         // Create a simple ZIP archive with photos
         let archive_path = temp_dir.join("test.zip");
@@ -1663,8 +1602,6 @@ obs789,34.0522,-118.2437,Pinus coulteri
         let content = std::fs::read(&cached_path).unwrap();
         assert_eq!(content, photo_data, "Cached photo content should match original");
 
-        // Clean up
-        std::fs::remove_dir_all(&temp_dir).ok();
     }
 
     #[test]
@@ -1672,10 +1609,8 @@ obs789,34.0522,-118.2437,Pinus coulteri
         use std::io::Write;
 
         // Create a test archive with a photo stored using forward slashes (ZIP standard)
-        let test_name = "get_photo_backslash";
-        let temp_dir = std::env::temp_dir().join(format!("chuck_test_{test_name}"));
-        std::fs::remove_dir_all(&temp_dir).ok();
-        std::fs::create_dir_all(&temp_dir).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let temp_dir = temp.path().to_path_buf();
 
         let archive_path = temp_dir.join("test.zip");
         let mut zip = zip::ZipWriter::new(std::fs::File::create(&archive_path).unwrap());
@@ -1716,8 +1651,6 @@ obs789,34.0522,-118.2437,Pinus coulteri
         let content = std::fs::read(&cached_path).unwrap();
         assert_eq!(content, photo_data, "Photo content should match");
 
-        // Clean up
-        std::fs::remove_dir_all(&temp_dir).ok();
     }
 }
 

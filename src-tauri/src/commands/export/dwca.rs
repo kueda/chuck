@@ -14,7 +14,6 @@ use crate::search_params::SearchParams;
 
 #[derive(Default)]
 struct EmlState {
-    inside_abstract: bool,
     abstract_seen: bool,
     inside_geo_coverage: bool,
     geo_coverage_seen: bool,
@@ -366,6 +365,7 @@ fn modify_eml(eml: &str, params: &SearchParams, count: usize) -> String {
         .collect();
 
     let mut reader = Reader::from_str(eml);
+    // Be lax about end tags in mal-formed cases like <eml:eml></eml>
     reader.config_mut().check_end_names = false;
 
     let mut writer = Writer::new(Vec::<u8>::new());
@@ -384,7 +384,7 @@ fn modify_eml(eml: &str, params: &SearchParams, count: usize) -> String {
                             String::from_utf8_lossy(ln.as_ref()).into_owned()
                         };
                         match local.as_str() {
-                            "abstract" => state.inside_abstract = true,
+                            "abstract" => {}
                             "geographicCoverage" => {
                                 state.inside_geo_coverage = true;
                                 state.geo_coverage_seen = true;
@@ -421,7 +421,6 @@ fn modify_eml(eml: &str, params: &SearchParams, count: usize) -> String {
                         match local.as_str() {
                             "abstract" => {
                                 write_para(&mut writer, &filter_desc);
-                                state.inside_abstract = false;
                                 state.abstract_seen = true;
                             }
                             "geographicDescription"
@@ -822,11 +821,10 @@ pub(super) fn export_dwca_inner(
 mod tests {
     use super::*;
 
-    fn write_temp_csv(name: &str, content: &[u8]) -> PathBuf {
-        let path = std::env::temp_dir().join(format!("chuck_test_filter_csv_{name}.csv"));
-        let mut f = std::fs::File::create(&path).unwrap();
+    fn write_temp_csv(content: &[u8]) -> tempfile::NamedTempFile {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(content).unwrap();
-        path
+        f
     }
 
     // ── filter_csv ────────────────────────────────────────────────────────────
@@ -834,10 +832,10 @@ mod tests {
     #[test]
     fn test_filter_csv_filters_rows_by_id() {
         let csv = b"occurrenceID,name\n1,Alice\n2,Bob\n3,Charlie\n";
-        let path = write_temp_csv("filters_rows", csv);
+        let f = write_temp_csv(csv);
         let ids: HashSet<String> = ["1".to_string(), "3".to_string()].into();
 
-        let result = filter_csv(&path, ',', "occurrenceID", &ids).unwrap();
+        let result = filter_csv(f.path(), ',', "occurrenceID", &ids).unwrap();
         let output = String::from_utf8(result).unwrap();
         let lines: Vec<&str> = output.lines().collect();
 
@@ -846,8 +844,6 @@ mod tests {
         assert!(output.contains("1,Alice"));
         assert!(output.contains("3,Charlie"));
         assert!(!output.contains("2,Bob"));
-
-        std::fs::remove_file(&path).ok();
     }
 
     #[test]
@@ -857,28 +853,24 @@ mod tests {
         // first header field when read as a string, which would cause column
         // lookup to fail.
         let csv = b"\xEF\xBB\xBFoccurrenceID,name\n1,Alice\n2,Bob\n";
-        let path = write_temp_csv("bom_header", csv);
+        let f = write_temp_csv(csv);
         let ids: HashSet<String> = ["1".to_string()].into();
 
-        let result = filter_csv(&path, ',', "occurrenceID", &ids);
+        let result = filter_csv(f.path(), ',', "occurrenceID", &ids);
         assert!(result.is_ok(), "should handle UTF-8 BOM: {result:?}");
         let output = String::from_utf8(result.unwrap()).unwrap();
         assert!(output.contains("1,Alice"), "should include matching row");
         assert!(!output.contains("2,Bob"), "should exclude non-matching row");
-
-        std::fs::remove_file(&path).ok();
     }
 
     #[test]
     fn test_filter_csv_handles_missing_id_column() {
         let csv = b"occurrenceID,name\n1,Alice\n";
-        let path = write_temp_csv("missing_col", csv);
+        let f = write_temp_csv(csv);
         let ids: HashSet<String> = ["1".to_string()].into();
 
-        let result = filter_csv(&path, ',', "nonexistentColumn", &ids);
+        let result = filter_csv(f.path(), ',', "nonexistentColumn", &ids);
         assert!(result.is_err(), "should error when column not found");
-
-        std::fs::remove_file(&path).ok();
     }
 
     // ── extract_nth_field ─────────────────────────────────────────────────────
@@ -1051,17 +1043,17 @@ mod tests {
     // ── export_dwca_inner ─────────────────────────────────────────────────────
 
     struct ExportDwcaFixture {
+        _temp: tempfile::TempDir,
         base_dir: PathBuf,
         output_path: PathBuf,
     }
 
     impl ExportDwcaFixture {
-        fn new(test_name: &str, meta_xml: &str, occurrence_csv: &[u8]) -> Self {
+        fn new(meta_xml: &str, occurrence_csv: &[u8]) -> Self {
             use crate::db::Database;
 
-            let base_dir = std::env::temp_dir()
-                .join(format!("chuck_test_export_dwca_{test_name}"));
-            std::fs::remove_dir_all(&base_dir).ok();
+            let temp = tempfile::tempdir().unwrap();
+            let base_dir = temp.path().to_path_buf();
             let storage_dir = base_dir.join("test_archive.zip-abc123");
             std::fs::create_dir_all(&storage_dir).unwrap();
 
@@ -1078,10 +1070,9 @@ mod tests {
             .unwrap();
             drop(db);
 
-            let output_path = std::env::temp_dir()
-                .join(format!("chuck_test_export_dwca_{test_name}_output.zip"));
+            let output_path = base_dir.join("output.zip");
 
-            Self { base_dir, output_path }
+            Self { _temp: temp, base_dir, output_path }
         }
 
         fn run(&self, search_params: SearchParams) {
@@ -1102,13 +1093,6 @@ mod tests {
         }
     }
 
-    impl Drop for ExportDwcaFixture {
-        fn drop(&mut self) {
-            std::fs::remove_dir_all(&self.base_dir).ok();
-            std::fs::remove_file(&self.output_path).ok();
-        }
-    }
-
     #[test]
     fn test_export_dwca_includes_occurrence_csv() {
         let meta_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -1123,11 +1107,7 @@ mod tests {
         let occurrence_csv =
             b"occurrenceID,scientificName\nobs1,Quercus agrifolia\nobs2,Pinus ponderosa\n";
 
-        let fixture = ExportDwcaFixture::new(
-            "includes_occurrence_csv",
-            meta_xml,
-            occurrence_csv,
-        );
+        let fixture = ExportDwcaFixture::new(meta_xml, occurrence_csv);
         fixture.run(SearchParams::default());
 
         let names = fixture.zip_entry_names();
@@ -1141,10 +1121,8 @@ mod tests {
     fn test_export_dwca_handles_tab_separated_files() {
         use crate::db::Database;
 
-        let test_name = "export_dwca_tab_separated";
-        let base_dir =
-            std::env::temp_dir().join(format!("chuck_test_export_dwca_{test_name}"));
-        std::fs::remove_dir_all(&base_dir).ok();
+        let temp = tempfile::tempdir().unwrap();
+        let base_dir = temp.path().to_path_buf();
         let storage_dir = base_dir.join("test_archive.zip-abc123");
         std::fs::create_dir_all(&storage_dir).unwrap();
 
@@ -1173,8 +1151,7 @@ mod tests {
         .unwrap();
         drop(db);
 
-        let output_path =
-            std::env::temp_dir().join(format!("chuck_test_{test_name}_output.zip"));
+        let output_path = base_dir.join("output.zip");
         export_dwca_inner(
             base_dir.clone(),
             SearchParams::default(),
@@ -1197,9 +1174,6 @@ mod tests {
         std::io::Read::read_to_string(&mut occ, &mut content).unwrap();
         assert!(content.contains("obs1"), "should contain occurrence rows");
         assert!(content.contains("Quercus agrifolia"), "should contain scientific name");
-
-        std::fs::remove_dir_all(&base_dir).ok();
-        std::fs::remove_file(&output_path).ok();
     }
 
     #[test]
@@ -1208,10 +1182,8 @@ mod tests {
         // into DuckDB), but the export must still include it filtered by core ID.
         use crate::db::Database;
 
-        let test_name = "export_dwca_all_extensions";
-        let base_dir =
-            std::env::temp_dir().join(format!("chuck_test_export_dwca_{test_name}"));
-        std::fs::remove_dir_all(&base_dir).ok();
+        let temp = tempfile::tempdir().unwrap();
+        let base_dir = temp.path().to_path_buf();
         let storage_dir = base_dir.join("test_archive.zip-abc123");
         std::fs::create_dir_all(&storage_dir).unwrap();
 
@@ -1252,8 +1224,7 @@ mod tests {
         .unwrap();
         drop(db);
 
-        let output_path =
-            std::env::temp_dir().join(format!("chuck_test_{test_name}_output.zip"));
+        let output_path = base_dir.join("output.zip");
         export_dwca_inner(
             base_dir.clone(),
             SearchParams::default(),
@@ -1270,9 +1241,6 @@ mod tests {
             names.contains(&"resourcerelationship.txt".to_string()),
             "ZIP should contain resourcerelationship.txt, got: {names:?}"
         );
-
-        std::fs::remove_dir_all(&base_dir).ok();
-        std::fs::remove_file(&output_path).ok();
     }
 
     #[test]
@@ -1292,11 +1260,7 @@ mod tests {
         let mut params = SearchParams::default();
         params.filters.insert("scientificName".to_string(), "Quercus agrifolia".to_string());
 
-        let fixture = ExportDwcaFixture::new(
-            "occurrence_csv_contains_rows",
-            meta_xml,
-            occurrence_csv,
-        );
+        let fixture = ExportDwcaFixture::new(meta_xml, occurrence_csv);
         fixture.run(params);
 
         let file = std::fs::File::open(&fixture.output_path).unwrap();
@@ -1316,10 +1280,8 @@ mod tests {
         // for the core occurrence IDs.
         use crate::db::Database;
 
-        let test_name = "export_dwca_identification_data";
-        let base_dir =
-            std::env::temp_dir().join(format!("chuck_test_export_dwca_{test_name}"));
-        std::fs::remove_dir_all(&base_dir).ok();
+        let temp = tempfile::tempdir().unwrap();
+        let base_dir = temp.path().to_path_buf();
         let storage_dir = base_dir.join("test_archive.zip-abc123");
         std::fs::create_dir_all(&storage_dir).unwrap();
 
@@ -1372,8 +1334,7 @@ mod tests {
         ).unwrap();
         drop(db);
 
-        let output_path =
-            std::env::temp_dir().join(format!("chuck_test_{test_name}_output.zip"));
+        let output_path = base_dir.join("output.zip");
         export_dwca_inner(
             base_dir.clone(),
             SearchParams::default(),
@@ -1401,9 +1362,6 @@ mod tests {
         );
         assert!(content.contains("id1"), "should contain identification id1");
         assert!(content.contains("id3"), "should contain identification id3");
-
-        std::fs::remove_dir_all(&base_dir).ok();
-        std::fs::remove_file(&output_path).ok();
     }
 
     #[test]
@@ -1412,10 +1370,8 @@ mod tests {
         // for occurrences that pass the filter (not all occurrences).
         use crate::db::Database;
 
-        let test_name = "export_dwca_identification_filtered";
-        let base_dir =
-            std::env::temp_dir().join(format!("chuck_test_export_dwca_{test_name}"));
-        std::fs::remove_dir_all(&base_dir).ok();
+        let temp = tempfile::tempdir().unwrap();
+        let base_dir = temp.path().to_path_buf();
         let storage_dir = base_dir.join("test_archive.zip-abc123");
         std::fs::create_dir_all(&storage_dir).unwrap();
 
@@ -1463,8 +1419,7 @@ mod tests {
         let mut params = SearchParams::default();
         params.filters.insert("scientificName".to_string(), "Quercus agrifolia".to_string());
 
-        let output_path =
-            std::env::temp_dir().join(format!("chuck_test_{test_name}_output.zip"));
+        let output_path = base_dir.join("output.zip");
         export_dwca_inner(
             base_dir.clone(),
             params,
@@ -1492,9 +1447,6 @@ mod tests {
             !content.contains("id3"),
             "should not contain id3 (obs2 identification was filtered): {content:?}"
         );
-
-        std::fs::remove_dir_all(&base_dir).ok();
-        std::fs::remove_file(&output_path).ok();
     }
 
     #[test]
@@ -1507,10 +1459,8 @@ mod tests {
         // rather than by raw index.
         use crate::db::Database;
 
-        let test_name = "export_dwca_old_coreid_format";
-        let base_dir =
-            std::env::temp_dir().join(format!("chuck_test_export_dwca_{test_name}"));
-        std::fs::remove_dir_all(&base_dir).ok();
+        let temp = tempfile::tempdir().unwrap();
+        let base_dir = temp.path().to_path_buf();
         let storage_dir = base_dir.join("test_archive.zip-abc123");
         std::fs::create_dir_all(&storage_dir).unwrap();
 
@@ -1558,8 +1508,7 @@ mod tests {
         ).unwrap();
         drop(db);
 
-        let output_path =
-            std::env::temp_dir().join(format!("chuck_test_{test_name}_output.zip"));
+        let output_path = base_dir.join("output.zip");
         export_dwca_inner(
             base_dir.clone(),
             SearchParams::default(),
@@ -1580,8 +1529,5 @@ mod tests {
             lines.len()
         );
         assert!(content.contains("id1"), "should contain identification id1");
-
-        std::fs::remove_dir_all(&base_dir).ok();
-        std::fs::remove_file(&output_path).ok();
     }
 }

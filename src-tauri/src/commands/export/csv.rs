@@ -63,11 +63,16 @@ mod tests {
     use super::*;
     use crate::db::Database;
 
-    fn setup_archive(test_name: &str, csv_content: &str) -> (PathBuf, PathBuf) {
-        let base_dir =
-            std::env::temp_dir().join(format!("chuck_test_export_csv_{test_name}"));
-        std::fs::remove_dir_all(&base_dir).ok();
-        let storage_dir = base_dir.join("test.zip-abc123");
+    struct ArchiveFixture {
+        _temp: tempfile::TempDir,
+        archives_dir: PathBuf,
+        output: PathBuf,
+    }
+
+    fn setup_archive(csv_content: &str) -> ArchiveFixture {
+        let temp = tempfile::tempdir().unwrap();
+        let archives_dir = temp.path().to_path_buf();
+        let storage_dir = archives_dir.join("test.zip-abc123");
         std::fs::create_dir_all(&storage_dir).unwrap();
 
         let meta_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -91,31 +96,27 @@ mod tests {
         .unwrap();
         drop(db);
 
-        let output =
-            std::env::temp_dir().join(format!("chuck_test_export_csv_{test_name}_out.csv"));
-        (base_dir, output)
+        let output = archives_dir.join("out.csv");
+        ArchiveFixture { _temp: temp, archives_dir, output }
     }
 
     #[test]
     fn test_export_csv_writes_header_and_rows() {
         let csv = "occurrenceID,scientificName\nabc-1,Homo sapiens\nabc-2,Canis lupus\n";
-        let (base_dir, out) = setup_archive("header_rows", csv);
+        let fixture = setup_archive(csv);
 
         export_csv_inner(
-            base_dir.clone(),
+            fixture.archives_dir.clone(),
             SearchParams::default(),
-            out.to_string_lossy().to_string(),
+            fixture.output.to_string_lossy().to_string(),
         )
         .unwrap();
 
-        let result = std::fs::read_to_string(&out).unwrap();
+        let result = std::fs::read_to_string(&fixture.output).unwrap();
         let lines: Vec<&str> = result.lines().collect();
         assert_eq!(lines[0], "occurrenceID,scientificName");
         assert!(result.contains("abc-1,Homo sapiens"), "row 1 missing: {result}");
         assert!(result.contains("abc-2,Canis lupus"), "row 2 missing: {result}");
-
-        std::fs::remove_dir_all(&base_dir).ok();
-        std::fs::remove_file(&out).ok();
     }
 
     #[test]
@@ -124,16 +125,16 @@ mod tests {
         // values. The exporter must re-escape them when writing the output CSV.
         let csv =
             "occurrenceID,name,note\nocc-1,\"Smith, John\",\"said \"\"hello\"\"\"\n";
-        let (base_dir, out) = setup_archive("escaping", csv);
+        let fixture = setup_archive(csv);
 
         export_csv_inner(
-            base_dir.clone(),
+            fixture.archives_dir.clone(),
             SearchParams::default(),
-            out.to_string_lossy().to_string(),
+            fixture.output.to_string_lossy().to_string(),
         )
         .unwrap();
 
-        let result = std::fs::read_to_string(&out).unwrap();
+        let result = std::fs::read_to_string(&fixture.output).unwrap();
         assert!(
             result.contains("\"Smith, John\""),
             "comma not escaped: {result}"
@@ -142,9 +143,6 @@ mod tests {
             result.contains("\"said \"\"hello\"\"\""),
             "quote not escaped: {result}"
         );
-
-        std::fs::remove_dir_all(&base_dir).ok();
-        std::fs::remove_file(&out).ok();
     }
 
     #[test]
@@ -152,22 +150,19 @@ mod tests {
         // Row 1 has a value for b (so DuckDB keeps the column); row 2 leaves
         // b empty. The exporter must produce an empty field for the NULL value.
         let csv = "occurrenceID,a,b\nocc-1,present,has_value\nocc-2,only_a,\n";
-        let (base_dir, out) = setup_archive("nulls", csv);
+        let fixture = setup_archive(csv);
 
         export_csv_inner(
-            base_dir.clone(),
+            fixture.archives_dir.clone(),
             SearchParams::default(),
-            out.to_string_lossy().to_string(),
+            fixture.output.to_string_lossy().to_string(),
         )
         .unwrap();
 
-        let result = std::fs::read_to_string(&out).unwrap();
+        let result = std::fs::read_to_string(&fixture.output).unwrap();
         let lines: Vec<&str> = result.lines().collect();
         assert_eq!(lines[0], "occurrenceID,a,b", "header: {result}");
         assert!(lines[1].contains(",present,has_value"), "row 1: {}", lines[1]);
         assert!(lines[2].ends_with(",only_a,"), "row 2 b should be empty: {}", lines[2]);
-
-        std::fs::remove_dir_all(&base_dir).ok();
-        std::fs::remove_file(&out).ok();
     }
 }
