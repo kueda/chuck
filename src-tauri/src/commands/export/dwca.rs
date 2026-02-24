@@ -35,16 +35,25 @@ enum CoordDir {
 
 // ─── EML injection helpers ───────────────────────────────────────────────────
 
+/// Writes one XML event, logging a warning if the write fails.
+/// Writer<Vec<u8>> writes to memory and essentially never errors, but we log
+/// rather than silently discard so failures don't produce invisible bad output.
+fn write_eml_event(w: &mut Writer<Vec<u8>>, event: Event) {
+    if let Err(e) = w.write_event(event) {
+        log::warn!("EML XML write error: {e}");
+    }
+}
+
 fn write_para(w: &mut Writer<Vec<u8>>, content: &str) {
-    let _ = w.write_event(Event::Start(BytesStart::new("para")));
-    let _ = w.write_event(Event::Text(BytesText::new(content)));
-    let _ = w.write_event(Event::End(BytesEnd::new("para")));
+    write_eml_event(w, Event::Start(BytesStart::new("para")));
+    write_eml_event(w, Event::Text(BytesText::new(content)));
+    write_eml_event(w, Event::End(BytesEnd::new("para")));
 }
 
 fn write_abstract_block(w: &mut Writer<Vec<u8>>, desc: &str) {
-    let _ = w.write_event(Event::Start(BytesStart::new("abstract")));
+    write_eml_event(w, Event::Start(BytesStart::new("abstract")));
     write_para(w, desc);
-    let _ = w.write_event(Event::End(BytesEnd::new("abstract")));
+    write_eml_event(w, Event::End(BytesEnd::new("abstract")));
 }
 
 fn write_geo_block(w: &mut Writer<Vec<u8>>, params: &SearchParams) {
@@ -55,23 +64,23 @@ fn write_geo_block(w: &mut Writer<Vec<u8>>, params: &SearchParams) {
         _ => return,
     };
     let geo_desc = format!("bounding box N={nelat}/S={swlat}/E={nelng}/W={swlng}");
-    let _ = w.write_event(Event::Start(BytesStart::new("geographicCoverage")));
-    let _ = w.write_event(Event::Start(BytesStart::new("geographicDescription")));
-    let _ = w.write_event(Event::Text(BytesText::new(&geo_desc)));
-    let _ = w.write_event(Event::End(BytesEnd::new("geographicDescription")));
-    let _ = w.write_event(Event::Start(BytesStart::new("boundingCoordinates")));
+    write_eml_event(w, Event::Start(BytesStart::new("geographicCoverage")));
+    write_eml_event(w, Event::Start(BytesStart::new("geographicDescription")));
+    write_eml_event(w, Event::Text(BytesText::new(&geo_desc)));
+    write_eml_event(w, Event::End(BytesEnd::new("geographicDescription")));
+    write_eml_event(w, Event::Start(BytesStart::new("boundingCoordinates")));
     for (tag, val) in [
         ("westBoundingCoordinate", swlng),
         ("eastBoundingCoordinate", nelng),
         ("northBoundingCoordinate", nelat),
         ("southBoundingCoordinate", swlat),
     ] {
-        let _ = w.write_event(Event::Start(BytesStart::new(tag)));
-        let _ = w.write_event(Event::Text(BytesText::new(val)));
-        let _ = w.write_event(Event::End(BytesEnd::new(tag)));
+        write_eml_event(w, Event::Start(BytesStart::new(tag)));
+        write_eml_event(w, Event::Text(BytesText::new(val)));
+        write_eml_event(w, Event::End(BytesEnd::new(tag)));
     }
-    let _ = w.write_event(Event::End(BytesEnd::new("boundingCoordinates")));
-    let _ = w.write_event(Event::End(BytesEnd::new("geographicCoverage")));
+    write_eml_event(w, Event::End(BytesEnd::new("boundingCoordinates")));
+    write_eml_event(w, Event::End(BytesEnd::new("geographicCoverage")));
 }
 
 fn tax_rank_from_key(key: &str) -> &'static str {
@@ -94,21 +103,21 @@ fn write_tax_classifications<'a>(
     for (key, value) in filters {
         let rank = tax_rank_from_key(key);
         let clean_val = value.trim_matches('%');
-        let _ = w.write_event(Event::Start(BytesStart::new("taxonomicClassification")));
-        let _ = w.write_event(Event::Start(BytesStart::new("taxonRankName")));
-        let _ = w.write_event(Event::Text(BytesText::new(rank)));
-        let _ = w.write_event(Event::End(BytesEnd::new("taxonRankName")));
-        let _ = w.write_event(Event::Start(BytesStart::new("taxonRankValue")));
-        let _ = w.write_event(Event::Text(BytesText::new(clean_val)));
-        let _ = w.write_event(Event::End(BytesEnd::new("taxonRankValue")));
-        let _ = w.write_event(Event::End(BytesEnd::new("taxonomicClassification")));
+        write_eml_event(w, Event::Start(BytesStart::new("taxonomicClassification")));
+        write_eml_event(w, Event::Start(BytesStart::new("taxonRankName")));
+        write_eml_event(w, Event::Text(BytesText::new(rank)));
+        write_eml_event(w, Event::End(BytesEnd::new("taxonRankName")));
+        write_eml_event(w, Event::Start(BytesStart::new("taxonRankValue")));
+        write_eml_event(w, Event::Text(BytesText::new(clean_val)));
+        write_eml_event(w, Event::End(BytesEnd::new("taxonRankValue")));
+        write_eml_event(w, Event::End(BytesEnd::new("taxonomicClassification")));
     }
 }
 
 fn write_full_tax_block<'a>(w: &mut Writer<Vec<u8>>, filters: &[(&'a str, &'a str)]) {
-    let _ = w.write_event(Event::Start(BytesStart::new("taxonomicCoverage")));
+    write_eml_event(w, Event::Start(BytesStart::new("taxonomicCoverage")));
     write_tax_classifications(w, filters);
-    let _ = w.write_event(Event::End(BytesEnd::new("taxonomicCoverage")));
+    write_eml_event(w, Event::End(BytesEnd::new("taxonomicCoverage")));
 }
 
 fn coord_value(coord: &CoordDir, params: &SearchParams) -> String {
@@ -402,7 +411,7 @@ fn modify_eml(eml: &str, params: &SearchParams, count: usize) -> String {
                             "dataset" => state.dataset_depth += 1,
                             _ => {}
                         }
-                        let _ = writer.write_event(Event::Start(e));
+                        write_eml_event(&mut writer, Event::Start(e));
                     }
                     Event::End(e) => {
                         let local: String = {
@@ -425,8 +434,9 @@ fn modify_eml(eml: &str, params: &SearchParams, count: usize) -> String {
                                     params.nelng.as_deref().unwrap_or(""),
                                     params.swlng.as_deref().unwrap_or(""),
                                 );
-                                let _ = writer.write_event(
-                                    Event::Text(BytesText::new(&geo_text))
+                                write_eml_event(
+                                    &mut writer,
+                                    Event::Text(BytesText::new(&geo_text)),
                                 );
                             }
                             "boundingCoordinates" => {
@@ -466,33 +476,40 @@ fn modify_eml(eml: &str, params: &SearchParams, count: usize) -> String {
                             }
                             _ => {}
                         }
-                        let _ = writer.write_event(Event::End(e));
+                        write_eml_event(&mut writer, Event::End(e));
                     }
                     Event::Text(e) => {
                         if let Some(ref coord) = state.current_coord.clone() {
                             if has_bbox {
                                 let value = coord_value(coord, params);
-                                let _ = writer.write_event(
-                                    Event::Text(BytesText::new(&value))
+                                write_eml_event(
+                                    &mut writer,
+                                    Event::Text(BytesText::new(&value)),
                                 );
                             } else {
-                                let _ = writer.write_event(Event::Text(e));
+                                write_eml_event(&mut writer, Event::Text(e));
                             }
                         } else {
-                            let _ = writer.write_event(Event::Text(e));
+                            write_eml_event(&mut writer, Event::Text(e));
                         }
                     }
                     other => {
-                        let _ = writer.write_event(other);
+                        write_eml_event(&mut writer, other);
                     }
                 }
             }
-            Err(_) => break,
+            Err(e) => {
+                log::warn!("EML XML parse error, output may be incomplete: {e}");
+                break;
+            }
         }
         buf.clear();
     }
 
-    String::from_utf8(writer.into_inner()).unwrap_or_default()
+    String::from_utf8(writer.into_inner()).unwrap_or_else(|e| {
+        log::warn!("EML output is not valid UTF-8, eml.xml will be empty: {e}");
+        String::new()
+    })
 }
 
 /// Minimal extension info needed for export (covers all rowTypes, not just
