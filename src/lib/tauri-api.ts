@@ -33,6 +33,12 @@ interface MockTauri {
   listen<T>(event: string, handler: EventCallback<T>): Promise<() => void>;
 }
 
+export interface AggregationResult {
+  count: number;
+  photoUrl?: string | null;
+  value: string | null;
+}
+
 // Check if we're in test mode with mocks available
 const hasMocks = typeof window !== 'undefined' && '__MOCK_TAURI__' in window;
 
@@ -199,4 +205,16 @@ export async function exportGroupsCsv(
   path: string,
 ): Promise<void> {
   return invoke('export_groups_csv', { searchParams, fieldName, path });
+}
+
+export async function aggregateByField(
+  selectedField: string,
+  searchParams: SearchParams,
+  limit: number,
+) {
+  return invoke<AggregationResult[]>('aggregate_by_field', {
+    fieldName: selectedField,
+    searchParams,
+    limit,
+  });
 }

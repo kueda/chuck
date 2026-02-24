@@ -1,13 +1,17 @@
 <script lang="ts">
 import { Menu, Portal } from '@skeletonlabs/skeleton-svelte';
-import { invoke } from '@tauri-apps/api/core';
 import { FileDown, Sheet } from 'lucide-svelte';
 import BottomControls from '$lib/components/BottomControls.svelte';
 import GroupRow from '$lib/components/GroupRow.svelte';
 import MediaItem from '$lib/components/MediaItem.svelte';
 import OccurrenceDrawer from '$lib/components/OccurrenceDrawer.svelte';
 import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
-import { exportGroupsCsv, showSaveDialog } from '$lib/tauri-api';
+import type { AggregationResult } from '$lib/tauri-api';
+import {
+  aggregateByField,
+  exportGroupsCsv,
+  showSaveDialog,
+} from '$lib/tauri-api';
 import type { Occurrence } from '$lib/types/archive';
 import type { SearchParams } from '$lib/utils/filterCategories';
 
@@ -27,12 +31,6 @@ const {
   onCountClick,
 }: Props = $props();
 
-interface AggregationResult {
-  count: number;
-  photoUrl?: string | null;
-  value: string | null;
-}
-
 const AGGREGATION_LIMIT = 1000;
 
 let selectedField = $state(defaultSelectedField);
@@ -51,11 +49,11 @@ async function fetchAggregation() {
   error = null;
 
   try {
-    const data = await invoke<AggregationResult[]>('aggregate_by_field', {
-      fieldName: selectedField,
+    const data = await aggregateByField(
+      selectedField,
       searchParams,
-      limit: AGGREGATION_LIMIT,
-    });
+      AGGREGATION_LIMIT,
+    );
     results = data;
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
