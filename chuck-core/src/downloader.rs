@@ -114,6 +114,7 @@ impl Downloader {
         )?;
 
         let mut progress = DownloadProgress::default();
+        let mut cumulative_photos_seen: usize = 0;
 
         // Track pending photo download from previous batch
         #[allow(clippy::type_complexity)]
@@ -163,7 +164,18 @@ impl Downloader {
             }
 
             // Prepare batch: fetch taxa, convert to occurrences, write to CSV
-            let (taxa_hash, _photos_count) = self.prepare_batch(&batch, &mut archive, &mut progress, &progress_callback).await?;
+            let (taxa_hash, photos_count) = self.prepare_batch(&batch, &mut archive, &mut progress, &progress_callback).await?;
+
+            // Update photo estimate using running average (never decreasing)
+            if self.fetch_photos {
+                cumulative_photos_seen += photos_count;
+                progress.photos_total = update_photo_estimate(
+                    progress.photos_total,
+                    cumulative_photos_seen,
+                    progress.observations_current,
+                    progress.observations_total,
+                );
+            }
 
             // If there's a pending photo download from the previous batch, wait for it and process extensions
             if let Some((photo_handle, observations, prev_taxa_hash)) = pending_photos.take() {
@@ -277,12 +289,6 @@ impl Downloader {
 
         if !self.fetch_photos || photos_count == 0 {
             return None;
-        }
-
-        // Estimate total photos from first batch
-        if progress.photos_total == 0 {
-            let avg_photos_per_obs = photos_count as f64 / batch.results.len() as f64;
-            progress.photos_total = (avg_photos_per_obs * progress.observations_total as f64).round() as usize;
         }
 
         progress.stage = DownloadStage::DownloadingPhotos;
@@ -412,6 +418,22 @@ impl Downloader {
 
         Ok(())
     }
+}
+
+/// Compute an updated photo count estimate using a running average across observed batches.
+/// Returns the new estimate, but never less than `current_estimate` (never decreases).
+pub fn update_photo_estimate(
+    current_estimate: usize,
+    cumulative_photos: usize,
+    cumulative_obs: usize,
+    total_obs: usize,
+) -> usize {
+    if cumulative_obs == 0 || total_obs == 0 {
+        return current_estimate;
+    }
+    let avg = cumulative_photos as f64 / cumulative_obs as f64;
+    let new_estimate = (avg * total_obs as f64).round() as usize;
+    current_estimate.max(new_estimate)
 }
 
 use std::collections::HashMap;
@@ -626,6 +648,29 @@ mod tests {
             identifications[0].occurrence_id,
             "https://www.inaturalist.org/observations/123"
         );
+    }
+
+    #[test]
+    fn test_update_photo_estimate_uses_running_average() {
+        // First batch: 100 obs, 100 photos → avg 1.0/obs, total 1000 → estimate 1000
+        let est = update_photo_estimate(0, 100, 100, 1000);
+        assert_eq!(est, 1000);
+
+        // Second batch cumulative: 200 obs, 400 photos → avg 2.0/obs → estimate 2000
+        let est = update_photo_estimate(est, 400, 200, 1000);
+        assert_eq!(est, 2000);
+
+        // Third batch with lower density: 300 obs, 420 photos → avg 1.4/obs → estimate 1400
+        // But it should never decrease, so estimate stays at 2000
+        let est = update_photo_estimate(est, 420, 300, 1000);
+        assert_eq!(est, 2000);
+    }
+
+    #[test]
+    fn test_update_photo_estimate_handles_zero_obs() {
+        // Should return current estimate unchanged
+        assert_eq!(update_photo_estimate(500, 0, 0, 1000), 500);
+        assert_eq!(update_photo_estimate(0, 0, 0, 1000), 0);
     }
 
     #[test]

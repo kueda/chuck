@@ -28,6 +28,11 @@ describe('formatETR', () => {
     expect(formatETR(300)).toBe('~5m remaining');
   });
 
+  it('returns "..." for negative seconds', () => {
+    expect(formatETR(-1)).toBe('...');
+    expect(formatETR(-100)).toBe('...');
+  });
+
   it('formats hours with minutes rounded up', () => {
     expect(formatETR(3600)).toBe('~1h remaining');
     expect(formatETR(3601)).toBe('~1h 1m remaining');
