@@ -150,15 +150,6 @@ pub async fn open_archive(app: tauri::AppHandle, path: String) -> Result<Archive
             )
             .map_err(|e| ChuckError::Tauri(e.to_string()))?;
 
-            // Set window title from Rust for reliable cross-platform behavior.
-            // The JS setTitle() call does not work on Linux (Ubuntu).
-            if let Some(window) = app.get_webview_window("main") {
-                let title = format!("{} \u{2013} {} occurrences", info.name, info.core_count);
-                if let Err(e) = window.set_title(&title) {
-                    log::warn!("Failed to set window title: {e}");
-                }
-            }
-
             Ok(info)
         }
         Ok(Err(e)) => {
