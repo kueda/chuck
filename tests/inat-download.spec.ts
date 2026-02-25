@@ -422,7 +422,9 @@ test.describe('iNat Download UI', () => {
 
     if (hasObservations > 0) {
       // If still showing observations progress, verify the title
-      const obsTitle = await progressDialog.locator('text=/Fetching observations/');
+      const obsTitle = await progressDialog.locator(
+        'text=/Fetching observations/',
+      );
       expect(obsTitle).toBeTruthy();
     } else {
       // May have already completed - verify completion or building stage
