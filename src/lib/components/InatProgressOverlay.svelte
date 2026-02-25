@@ -7,6 +7,7 @@ interface Props {
   observationsTotal?: number;
   photosCurrent?: number;
   photosTotal?: number;
+  photosIsEstimate?: boolean;
   message?: string;
   estimatedTimeRemaining?: string;
   onCancel: () => void;
@@ -18,6 +19,7 @@ const {
   observationsTotal,
   photosCurrent,
   photosTotal,
+  photosIsEstimate = true,
   message,
   estimatedTimeRemaining,
   onCancel,
@@ -32,7 +34,7 @@ const observationsProgress = $derived.by(() => {
 
 const photosProgress = $derived.by(() => {
   if (photosTotal && photosTotal > 0) {
-    return ((photosCurrent || 0) / photosTotal) * 100;
+    return Math.min(100, ((photosCurrent || 0) / photosTotal) * 100);
   }
   return undefined;
 });
@@ -41,7 +43,32 @@ const showObservations = $derived(
   stage === 'active' && observationsTotal !== undefined,
 );
 const showPhotos = $derived(stage === 'active' && photosTotal !== undefined);
+const fmtr = Intl.NumberFormat(navigator.languages);
+
+function fmtNumber(val: number | undefined) {
+  return val ? fmtr.format(val) : '?';
+}
 </script>
+
+{#snippet progressWithMessage(
+  title: string,
+  current: number | undefined,
+  total: number | undefined,
+  progress: number | undefined,
+  isEstimate?: boolean
+)}
+  <div class="mb-4">
+    <div class="text-sm mb-2 flex justify-between">
+      <div>{title}</div>
+      <div>{fmtNumber(current)} / {isEstimate ? ' ~' : ''}{fmtNumber(total)}</div>
+    </div>
+    <Progress value={progress} class="w-full">
+      <Progress.Track>
+        <Progress.Range />
+      </Progress.Track>
+    </Progress>
+  </div>
+{/snippet}
 
 <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
   <div class="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
@@ -49,29 +76,22 @@ const showPhotos = $derived(stage === 'active' && photosTotal !== undefined);
 
     {#if stage === 'active'}
       {#if showObservations}
-        <div class="mb-4">
-          <div class="text-sm mb-2">
-            Fetching observations... {observationsCurrent}/{observationsTotal}
-          </div>
-          <Progress value={observationsProgress} class="w-full">
-            <Progress.Track>
-              <Progress.Range />
-            </Progress.Track>
-          </Progress>
-        </div>
+        {@render progressWithMessage(
+          "Fetching observations...",
+          observationsCurrent,
+          observationsTotal,
+          observationsProgress
+        )}
       {/if}
 
       {#if showPhotos}
-        <div class="mb-4">
-          <div class="text-sm mb-2">
-            Downloading photos... {photosCurrent}/{photosTotal}
-          </div>
-          <Progress value={photosProgress} class="w-full">
-            <Progress.Track>
-              <Progress.Range />
-            </Progress.Track>
-          </Progress>
-        </div>
+        {@render progressWithMessage(
+          "Downloading photos...",
+          photosCurrent,
+          photosTotal,
+          photosProgress,
+          photosIsEstimate,
+        )}
       {/if}
 
       {#if estimatedTimeRemaining}

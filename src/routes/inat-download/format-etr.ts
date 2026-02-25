@@ -1,5 +1,5 @@
 export function formatETR(seconds: number | null): string {
-  if (seconds === null) return '...';
+  if (seconds === null || seconds < 0) return '...';
 
   const rounded = Math.ceil(seconds);
 

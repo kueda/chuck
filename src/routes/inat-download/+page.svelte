@@ -210,8 +210,10 @@ function updateETR() {
 
   const remainingItems = totalItems - itemsDownloaded;
 
-  // Avoid showing ETR if rate is too slow (might indicate stall)
-  if (smoothedRate < 0.1) {
+  // Estimate exceeded or stalled: don't show ETR
+  if (remainingItems <= 0) {
+    estimatedSecondsRemaining = null;
+  } else if (smoothedRate < 0.1) {
     // Less than 1 item per 10 seconds
     estimatedSecondsRemaining = null;
   } else {
@@ -951,6 +953,7 @@ $effect(() => {
     observationsTotal={observationsTotal}
     photosCurrent={photosCurrent}
     photosTotal={photosTotal}
+    photosIsEstimate={true}
     message={progressMessage}
     estimatedTimeRemaining={formatETR(estimatedSecondsRemaining)}
     onCancel={handleCancelDownload}
