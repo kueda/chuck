@@ -216,7 +216,7 @@ fn set_archive_window_title(window: &tauri::WebviewWindow, info: &ArchiveInfo) {
     // This closure / ? approach is to avoid a ton of unwraps.
     #[cfg(target_os = "linux")]
     (|| -> Option<()> {
-        let header_bar = window.gtk_window()?
+        let header_bar = window.gtk_window().ok()?
             .titlebar()?
             .downcast::<EventBox>().ok()?
             .child()?
