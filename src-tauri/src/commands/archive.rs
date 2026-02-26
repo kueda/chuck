@@ -2,6 +2,10 @@ use std::backtrace::Backtrace;
 use std::path::{Path, PathBuf};
 use serde::{Serialize};
 use tauri::{Emitter, Manager};
+#[cfg(target_os = "linux")]
+use gtk::prelude::{BinExt, Cast, GtkWindowExt, HeaderBarExt};
+#[cfg(target_os = "linux")]
+use gtk::{EventBox, HeaderBar};
 
 use crate::dwca::Archive;
 use crate::error::{ChuckError, Result};
@@ -204,6 +208,22 @@ fn set_archive_window_title(window: &tauri::WebviewWindow, info: &ArchiveInfo) {
     if let Err(e) = window.set_title(&title) {
         log::warn!("Failed to set window title: {e}");
     }
+
+    // In GTK (default in Ubuntu), the above method of setting the window
+    // title doesn't change the HeaderBar the user actually sees, so we're
+    // using the approach described in
+    // https://github.com/tauri-apps/tauri/issues/13749#issuecomment-3027697386.
+    // This closure / ? approach is to avoid a ton of unwraps.
+    #[cfg(target_os = "linux")]
+    (|| -> Option<()> {
+        let header_bar = window.gtk_window()?
+            .titlebar()?
+            .downcast::<EventBox>().ok()?
+            .child()?
+            .downcast::<HeaderBar>().ok()?;
+        header_bar.set_title(Some(&title));
+        Some(())
+    })();
 }
 
 #[tauri::command]
