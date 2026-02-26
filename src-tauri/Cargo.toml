@@ -48,6 +48,8 @@ pointy = "0.4"
 url = "2.5.7"
 filetime = "0.2"
 pmtiles = { version = "0.19", default-features = false, features = ["mmap-async-tokio", "http-async", "write", "reqwest-rustls"] }
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18.2"
 
 [dev-dependencies]
 tempfile = "3"

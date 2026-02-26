@@ -26,7 +26,6 @@ import {
   exportDwca,
   exportKml,
   getCurrentWebview,
-  getCurrentWindow,
   invoke,
   listen,
   showOpenDialog,
@@ -316,12 +315,10 @@ async function handleSearchChange(params: SearchParams) {
   }
 }
 
-// Set window title and initialize filtered total when archive loads
+// Initialize filtered total and trigger initial search when archive loads.
+// Window title is set from Rust (see open_archive / current_archive commands).
 $effect(() => {
   if (archive) {
-    getCurrentWindow().setTitle(
-      `${archive.name} – ${archive.coreCount} occurrences`,
-    );
     filteredTotal = archive.coreCount;
 
     // Set default sort to Core ID
