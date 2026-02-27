@@ -48,17 +48,27 @@ const {
   children,
 }: Props = $props();
 
-// Note: virtualizer is a store from TanStack Virtual, not wrapped in $state
-// to avoid infinite loops. Use initialized flag for initial render trigger.
+// virtualizer: the raw store from TanStack Virtual. Kept non-reactive to avoid
+// infinite loops, since TanStack's onChange fires on every scroll event.
 // Using type assertion (as) instead of type annotation (:) because when Svelte's
-// template compiler sees $virtualizer, it needs to unwrap the store type. With a
-// strict type annotation, TypeScript's inference fails and resolves to 'never'.
+// template compiler sees $virtualizerStore, it needs to unwrap the store type.
+// With a strict type annotation, TypeScript's inference fails and resolves to 'never'.
 // Type assertion allows TypeScript to infer the unwrapped type correctly.
 //
 // svelte-ignore non_reactive_update
 let virtualizer = null as ReturnType<
   typeof createVirtualizer<Element, Element>
 > | null;
+
+// Reactive mirror of virtualizer for use in the template. When Effect #1
+// recreates the virtualizer (e.g. due to lanes changing on mount), this
+// signal updates so the template re-subscribes to the new store. This is
+// necessary because TanStack stores only set up the scroll element observer
+// while they have active subscribers; without a persistent subscription the
+// store cleanup (scrollElement = null) fires before scrollToIndex can run.
+let virtualizerStore = $state(
+  null as ReturnType<typeof createVirtualizer<Element, Element>> | null,
+);
 
 // We set up the virtualizer once at startup in an effect which we never
 // want to run again
@@ -150,6 +160,12 @@ $effect(() => {
     initialOffset: currentScrollOffset,
   });
 
+  // Keep virtualizerStore in sync so the template re-subscribes to the new
+  // store. This ensures the store always has an active subscriber, which
+  // prevents TanStack's cleanup (scrollElement = null) from firing when
+  // get(virtualizer) is called inside scrollToIndex.
+  virtualizerStore = virtualizer;
+
   untrack(() => {
     virtualizerVersion++;
   });
@@ -174,9 +190,9 @@ $effect(() => {
 });
 </script>
 
-{#if initialized && virtualizer}
-  {@const items = $virtualizer!.getVirtualItems()}
-  {@const rawTotalSize = $virtualizer!.getTotalSize()}
+{#if initialized && virtualizerStore}
+  {@const items = $virtualizerStore!.getVirtualItems()}
+  {@const rawTotalSize = $virtualizerStore!.getTotalSize()}
   {@const offsetY = items[0]?.start ?? 0}
   <!--
     Provide a reasonable cap on the height of the scrollable; rendering

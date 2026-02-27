@@ -745,6 +745,68 @@ test.describe('Frontend', () => {
     expect(scrollPositionAfterScroll).toBeGreaterThan(1000);
   });
 
+  test('should preserve scroll position when returning to cards view from map view', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'integration-windows',
+      'Map rendering in playwright on Windows not quite working',
+    );
+
+    await openArchive(page);
+    await page.waitForTimeout(1000);
+
+    // Switch to cards view
+    await switchToView(page, 'cards');
+    await page.waitForSelector('.occurrence-card');
+    await page.waitForTimeout(500);
+
+    // Scroll down significantly using mouse wheel to trigger scrollOffsetIndex tracking
+    const scrollContainer = page.getByTestId('occurrences-scroll-container');
+    const containerBox = await scrollContainer.boundingBox();
+    const mouseX = (containerBox?.x ?? 0) + (containerBox?.width ?? 400) / 2;
+    const mouseY = (containerBox?.y ?? 0) + (containerBox?.height ?? 400) / 2;
+    await page.mouse.move(mouseX, mouseY);
+    for (let i = 0; i < 20; i++) {
+      await page.mouse.wheel(0, 500);
+      await page.waitForTimeout(50);
+    }
+
+    // Wait for virtualizer to register the scroll position
+    await page.waitForTimeout(500);
+
+    // Verify we actually scrolled
+    const scrollBefore = await scrollContainer.evaluate((el) => el.scrollTop);
+    expect(scrollBefore).toBeGreaterThan(2000);
+
+    // Capture the first visible loaded item's ID
+    const firstItemId = await page
+      .locator('.occurrence-list-item[id]')
+      .first()
+      .getAttribute('id');
+    expect(firstItemId).toBeTruthy();
+    expect(firstItemId).not.toBe('item-TEST-001');
+
+    // Switch to map view
+    await switchToView(page, 'map');
+    await page.waitForTimeout(2000);
+
+    // Switch back to cards view
+    await switchToView(page, 'cards');
+    await page.waitForSelector('.occurrence-card');
+    await page.waitForTimeout(500);
+
+    // The scroll position should be restored — the same item should be among
+    // the first several visible items. Scroll restoration is index-based so
+    // it may be off by up to one row (lanes=5 items), hence checking 10 items.
+    const itemsAfterReturn = page.locator('.occurrence-list-item[id]');
+    const itemIdsAfter: (string | null)[] = [];
+    for (let i = 0; i < 10; i++) {
+      itemIdsAfter.push(await itemsAfterReturn.nth(i).getAttribute('id'));
+    }
+    expect(itemIdsAfter).toContain(firstItemId);
+  });
+
   test('should not show loading cards for search results in cards view', async ({
     page,
   }) => {
