@@ -93,6 +93,17 @@ export interface SearchParams {
   institutionCode?: string;
   collectionCode?: string;
 
+  // Boolean fields
+  captive?: string;
+  hasCoordinate?: string;
+  hasGeospatialIssues?: string;
+  hasTaxonomicIssue?: string;
+  hasNonTaxonomicIssue?: string;
+  identificationCurrent?: string;
+  isInvasive?: string;
+  isSequenced?: string;
+  repatriated?: string;
+
   // Sorting (reserved field names, not filters)
   sort_by?: string;
   sort_direction?: 'ASC' | 'DESC';
@@ -176,6 +187,18 @@ const CATALOG_COLUMNS: (keyof SearchParams)[] = [
 ];
 
 const PERSON_COLUMNS: (keyof SearchParams)[] = ['recordedBy', 'identifiedBy'];
+
+export const BOOLEAN_COLUMNS: (keyof SearchParams)[] = [
+  'captive',
+  'hasCoordinate',
+  'hasGeospatialIssues',
+  'hasTaxonomicIssue',
+  'hasNonTaxonomicIssue',
+  'identificationCurrent',
+  'isInvasive',
+  'isSequenced',
+  'repatriated',
+];
 
 // Synthetic filter fields that don't exist as database columns
 const SYNTHETIC_FIELDS: (keyof SearchParams)[] = [
