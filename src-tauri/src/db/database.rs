@@ -621,6 +621,15 @@ impl Database {
                         where_clauses.push(format!("CAST({quoted} AS VARCHAR) LIKE ?"));
                         where_interpolations.push(Box::new(format!("{filter_value}%")));
                     }
+                    Some("BOOLEAN") => {
+                        // For boolean types, compare directly to TRUE or FALSE
+                        let quoted = Self::quote_identifier(column_name);
+                        match filter_value.to_lowercase().as_str() {
+                            "true" => where_clauses.push(format!("{quoted} = TRUE")),
+                            "false" => where_clauses.push(format!("{quoted} = FALSE")),
+                            _ => {} // Skip invalid boolean filter values
+                        }
+                    }
                     _ => {
                         // For VARCHAR (default), use ILIKE with substring matching
                         let quoted = Self::quote_identifier(column_name);
@@ -2468,6 +2477,68 @@ mod tests {
         assert_eq!(
             result.total, 3,
             "Min 100 + include_blank should match 100, 1000, and NULL"
+        );
+    }
+
+    #[test]
+    fn test_search_filter_by_boolean_field_true() {
+        let csv_data = b"occurrenceID,scientificName,captive\n\
+            1,Species A,true\n\
+            2,Species B,false\n\
+            3,Species C,true\n";
+
+        let fixture = TestFixture::new("boolean_filter_true", vec![csv_data]);
+        let db = Database::create_from_core_files(
+            &fixture.csv_paths,
+            &[],
+            &fixture.db_path,
+            "occurrenceID",
+        ).unwrap();
+
+        let mut filters = HashMap::new();
+        filters.insert("captive".to_string(), "true".to_string());
+        let result = db.search(10, 0, SearchParams {
+            filters,
+            ..Default::default()
+        }, None).unwrap();
+
+        assert_eq!(result.total, 2, "Filtering captive=true should return 2 records");
+        for row in &result.results {
+            assert_eq!(
+                row.get("captive").and_then(|v| v.as_bool()),
+                Some(true),
+                "All results should have captive=true"
+            );
+        }
+    }
+
+    #[test]
+    fn test_search_filter_by_boolean_field_false() {
+        let csv_data = b"occurrenceID,scientificName,captive\n\
+            1,Species A,true\n\
+            2,Species B,false\n\
+            3,Species C,true\n";
+
+        let fixture = TestFixture::new("boolean_filter_false", vec![csv_data]);
+        let db = Database::create_from_core_files(
+            &fixture.csv_paths,
+            &[],
+            &fixture.db_path,
+            "occurrenceID",
+        ).unwrap();
+
+        let mut filters = HashMap::new();
+        filters.insert("captive".to_string(), "false".to_string());
+        let result = db.search(10, 0, SearchParams {
+            filters,
+            ..Default::default()
+        }, None).unwrap();
+
+        assert_eq!(result.total, 1, "Filtering captive=false should return 1 record");
+        assert_eq!(
+            result.results[0].get("captive").and_then(|v| v.as_bool()),
+            Some(false),
+            "Result should have captive=false"
         );
     }
 }

@@ -2,7 +2,10 @@
 import { Accordion } from '@skeletonlabs/skeleton-svelte';
 import { ArrowUpDown, MinusIcon, PlusIcon } from 'lucide-svelte';
 import type { SearchParams } from '$lib/utils/filterCategories';
-import { categorizeColumns } from '$lib/utils/filterCategories';
+import {
+  BOOLEAN_COLUMNS,
+  categorizeColumns,
+} from '$lib/utils/filterCategories';
 import ComboboxFilter from './ComboboxFilter.svelte';
 import MinMaxFilter from './MinMaxFilter.svelte';
 
@@ -262,6 +265,28 @@ function handleSortByChange() {
                     v,
                   )}
               />
+            {:else if BOOLEAN_COLUMNS.includes(columnName)}
+              <div class="mb-2 px-2">
+                <label class="label">
+                  <span class="label-text text-xs">{columnName}</span>
+                  <select
+                    class="select select-sm w-full"
+                    value={localParams[columnName] ? String(localParams[columnName]) : ''}
+                    onchange={(e) => {
+                      const val = (e.target as HTMLSelectElement).value;
+                      if (val) {
+                        handleFilterChange(columnName, val);
+                      } else {
+                        handleFilterClear(columnName);
+                      }
+                    }}
+                  >
+                    <option value="">Any</option>
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                </label>
+              </div>
             {:else}
               <ComboboxFilter
                 {columnName}
