@@ -16,7 +16,6 @@ Cargo.lock
 
 # Claude
 .claude*
-CLAUDE.md
 lefthook-local.yml
 
 .vscode*
