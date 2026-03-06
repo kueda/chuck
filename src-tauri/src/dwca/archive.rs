@@ -121,6 +121,10 @@ impl Archive {
             &db_path,
             &meta.core_id_column,
         )?;
+
+        // Remove CSV/TXT data files now that they've been imported into the database
+        remove_data_files(&meta.core_files, &meta.extensions);
+
         let core_id_column = meta.core_id_column;
 
         Ok(Self {
@@ -471,6 +475,19 @@ fn create_storage_dir(archive_path: &Path, base_dir: &Path) -> Result<PathBuf> {
     })?;
 
     Ok(target_dir)
+}
+
+fn remove_data_files(core_files: &[PathBuf], extensions: &[ExtensionInfo]) {
+    for path in core_files {
+        if let Err(e) = std::fs::remove_file(path) {
+            log::warn!("Failed to remove core data file {}: {}", path.display(), e);
+        }
+    }
+    for ext in extensions {
+        if let Err(e) = std::fs::remove_file(&ext.location) {
+            log::warn!("Failed to remove extension data file {}: {}", ext.location.display(), e);
+        }
+    }
 }
 
 fn remove_other_archives(base_dir: &Path, current_storage_dir: &Path) -> Result<()> {
