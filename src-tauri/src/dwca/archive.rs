@@ -1611,6 +1611,89 @@ obs789,34.0522,-118.2437,Pinus coulteri
     }
 
     #[test]
+    fn test_remove_data_files_removes_core_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let core1 = temp.path().join("occurrence.csv");
+        let core2 = temp.path().join("occurrence2.csv");
+        std::fs::write(&core1, b"id\n1\n").unwrap();
+        std::fs::write(&core2, b"id\n2\n").unwrap();
+
+        remove_data_files(&[core1.clone(), core2.clone()], &[]);
+
+        assert!(!core1.exists(), "core file 1 should be removed");
+        assert!(!core2.exists(), "core file 2 should be removed");
+    }
+
+    #[test]
+    fn test_remove_data_files_removes_extension_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let ext_path = temp.path().join("multimedia.csv");
+        std::fs::write(&ext_path, b"id,url\n1,http://example.com\n").unwrap();
+
+        let ext = ExtensionInfo {
+            row_type: "http://rs.gbif.org/terms/1.0/Multimedia".to_string(),
+            location: ext_path.clone(),
+            extension: chuck_core::DwcaExtension::SimpleMultimedia,
+            core_id_column: "gbifID".to_string(),
+            fields: vec![],
+            delimiter: ',',
+        };
+
+        remove_data_files(&[], &[ext]);
+
+        assert!(!ext_path.exists(), "extension file should be removed");
+    }
+
+    #[test]
+    fn test_remove_data_files_tolerates_missing_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let nonexistent = temp.path().join("does_not_exist.csv");
+
+        // Should not panic even if file doesn't exist
+        remove_data_files(&[nonexistent], &[]);
+    }
+
+    #[test]
+    fn test_archive_open_removes_data_files_after_import() {
+        let meta_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<archive xmlns="http://rs.tdwg.org/dwc/text/">
+  <core rowType="http://rs.tdwg.org/dwc/terms/Occurrence" encoding="UTF-8"
+        fieldsTerminatedBy="," linesTerminatedBy="\n" fieldsEnclosedBy='"'
+        ignoreHeaderLines="1">
+    <files>
+      <location>occurrence.csv</location>
+    </files>
+    <id index="0" />
+    <field index="0" term="http://rs.tdwg.org/dwc/terms/occurrenceID"/>
+  </core>
+  <extension rowType="http://rs.gbif.org/terms/1.0/Multimedia" encoding="UTF-8"
+             fieldsTerminatedBy="," linesTerminatedBy="\n" fieldsEnclosedBy='"'
+             ignoreHeaderLines="1">
+    <files>
+      <location>multimedia.csv</location>
+    </files>
+    <coreid index="0" />
+    <field index="0" term="http://rs.tdwg.org/dwc/terms/occurrenceID"/>
+    <field index="1" term="http://purl.org/dc/terms/identifier"/>
+  </extension>
+</archive>"#;
+        let occurrence_csv = b"occurrenceID\n1\n";
+        let multimedia_csv = b"occurrenceID,identifier\n1,http://example.com/photo.jpg\n";
+
+        let fixture = ZippedArchiveFixture::new(Some(&[
+            ("meta.xml", &meta_xml[..]),
+            ("occurrence.csv", &occurrence_csv[..]),
+            ("multimedia.csv", &multimedia_csv[..]),
+        ]));
+
+        let archive = Archive::open(fixture.archive_path(), fixture.base_dir(), |_| {}).unwrap();
+        let storage = archive.storage_dir.clone();
+
+        assert!(!storage.join("occurrence.csv").exists(), "core csv should be removed after import");
+        assert!(!storage.join("multimedia.csv").exists(), "extension csv should be removed after import");
+    }
+
+    #[test]
     fn test_get_photo_normalizes_backslash_paths() {
         use std::io::Write;
 
