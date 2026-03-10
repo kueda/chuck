@@ -32,10 +32,16 @@ onMount(async () => {
     style: buildMapStyle(hasBasemap),
     center: [longitude, latitude],
     zoom: 12,
+    pitchWithRotate: false,
+    dragRotate: false,
+    touchPitch: false,
   });
 
   // Add navigation controls
-  map.addControl(new maplibregl.NavigationControl(), 'top-right');
+  map.addControl(
+    new maplibregl.NavigationControl({ showCompass: false }),
+    'top-right',
+  );
 
   // Add marker
   marker = new maplibregl.Marker({ color: '#ef4444' })

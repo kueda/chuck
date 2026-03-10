@@ -110,6 +110,9 @@ onMount(async () => {
     style: buildMapStyle(hasBasemap),
     center: initialCenter,
     zoom: initialZoom,
+    pitchWithRotate: false,
+    dragRotate: false,
+    touchPitch: false,
   });
 
   // Add navigation controls
