@@ -5,9 +5,9 @@ interface Props {
   stage: 'active' | 'building' | 'complete' | 'error';
   observationsCurrent?: number;
   observationsTotal?: number;
-  photosCurrent?: number;
-  photosTotal?: number;
-  photosIsEstimate?: boolean;
+  mediaCurrent?: number;
+  mediaTotal?: number;
+  mediaIsEstimate?: boolean;
   message?: string;
   estimatedTimeRemaining?: string;
   onCancel: () => void;
@@ -17,9 +17,9 @@ const {
   stage,
   observationsCurrent,
   observationsTotal,
-  photosCurrent,
-  photosTotal,
-  photosIsEstimate = true,
+  mediaCurrent,
+  mediaTotal,
+  mediaIsEstimate = true,
   message,
   estimatedTimeRemaining,
   onCancel,
@@ -32,9 +32,9 @@ const observationsProgress = $derived.by(() => {
   return undefined;
 });
 
-const photosProgress = $derived.by(() => {
-  if (photosTotal && photosTotal > 0) {
-    return Math.min(100, ((photosCurrent || 0) / photosTotal) * 100);
+const mediaProgress = $derived.by(() => {
+  if (mediaTotal && mediaTotal > 0) {
+    return Math.min(100, ((mediaCurrent || 0) / mediaTotal) * 100);
   }
   return undefined;
 });
@@ -42,7 +42,7 @@ const photosProgress = $derived.by(() => {
 const showObservations = $derived(
   stage === 'active' && observationsTotal !== undefined,
 );
-const showPhotos = $derived(stage === 'active' && photosTotal !== undefined);
+const showMedia = $derived(stage === 'active' && mediaTotal !== undefined);
 const fmtr = Intl.NumberFormat(navigator.languages);
 
 function fmtNumber(val: number | undefined) {
@@ -84,13 +84,13 @@ function fmtNumber(val: number | undefined) {
         )}
       {/if}
 
-      {#if showPhotos}
+      {#if showMedia}
         {@render progressWithMessage(
-          "Downloading photos...",
-          photosCurrent,
-          photosTotal,
-          photosProgress,
-          photosIsEstimate,
+          "Downloading media...",
+          mediaCurrent,
+          mediaTotal,
+          mediaProgress,
+          mediaIsEstimate,
         )}
       {/if}
 

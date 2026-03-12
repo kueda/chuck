@@ -449,9 +449,9 @@ test.describe('iNat Download UI', () => {
     await page.evaluate(() => {
       (window as any).__MOCK_TAURI__.setProgressEventSequence([
         { stage: 'fetching', current: 50, total: 50 },
-        { stage: 'downloadingPhotos', current: 5, total: 25 },
-        { stage: 'downloadingPhotos', current: 15, total: 25 },
-        { stage: 'downloadingPhotos', current: 25, total: 25 },
+        { stage: 'downloadingMedia', current: 5, total: 25 },
+        { stage: 'downloadingMedia', current: 15, total: 25 },
+        { stage: 'downloadingMedia', current: 25, total: 25 },
         { stage: 'complete' },
       ]);
     });
@@ -461,7 +461,7 @@ test.describe('iNat Download UI', () => {
     await page.waitForTimeout(400);
     await page.click('[role="option"]:has-text("Birds")');
     await page.waitForTimeout(600);
-    await page.check('input[name="fetchPhotos"]'); // Check "Download photos"
+    await page.check('input[name="fetchMedia"]'); // Check "Download media"
 
     // Start download
     await page.locator('button:has-text("Download Archive")').click();
@@ -470,7 +470,7 @@ test.describe('iNat Download UI', () => {
     await expect(
       page.locator('text=Generating Darwin Core Archive'),
     ).toBeVisible();
-    await expect(page.locator('text=/Downloading photos/')).toBeVisible({
+    await expect(page.locator('text=/Downloading media/')).toBeVisible({
       timeout: 5000,
     });
 
@@ -481,13 +481,13 @@ test.describe('iNat Download UI', () => {
 
     // Try to find the photo progress text
     const hasPhotos = await progressDialog
-      .locator('text=/Downloading photos/')
+      .locator('text=/Downloading media/')
       .count();
 
     if (hasPhotos > 0) {
       // If still showing photo progress, verify current <= total
       const photosText = await progressDialog
-        .locator('text=/Downloading photos/')
+        .locator('text=/Downloading media/')
         .textContent();
       const match = photosText?.match(/(\d+)\/(\d+)/);
       if (match) {

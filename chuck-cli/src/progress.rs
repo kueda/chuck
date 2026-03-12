@@ -8,7 +8,7 @@ pub struct ProgressManager {
 }
 
 impl ProgressManager {
-    pub fn new(show_progress: bool, fetch_photos: bool) -> Self {
+    pub fn new(show_progress: bool, fetch_media: bool) -> Self {
         let multi = MultiProgress::new();
 
         let observations_bar = if show_progress {
@@ -26,7 +26,7 @@ impl ProgressManager {
             ProgressBar::hidden()
         };
 
-        let photos_bar = if show_progress && fetch_photos {
+        let photos_bar = if show_progress && fetch_media {
             let bar = ProgressBar::new(0);
             bar.set_style(
                 indicatif::ProgressStyle::with_template(

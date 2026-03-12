@@ -22,15 +22,14 @@
         "default-src": "'self' tiles: http://tiles.localhost basemap: http://basemap.localhost",
         "img-src": "'self' data: blob: tiles: asset: *",
         "connect-src": "'self' tiles: http://tiles.localhost basemap: http://basemap.localhost ipc: http://ipc.localhost https://tile.openstreetmap.org:* https://protomaps.github.io https://build.protomaps.com https://api.inaturalist.org:*",
+        "media-src": "'self' asset: https:",
         "object-src": "'none'",
         "frame-src": "'self'",
         "worker-src": "blob:"
       },
       "assetProtocol": {
         "enable": true,
-        "scope": [
-          "$APPLOCALDATA/**"
-        ]
+        "scope": ["$APPLOCALDATA/**"]
       }
     }
   },
@@ -39,9 +38,7 @@
     "targets": "all",
     "fileAssociations": [
       {
-        "ext": [
-          "zip"
-        ],
+        "ext": ["zip"],
         "name": "DarwinCore Archive",
         "role": "Viewer",
         "mimeType": "application/zip"

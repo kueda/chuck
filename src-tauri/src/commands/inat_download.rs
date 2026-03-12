@@ -90,13 +90,14 @@ pub async fn get_observation_count(params: CountParams) -> Result<i32, String> {
 }
 
 #[derive(Debug, Serialize)]
-pub struct PhotoEstimate {
+pub struct MediaEstimate {
     photo_count: usize,
+    sound_count: usize,
     sample_size: usize,
 }
 
 #[tauri::command]
-pub async fn estimate_photo_count(params: CountParams) -> Result<PhotoEstimate, String> {
+pub async fn estimate_media_count(params: CountParams) -> Result<MediaEstimate, String> {
     // Build API params
     let api_params = build_api_params_from_count(&params);
 
@@ -104,7 +105,7 @@ pub async fn estimate_photo_count(params: CountParams) -> Result<PhotoEstimate, 
     let config = client::get_config().await;
     let config_guard = config.read().await;
 
-    // Fetch one page of random observations to sample photo density
+    // Fetch one page of random observations to sample media density
     let mut sample_params = api_params;
     sample_params.per_page = Some("200".to_string());
     sample_params.order_by = Some("random".to_string());
@@ -119,22 +120,26 @@ pub async fn estimate_photo_count(params: CountParams) -> Result<PhotoEstimate, 
                 .filter_map(|o| o.photos.as_ref())
                 .flatten()
                 .count();
-            let ratio = if sample_size > 0 {
-                photo_count as f64 / sample_size as f64
-            } else {
-                0.0
-            };
+            let sound_count = response
+                .results
+                .iter()
+                .filter_map(|o| o.sounds.as_ref())
+                .flatten()
+                .filter(|s| s.file_url.is_some() && !s.hidden.unwrap_or(false))
+                .count();
             log::info!(
-                "Photo estimate sample: {photo_count} photos / {sample_size} obs = {ratio:.2} photos/obs"
+                "Media estimate sample: {photo_count} photos + {sound_count} sounds \
+                / {sample_size} obs"
             );
-            Ok(PhotoEstimate {
+            Ok(MediaEstimate {
                 photo_count,
+                sound_count,
                 sample_size,
             })
         }
         Err(e) => {
-            log::error!("Failed to estimate photo count: {e:?}");
-            Err(format!("Failed to estimate photo count: {e}"))
+            log::error!("Failed to estimate media count: {e:?}");
+            Err(format!("Failed to estimate media count: {e}"))
         }
     }
 }
@@ -143,7 +148,7 @@ pub async fn estimate_photo_count(params: CountParams) -> Result<PhotoEstimate, 
 #[serde(tag = "stage", rename_all = "camelCase")]
 pub enum InatProgress {
     Fetching { current: usize, total: usize },
-    DownloadingPhotos { current: usize, total: usize },
+    DownloadingMedia { current: usize, total: usize },
     Building { message: String },
     Complete,
 }
@@ -158,7 +163,7 @@ pub struct GenerateParams {
     d2: Option<String>,
     created_d1: Option<String>,
     created_d2: Option<String>,
-    fetch_photos: bool,
+    fetch_media: bool,
     extensions: Vec<String>,
     url_params: Option<String>,
 }
@@ -206,7 +211,7 @@ pub async fn generate_inat_archive(
     };
 
     // Create downloader with JWT for authenticated requests
-    let downloader = Downloader::new(api_params, extensions, params.fetch_photos, jwt);
+    let downloader = Downloader::new(api_params, extensions, params.fetch_media, jwt);
 
     // Create progress callback
     let app_clone = app.clone();
@@ -218,9 +223,9 @@ pub async fn generate_inat_archive(
                 current: progress.observations_current,
                 total: progress.observations_total,
             },
-            DownloadStage::DownloadingPhotos => InatProgress::DownloadingPhotos {
-                current: progress.photos_current,
-                total: progress.photos_total,
+            DownloadStage::DownloadingMedia => InatProgress::DownloadingMedia {
+                current: progress.media_current,
+                total: progress.media_total,
             },
             DownloadStage::Building => InatProgress::Building {
                 message: "Finalizing archive...".to_string()
@@ -276,7 +281,7 @@ mod tests {
 
     #[test]
     fn test_convert_observations_to_multimedia_when_simple_multimedia_enabled() {
-        use chuck_core::downloader::convert_to_multimedia;
+        use chuck_core::downloader::convert_to_photo_multimedia;
 
         // Create observations with photos
         let observations = vec![
@@ -300,7 +305,7 @@ mod tests {
         let photo_mapping = HashMap::new();
 
         // This function should exist and convert observations to multimedia records
-        let multimedia = convert_to_multimedia(&observations, &photo_mapping);
+        let multimedia = convert_to_photo_multimedia(&observations, &photo_mapping);
 
         // Should have created multimedia records
         assert_eq!(multimedia.len(), 1);
@@ -309,7 +314,7 @@ mod tests {
 
     #[test]
     fn test_convert_observations_to_multimedia_without_photos() {
-        use chuck_core::downloader::convert_to_multimedia;
+        use chuck_core::downloader::convert_to_photo_multimedia;
 
         let observations = vec![
             inaturalist::models::Observation {
@@ -321,7 +326,7 @@ mod tests {
 
         let photo_mapping = HashMap::new();
 
-        let multimedia = convert_to_multimedia(&observations, &photo_mapping);
+        let multimedia = convert_to_photo_multimedia(&observations, &photo_mapping);
 
         // Should be empty when there are no photos
         assert_eq!(multimedia.len(), 0);

@@ -4,6 +4,8 @@ import { ImageOff } from 'lucide-svelte';
 import { onMount } from 'svelte';
 import { fade } from 'svelte/transition';
 import type { Audiovisual, Multimedia } from '$lib/types/archive';
+import { isSoundMedia } from '$lib/utils/media';
+export { isSoundMedia };
 
 const {
   multimediaItem,
@@ -17,14 +19,25 @@ const {
 
 let imageLoaded = $state(false);
 let mediumSrc = $state('');
+let soundSrc = $state('');
 let containerElement: HTMLDivElement;
 
 const altText = $derived(alt || multimediaItem?.description || '');
+
+// Detect if this item is a sound
+const soundUrl = $derived(
+  multimediaItem && isSoundMedia(multimediaItem)
+    ? multimediaItem.identifier || null
+    : null,
+);
+
 const imageUrl = $derived(
-  (multimediaItem?.identifier?.match(/\.(jpe?g|gif|png|webp)/i) &&
-    multimediaItem?.identifier) ||
-    (audiovisualItem?.accessURI?.match(/\.(jpe?g|gif|png|webp)/i) &&
-      audiovisualItem?.accessURI),
+  soundUrl
+    ? null
+    : (multimediaItem?.identifier?.match(/\.(jpe?g|gif|png|webp)/i) &&
+        multimediaItem?.identifier) ||
+        (audiovisualItem?.accessURI?.match(/\.(jpe?g|gif|png|webp)/i) &&
+          audiovisualItem?.accessURI),
 );
 
 // Check if a path is a local file path (not a URL)
@@ -45,7 +58,23 @@ function getImageUrl(url: string): string {
 }
 
 onMount(() => {
-  if (imageUrl) {
+  if (soundUrl) {
+    // Load sound source (local or remote)
+    (async () => {
+      if (isLocalPath(soundUrl)) {
+        try {
+          const cachedPath = await invoke<string>('get_photo', {
+            photoPath: soundUrl,
+          });
+          soundSrc = convertFileSrc(cachedPath);
+        } catch (error) {
+          console.error('Failed to load local sound:', soundUrl, error);
+        }
+      } else {
+        soundSrc = soundUrl;
+      }
+    })();
+  } else if (imageUrl) {
     // Lazy load the image, i.e. only when on screen
     const observer = new IntersectionObserver(
       (entries) => {
@@ -97,7 +126,17 @@ onMount(() => {
 </script>
 
 <div bind:this={containerElement}>
-  {#if imageUrl}
+  {#if soundUrl}
+    {#if soundSrc}
+      <audio controls src={soundSrc} class="w-full">
+        Your browser does not support the audio element.
+      </audio>
+    {:else}
+      <div class="flex items-center justify-center w-full h-full text-gray-400">
+        Loading audio...
+      </div>
+    {/if}
+  {:else if imageUrl}
     {#if imageLoaded}
       <img
         alt={altText}

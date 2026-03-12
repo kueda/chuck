@@ -581,6 +581,37 @@ impl From<(&inaturalist::models::Photo, &str, Option<&inaturalist::models::User>
     }
 }
 
+// Map iNaturalist sound with context to a DarwinCore multimedia record
+impl From<(&inaturalist::models::Sound, &str, Option<&inaturalist::models::User>, &HashMap<i32, String>)> for Multimedia {
+    fn from((sound, occurrence_id, user, sound_mapping): (&inaturalist::models::Sound, &str, Option<&inaturalist::models::User>, &HashMap<i32, String>)) -> Self {
+        let identifier = sound.id
+            .and_then(|id| sound_mapping.get(&id).cloned())
+            .or_else(|| sound.file_url.clone());
+        let references = sound.id.map(|id| {
+            format!("https://www.inaturalist.org/sounds/{id}")
+        });
+        Self {
+            coreid: None,
+            occurrence_id: format!("https://www.inaturalist.org/observations/{occurrence_id}"),
+            r#type: Some("Sound".to_string()),
+            format: sound.file_content_type.clone(),
+            identifier,
+            references,
+            title: None,
+            description: None,
+            created: None,
+            creator: user.and_then(|u| u.login.clone()),
+            contributor: None,
+            publisher: Some("iNaturalist".to_string()),
+            audience: None,
+            source: None,
+            license: sound.license_code.clone(),
+            rights_holder: user.and_then(|u| u.login.clone()),
+            dataset_id: None,
+        }
+    }
+}
+
 // Map iNaturalist photo with observation context to a DarwinCore audiovisual record
 impl From<(&inaturalist::models::Photo, &str, &Observation, &HashMap<i32, String>)> for Audiovisual {
     fn from((photo, occurrence_id, observation, photo_mapping): (&inaturalist::models::Photo, &str, &Observation, &HashMap<i32, String>)) -> Self {

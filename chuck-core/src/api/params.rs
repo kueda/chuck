@@ -100,6 +100,14 @@ pub static DEFAULT_GET_PARAMS: observations_api::ObservationsGetParams = observa
     without_term_id: None,
     without_term_value_id: None,
     year: None,
+    fails_dqa_accurate: None,
+    fails_dqa_date: None,
+    fails_dqa_evidence: None,
+    fails_dqa_location: None,
+    fails_dqa_needs_id: None,
+    fails_dqa_recent: None,
+    fails_dqa_subject: None,
+    fails_dqa_wild: None,
 };
 
 /// Parse an iNat observations query string into ObservationsGetParams.

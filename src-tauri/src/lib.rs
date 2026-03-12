@@ -38,7 +38,7 @@ pub fn run() {
             commands::archive::aggregate_by_field,
             commands::archive::get_archive_metadata,
             commands::inat_download::get_observation_count,
-            commands::inat_download::estimate_photo_count,
+            commands::inat_download::estimate_media_count,
             commands::inat_download::generate_inat_archive,
             commands::inat_download::cancel_inat_archive,
             commands::inat_download::parse_inat_url,

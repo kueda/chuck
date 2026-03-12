@@ -24,6 +24,7 @@ import type {
   Multimedia,
   Occurrence,
 } from '$lib/types/archive';
+import { isSoundMedia } from '$lib/utils/media';
 import Comment from './Comment.svelte';
 import Identification from './Identification.svelte';
 import MediaItem from './MediaItem.svelte';
@@ -121,9 +122,10 @@ function openPhotoViewer(photoUrl: string) {
   // Build array of all photo URLs from multimedia and audiovisual
   const allPhotos: string[] = [];
 
-  // Add multimedia photos
+  // Add multimedia photos (exclude sounds)
   if (occurrence?.multimedia) {
     for (const media of occurrence.multimedia) {
+      if (isSoundMedia(media)) continue;
       const url = getPhotoUrl(media);
       if (url) allPhotos.push(url);
     }
@@ -282,13 +284,19 @@ const coreFields = {
                   {#each occurrence.multimedia || [] as media}
                     {@const photoUrl = getPhotoUrl(media)}
                     {#if photoUrl}
-                      <button
-                        type="button"
-                        class="aspect-square overflow-hidden rounded border hover:opacity-80 transition-opacity relative"
-                        onclick={() => openPhotoViewer(photoUrl)}
-                      >
-                        <MediaItem multimediaItem={media} alt={media.title || 'Photo'} />
-                      </button>
+                      {#if isSoundMedia(media)}
+                        <div class="overflow-hidden rounded border p-2 flex items-center">
+                          <MediaItem multimediaItem={media} alt={media.title || 'Sound'} />
+                        </div>
+                      {:else}
+                        <button
+                          type="button"
+                          class="aspect-square overflow-hidden rounded border hover:opacity-80 transition-opacity relative"
+                          onclick={() => openPhotoViewer(photoUrl)}
+                        >
+                          <MediaItem multimediaItem={media} alt={media.title || 'Photo'} />
+                        </button>
+                      {/if}
                     {/if}
                   {/each}
                   {#each occurrence.audiovisual || [] as av}

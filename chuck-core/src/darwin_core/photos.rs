@@ -7,6 +7,8 @@ use tokio::sync::Semaphore;
 
 pub struct PhotoDownloader;
 
+pub struct SoundDownloader;
+
 impl PhotoDownloader {
     const MAX_RETRIES: usize = 3;
     const RETRY_BASE_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
@@ -193,5 +195,174 @@ impl PhotoDownloader {
         }
 
         Ok(photo_mapping)
+    }
+}
+
+impl SoundDownloader {
+    const MAX_RETRIES: usize = 3;
+    const RETRY_BASE_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
+
+    async fn download_file_with_retry(
+        url: String,
+        file_path: PathBuf,
+        sound_id: i32,
+    ) -> Result<(), String> {
+        let mut last_error = None;
+
+        for attempt in 1..=Self::MAX_RETRIES {
+            match Self::download_file(&url, &file_path).await {
+                Ok(()) => return Ok(()),
+                Err(error_msg) => {
+                    last_error = Some(error_msg.clone());
+                    if attempt < Self::MAX_RETRIES {
+                        let delay = Self::RETRY_BASE_DELAY * (2_u32.pow(attempt as u32 - 1));
+                        log::warn!(
+                            "Download attempt {attempt} failed for sound {sound_id}: \
+                            {error_msg}. Retrying in {delay:?}..."
+                        );
+                        tokio::time::sleep(delay).await;
+                    }
+                }
+            }
+        }
+
+        Err(last_error.unwrap())
+    }
+
+    async fn download_file(url: &str, file_path: &Path) -> Result<(), String> {
+        use tokio::io::AsyncWriteExt;
+        let mut f = tokio::fs::File::create(file_path).await
+            .map_err(|e| format!("Failed to create file: {e}"))?;
+        let response = reqwest::get(url).await
+            .map_err(|e| format!("Failed to fetch URL: {e}"))?;
+        let bytes = response.bytes().await
+            .map_err(|e| format!("Failed to read response bytes: {e}"))?;
+        f.write_all(&bytes).await
+            .map_err(|e| format!("Failed to write to file: {e}"))?;
+        Ok(())
+    }
+
+    /// Extract file extension from a MIME type like "audio/mpeg" → "mp3"
+    fn ext_from_content_type(content_type: &str) -> &str {
+        match content_type {
+            "audio/mpeg" | "audio/mp3" => "mp3",
+            "audio/ogg" => "ogg",
+            "audio/wav" | "audio/wave" | "audio/x-wav" => "wav",
+            "audio/flac" => "flac",
+            "audio/aac" => "aac",
+            "audio/x-m4a" | "audio/mp4" => "m4a",
+            "audio/webm" => "webm",
+            _ => "bin",
+        }
+    }
+
+    /// Downloads sounds to a specific directory and returns a mapping of sound ID to rel path
+    pub async fn fetch_sounds_to_dir<F>(
+        observations: &[Observation],
+        output_dir: &Path,
+        progress_callback: F,
+        cancellation_token: Option<Arc<std::sync::atomic::AtomicBool>>,
+    ) -> Result<HashMap<i32, String>, Box<dyn std::error::Error>>
+    where
+        F: Fn(usize) + Send + Sync + Clone + 'static,
+    {
+        let mut sound_to_date: HashMap<i32, Option<String>> = HashMap::new();
+        for obs in observations {
+            if let Some(sounds) = &obs.sounds {
+                for sound in sounds {
+                    if let Some(sound_id) = sound.id {
+                        sound_to_date.insert(sound_id, obs.observed_on.clone());
+                    }
+                }
+            }
+        }
+
+        let sounds: Vec<_> = observations
+            .iter()
+            .filter_map(|o| o.sounds.as_ref())
+            .flatten()
+            .cloned()
+            .collect();
+
+        let semaphore = Arc::new(Semaphore::new(20));
+        let mut sound_mapping = HashMap::new();
+
+        let tasks: Vec<_> = sounds.iter().map(|sound| {
+            let sound = sound.clone();
+            let output_dir = output_dir.to_path_buf();
+            let semaphore = semaphore.clone();
+            let sound_to_date = sound_to_date.clone();
+            let progress_callback = progress_callback.clone();
+            let cancel = cancellation_token.clone();
+
+            tokio::spawn(async move {
+                let mut result = None;
+                if let (Some(file_url), Some(id)) = (&sound.file_url, &sound.id) {
+                    if sound.hidden.unwrap_or(false) {
+                        progress_callback(1);
+                        return None;
+                    }
+
+                    if let Some(ref token) = cancel {
+                        if token.load(std::sync::atomic::Ordering::Relaxed) {
+                            return None;
+                        }
+                    }
+
+                    let _permit = semaphore.acquire().await.unwrap();
+
+                    if let Some(ref token) = cancel {
+                        if token.load(std::sync::atomic::Ordering::Relaxed) {
+                            return None;
+                        }
+                    }
+
+                    let ext = sound.file_content_type.as_deref()
+                        .map(Self::ext_from_content_type)
+                        .unwrap_or("bin");
+                    let filename = format!("{id}.{ext}");
+
+                    let observed_on = sound_to_date.get(id).unwrap_or(&None);
+                    let date_subdir = PhotoDownloader::create_date_subdir(&output_dir, observed_on);
+
+                    if let Err(e) = tokio::fs::create_dir_all(&date_subdir).await {
+                        log::error!(
+                            "Failed to create directory {}: {}",
+                            date_subdir.display(), e
+                        );
+                        progress_callback(1);
+                        return None;
+                    }
+
+                    let file_path = date_subdir.join(&filename);
+
+                    let archive_root = output_dir.parent()
+                        .expect("output_dir should have a parent");
+                    let rel_path = file_path
+                        .strip_prefix(archive_root)
+                        .expect("file_path should start with archive_root")
+                        .to_path_buf();
+
+                    match Self::download_file_with_retry(file_url.clone(), file_path, *id).await {
+                        Ok(()) => {
+                            result = Some((*id, rel_path.to_string_lossy().to_string()));
+                        }
+                        Err(e) => log::error!(
+                            "Failed to download sound {} after {} retries: {}",
+                            id, Self::MAX_RETRIES, e
+                        ),
+                    }
+                }
+                progress_callback(1);
+                result
+            })
+        }).collect();
+
+        let results = futures::future::join_all(tasks).await;
+        for (sound_id, path) in results.into_iter().filter_map(|r| r.ok().flatten()) {
+            sound_mapping.insert(sound_id, path);
+        }
+
+        Ok(sound_mapping)
     }
 }
