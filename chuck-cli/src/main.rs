@@ -114,7 +114,7 @@ enum Commands {
 
         /// Fetch photos and include in a DarwinCore Archive
         #[arg(long)]
-        fetch_photos: bool,
+        fetch_media: bool,
 
         #[arg(long, value_enum, default_value_t = OutputFormat::default())]
         format: OutputFormat,
@@ -161,7 +161,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             d1,
             d2,
             dwc_extensions,
-            fetch_photos,
+            fetch_media,
             file,
             format,
             place_id,
@@ -178,7 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             d2,
             created_d1,
             created_d2,
-            fetch_photos,
+            fetch_media,
             format,
             dwc_extensions,
         }).await?,

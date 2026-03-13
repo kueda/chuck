@@ -17,7 +17,7 @@ pub struct FetchObservationsOptions {
     pub created_d1: Option<String>,
     pub created_d2: Option<String>,
     pub file: Option<String>,
-    pub fetch_photos: bool,
+    pub fetch_media: bool,
     pub format: crate::OutputFormat,
     pub dwc_extensions: Vec<crate::DwcExtension>,
 }
@@ -88,7 +88,7 @@ pub async fn fetch_observations(
     let params = build_fetch_params(&opts);
 
     let show_progress = opts.file.is_some();
-    let progress_manager = ProgressManager::new(show_progress, opts.fetch_photos);
+    let progress_manager = ProgressManager::new(show_progress, opts.fetch_media);
 
     // Create channel for sending observations from fetcher to writer
     let (tx, rx) = mpsc::channel::<ObservationsResponse>(10);
@@ -162,7 +162,7 @@ pub async fn fetch_observations(
                 .collect();
 
             // Create downloader (CLI uses file-based auth, so no JWT needed)
-            let downloader = Downloader::new(params, core_extensions, opts.fetch_photos, None);
+            let downloader = Downloader::new(params, core_extensions, opts.fetch_media, None);
 
             // Create progress callback
             let progress_callback = move |progress: chuck_core::downloader::DownloadProgress| {
@@ -173,12 +173,12 @@ pub async fn fetch_observations(
                         }
                         progress_manager.observations_bar.set_position(progress.observations_current as u64);
                     }
-                    chuck_core::downloader::DownloadStage::DownloadingPhotos => {
+                    chuck_core::downloader::DownloadStage::DownloadingMedia => {
                         if let Some(ref bar) = progress_manager.photos_bar {
-                            if progress.photos_total as u64 > bar.length().unwrap_or(0) {
-                                bar.set_length(progress.photos_total as u64);
+                            if progress.media_total as u64 > bar.length().unwrap_or(0) {
+                                bar.set_length(progress.media_total as u64);
                             }
-                            bar.set_position(progress.photos_current as u64);
+                            bar.set_position(progress.media_current as u64);
                         }
                     }
                     chuck_core::downloader::DownloadStage::Building => {

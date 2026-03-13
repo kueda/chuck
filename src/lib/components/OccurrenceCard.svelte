@@ -1,6 +1,7 @@
 <script lang="ts">
-import { Calendar, MapPin } from 'lucide-svelte';
+import { AudioLines, Calendar, MapPin } from 'lucide-svelte';
 import type { Occurrence } from '$lib/types/archive';
+import { isSoundMedia } from '$lib/utils/media';
 import MediaItem from './MediaItem.svelte';
 
 const { occurrence }: { occurrence: Occurrence } = $props();
@@ -32,7 +33,13 @@ const { occurrence }: { occurrence: Occurrence } = $props();
       <MediaItem
         multimediaItem={occurrence?.multimedia?.find((m) => m.identifier)}
         audiovisualItem={occurrence?.audiovisual?.find(av => av.accessURI)}
+        noInteraction
       />
+      {#if occurrence?.multimedia?.find(m => isSoundMedia(m)) && occurrence?.multimedia?.find(m => !isSoundMedia(m))}
+        <div class="absolute top-0 end-0 preset-filled-surface-200-800 p-2">
+          <AudioLines size={16} />
+        </div>
+      {/if}
     </div>
   </header>
   <article class="space-y-2 p-3">

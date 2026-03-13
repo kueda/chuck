@@ -15,7 +15,7 @@ import ExtensionCheckbox from './ExtensionCheckbox.svelte';
 import { formatETR } from './format-etr';
 
 interface InatProgress {
-  stage: 'fetching' | 'downloadingPhotos' | 'building' | 'complete' | 'error';
+  stage: 'fetching' | 'downloadingMedia' | 'building' | 'complete' | 'error';
   current?: number;
   total?: number;
   message?: string;
@@ -48,7 +48,7 @@ let observedD2 = $state<string>(new Date().toDateString());
 let createdDateRange = $state<'all' | 'custom'>('all');
 let createdD1 = $state<string>('2000-01-01');
 let createdD2 = $state<string>(new Date().toDateString());
-let fetchPhotos = $state<boolean>(false);
+let fetchMedia = $state<boolean>(false);
 let includeSimpleMultimedia = $state<boolean>(true);
 let includeAudiovisual = $state<boolean>(false);
 let includeIdentifications = $state<boolean>(true);
@@ -64,13 +64,14 @@ let observationCount = $state<number | null>(null);
 let countLoading = $state<boolean>(false);
 let countError = $state<string | null>(null);
 
-// Photo estimate state (for size calculation when fetchPhotos is checked)
-interface PhotoEstimate {
+// Media estimate state (for size calculation when fetchMedia is checked)
+interface MediaEstimate {
   photo_count: number;
+  sound_count: number;
   sample_size: number;
 }
-let photoEstimate = $state<PhotoEstimate | null>(null);
-let photoEstimateLoading = $state<boolean>(false);
+let mediaEstimate = $state<MediaEstimate | null>(null);
+let mediaEstimateLoading = $state<boolean>(false);
 
 // Size estimation constants (derived from sample archives with 518 observations)
 // Measured compressed bytes per observation:
@@ -81,6 +82,7 @@ const BYTES_PER_OBSERVATION_MULTIMEDIA = 16 * SIZE_ESTIMATE_SAFETY_MARGIN;
 const BYTES_PER_OBSERVATION_IDENTIFICATIONS = 146 * SIZE_ESTIMATE_SAFETY_MARGIN;
 const BYTES_PER_OBSERVATION_COMMENTS = 40 * SIZE_ESTIMATE_SAFETY_MARGIN;
 const BYTES_PER_PHOTO = 1_800_000;
+const BYTES_PER_SOUND = 1_000_000;
 const ONE_GB = 1_000_000_000;
 
 // Auth state
@@ -99,8 +101,8 @@ let progressStage = $state<'active' | 'building' | 'complete' | 'error'>(
 );
 let observationsCurrent = $state<number | undefined>(undefined);
 let observationsTotal = $state<number | undefined>(undefined);
-let photosCurrent = $state<number | undefined>(undefined);
-let photosTotal = $state<number | undefined>(undefined);
+let mediaCurrent = $state<number | undefined>(undefined);
+let mediaTotal = $state<number | undefined>(undefined);
 let progressMessage = $state<string | undefined>(undefined);
 
 // ETR state
@@ -157,13 +159,13 @@ async function handleSignOut() {
 function updateETR() {
   const now = Date.now();
 
-  // Use photos for rate calculation if available (they dominate download time),
+  // Use media for rate calculation if available (they dominate download time),
   // otherwise fall back to observations
-  const hasPhotos = (photosTotal || 0) > 0;
-  const itemsDownloaded = hasPhotos
-    ? photosCurrent || 0
+  const hasMedia = (mediaTotal || 0) > 0;
+  const itemsDownloaded = hasMedia
+    ? mediaCurrent || 0
     : observationsCurrent || 0;
-  const totalItems = hasPhotos ? photosTotal || 0 : observationsTotal || 0;
+  const totalItems = hasMedia ? mediaTotal || 0 : observationsTotal || 0;
 
   // Initialize on first call
   if (!downloadStartTime) {
@@ -313,18 +315,18 @@ async function parseUrl() {
 // Photo estimate debounce timer
 let photoDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-async function fetchPhotoEstimate() {
-  if (!fetchPhotos) {
-    photoEstimate = null;
+async function fetchMediaEstimate() {
+  if (!fetchMedia) {
+    mediaEstimate = null;
     return;
   }
   // In URL mode with no effective params, don't fetch
   if (filterMode === 'url' && !effectiveParams) {
-    photoEstimate = null;
+    mediaEstimate = null;
     return;
   }
 
-  photoEstimateLoading = true;
+  mediaEstimateLoading = true;
 
   try {
     const params: CountParams =
@@ -354,24 +356,24 @@ async function fetchPhotoEstimate() {
             url_params: null,
           };
 
-    photoEstimate = await invoke<PhotoEstimate>('estimate_photo_count', {
+    mediaEstimate = await invoke<MediaEstimate>('estimate_media_count', {
       params,
     });
   } catch (e) {
-    console.error('Failed to fetch photo estimate:', e);
-    photoEstimate = null;
+    console.error('Failed to fetch media estimate:', e);
+    mediaEstimate = null;
   } finally {
-    photoEstimateLoading = false;
+    mediaEstimateLoading = false;
   }
 }
 
-function scheduleFetchPhotoEstimate() {
+function scheduleFetchMediaEstimate() {
   if (photoDebounceTimer) {
     clearTimeout(photoDebounceTimer);
   }
 
   photoDebounceTimer = setTimeout(() => {
-    fetchPhotoEstimate();
+    fetchMediaEstimate();
   }, DEBOUNCE_MS);
 }
 
@@ -391,11 +393,14 @@ function calculateEstimatedSize(): number | null {
     sizeBytes += observationCount * BYTES_PER_OBSERVATION_COMMENTS;
   }
 
-  // Add photo costs
-  if (fetchPhotos && photoEstimate && photoEstimate.sample_size > 0) {
-    const photosPerObs = photoEstimate.photo_count / photoEstimate.sample_size;
+  // Add media costs (photos + sounds)
+  if (fetchMedia && mediaEstimate && mediaEstimate.sample_size > 0) {
+    const photosPerObs = mediaEstimate.photo_count / mediaEstimate.sample_size;
+    const soundsPerObs = mediaEstimate.sound_count / mediaEstimate.sample_size;
     const estimatedPhotos = Math.round(photosPerObs * observationCount);
+    const estimatedSounds = Math.round(soundsPerObs * observationCount);
     sizeBytes += estimatedPhotos * BYTES_PER_PHOTO;
+    sizeBytes += estimatedSounds * BYTES_PER_SOUND;
   }
 
   return sizeBytes;
@@ -479,7 +484,7 @@ async function startDownload(filePath: string) {
               created_d1: null,
               created_d2: null,
               url_params: effectiveParams || null,
-              fetch_photos: fetchPhotos,
+              fetch_media: fetchMedia,
               extensions,
             }
           : {
@@ -500,7 +505,7 @@ async function startDownload(filePath: string) {
               created_d2:
                 createdDateRange === 'custom' && createdD2 ? createdD2 : null,
               url_params: null,
-              fetch_photos: fetchPhotos,
+              fetch_media: fetchMedia,
               extensions,
             },
     });
@@ -567,10 +572,10 @@ onMount(() => {
       observationsCurrent = progress.current;
       observationsTotal = progress.total;
       updateETR();
-    } else if (progress.stage === 'downloadingPhotos') {
+    } else if (progress.stage === 'downloadingMedia') {
       progressStage = 'active';
-      photosCurrent = progress.current;
-      photosTotal = progress.total;
+      mediaCurrent = progress.current;
+      mediaTotal = progress.total;
       updateETR();
     } else if (progress.stage === 'building') {
       progressStage = 'building';
@@ -621,7 +626,7 @@ $effect(() => {
   scheduleFetchCount();
 });
 
-// Trigger photo estimate fetch when filters change or fetchPhotos is toggled
+// Trigger media estimate fetch when filters change or fetchMedia is toggled
 $effect(() => {
   // Track dependencies
   const deps = [
@@ -639,15 +644,15 @@ $effect(() => {
           createdD1,
           createdD2,
         ]),
-    fetchPhotos,
+    fetchMedia,
   ];
   void deps;
 
   // Clear previous estimate while debouncing
-  photoEstimate = null;
+  mediaEstimate = null;
 
-  if (fetchPhotos) {
-    scheduleFetchPhotoEstimate();
+  if (fetchMedia) {
+    scheduleFetchMediaEstimate();
   }
 });
 </script>
@@ -867,10 +872,10 @@ $effect(() => {
       <div class="mb-6">
         <div class="space-y-2">
           <label class="flex items-start w-fit space-x-2">
-            <input name="fetchPhotos" class="checkbox mt-1" type="checkbox" bind:checked={fetchPhotos} />
+            <input name="fetchMedia" class="checkbox mt-1" type="checkbox" bind:checked={fetchMedia} />
             <div>
-              <p>Download photos</p>
-              <p class="text-gray-500">Include all observation photos in the archive itself for backup or offline use</p>
+              <p>Download photos &amp; sounds</p>
+              <p class="text-gray-500">Include all observation photos and sounds in the archive itself for backup or offline use</p>
             </div>
           </label>
 
@@ -921,7 +926,7 @@ $effect(() => {
       <div class="text-red-600">Unable to load observation count</div>
     {:else if observationCount !== null}
       <div>{observationCount.toLocaleString()} observations match</div>
-      {#if photoEstimateLoading}
+      {#if mediaEstimateLoading}
         <div class="text-gray-500 text-sm mt-1">Estimating size...</div>
       {:else}
         {@const estimatedSize = calculateEstimatedSize()}
@@ -951,9 +956,9 @@ $effect(() => {
     stage={progressStage}
     observationsCurrent={observationsCurrent}
     observationsTotal={observationsTotal}
-    photosCurrent={photosCurrent}
-    photosTotal={photosTotal}
-    photosIsEstimate={true}
+    mediaCurrent={mediaCurrent}
+    mediaTotal={mediaTotal}
+    mediaIsEstimate={true}
     message={progressMessage}
     estimatedTimeRemaining={formatETR(estimatedSecondsRemaining)}
     onCancel={handleCancelDownload}

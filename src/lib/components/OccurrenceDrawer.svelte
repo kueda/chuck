@@ -24,6 +24,7 @@ import type {
   Multimedia,
   Occurrence,
 } from '$lib/types/archive';
+import { isSoundMedia } from '$lib/utils/media';
 import Comment from './Comment.svelte';
 import Identification from './Identification.svelte';
 import MediaItem from './MediaItem.svelte';
@@ -54,6 +55,7 @@ let error = $state<string | null>(null);
 let photoViewerOpen = $state(false);
 let photoUrls = $state<string[]>([]);
 let selectedPhotoIndex = $state(0);
+let drawerContent: HTMLDivElement;
 type ActivityItem =
   | { type: 'identification'; date: number; item: IdentificationType }
   | { type: 'comment'; date: number; item: CommentType };
@@ -98,6 +100,39 @@ $effect(() => {
   }
 });
 
+// Pause other audio elements when one starts playing
+$effect(() => {
+  open;
+  occurrenceId;
+  if (!drawerContent) return;
+  function pauseAll(e: Event) {
+    for (const audio of drawerContent.querySelectorAll<HTMLAudioElement>(
+      'audio',
+    )) {
+      if (audio !== e.target) {
+        audio.pause();
+      }
+    }
+  }
+  drawerContent.addEventListener('play', pauseAll, true);
+  return () => drawerContent.removeEventListener('play', pauseAll, true);
+});
+
+// Stop audio when drawer closes or switches occurrence
+$effect(() => {
+  // We want to pause audio when open or occurrenceId change, even if they're blank
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+  open;
+  occurrenceId;
+  if (drawerContent) {
+    for (const audio of drawerContent.querySelectorAll<HTMLAudioElement>(
+      'audio',
+    )) {
+      audio.pause();
+    }
+  }
+});
+
 async function loadOccurrence() {
   if (!occurrenceId) return;
 
@@ -121,9 +156,10 @@ function openPhotoViewer(photoUrl: string) {
   // Build array of all photo URLs from multimedia and audiovisual
   const allPhotos: string[] = [];
 
-  // Add multimedia photos
+  // Add multimedia photos (exclude sounds)
   if (occurrence?.multimedia) {
     for (const media of occurrence.multimedia) {
+      if (isSoundMedia(media)) continue;
       const url = getPhotoUrl(media);
       if (url) allPhotos.push(url);
     }
@@ -248,7 +284,7 @@ const coreFields = {
         </header>
 
         <!-- Content -->
-        <div class="px-6 pb-6">
+        <div bind:this={drawerContent} class="px-6 pb-6">
           {#if loading}
             <div class="flex justify-center items-center h-64">
               <div class="text-gray-500">Loading...</div>
@@ -278,17 +314,23 @@ const coreFields = {
             {#if occurrence.multimedia?.length || occurrence.audiovisual?.length}
               <section class="mb-8">
                 <h2 class="text-xl font-bold mb-4">Media</h2>
-                <div class="grid grid-cols-2 gap-4">
+                <div class="grid grid-cols-[repeat(auto-fit,minmax(200px,0.5fr))] gap-4">
                   {#each occurrence.multimedia || [] as media}
                     {@const photoUrl = getPhotoUrl(media)}
                     {#if photoUrl}
-                      <button
-                        type="button"
-                        class="aspect-square overflow-hidden rounded border hover:opacity-80 transition-opacity relative"
-                        onclick={() => openPhotoViewer(photoUrl)}
-                      >
-                        <MediaItem multimediaItem={media} alt={media.title || 'Photo'} />
-                      </button>
+                      {#if isSoundMedia(media)}
+                        <div class="overflow-hidden rounded shadow-lg flex items-center self-center">
+                          <MediaItem multimediaItem={media} alt={media.title || 'Sound'} />
+                        </div>
+                      {:else}
+                        <button
+                          type="button"
+                          class="aspect-square overflow-hidden rounded shadow-lg hover:opacity-80 transition-opacity relative"
+                          onclick={() => openPhotoViewer(photoUrl)}
+                        >
+                          <MediaItem multimediaItem={media} alt={media.title || 'Photo'} inatImageSize="large" />
+                        </button>
+                      {/if}
                     {/if}
                   {/each}
                   {#each occurrence.audiovisual || [] as av}
@@ -296,10 +338,10 @@ const coreFields = {
                     {#if photoUrl}
                       <button
                         type="button"
-                        class="aspect-square overflow-hidden rounded border hover:opacity-80 transition-opacity relative"
+                        class="aspect-square overflow-hidden rounded shadow-lg hover:opacity-80 transition-opacity relative"
                         onclick={() => openPhotoViewer(photoUrl)}
                       >
-                        <MediaItem audiovisualItem={av} alt={av.title || 'Photo'} />
+                        <MediaItem audiovisualItem={av} alt={av.title || 'Photo'} inatImageSize="large" />
                       </button>
                     {/if}
                   {/each}

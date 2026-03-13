@@ -16,5 +16,5 @@ pub use audiovisual::Audiovisual;
 pub use identification::Identification;
 pub use comment::Comment;
 pub use meta::Metadata;
-pub use photos::PhotoDownloader;
+pub use photos::{PhotoDownloader, SoundDownloader};
 pub use taxa::{collect_taxon_ids, fetch_taxa_for_observations};

@@ -8,8 +8,8 @@ pub struct DownloadProgress {
     pub stage: DownloadStage,
     pub observations_current: usize,
     pub observations_total: usize,
-    pub photos_current: usize,
-    pub photos_total: usize,
+    pub media_current: usize,
+    pub media_total: usize,
 }
 
 impl Default for DownloadProgress {
@@ -18,8 +18,8 @@ impl Default for DownloadProgress {
             stage: DownloadStage::Fetching,
             observations_current: 0,
             observations_total: 0,
-            photos_current: 0,
-            photos_total: 0,
+            media_current: 0,
+            media_total: 0,
         }
     }
 }
@@ -28,7 +28,7 @@ impl Default for DownloadProgress {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DownloadStage {
     Fetching,
-    DownloadingPhotos,
+    DownloadingMedia,
     Building,
 }
 
@@ -36,7 +36,7 @@ pub enum DownloadStage {
 pub struct Downloader {
     params: observations_api::ObservationsGetParams,
     extensions: Vec<DwcaExtension>,
-    fetch_photos: bool,
+    fetch_media: bool,
     metadata: Metadata,
     config: Option<inaturalist::apis::configuration::Configuration>,
     jwt: Option<String>,
@@ -46,27 +46,27 @@ impl Downloader {
     pub fn new(
         params: observations_api::ObservationsGetParams,
         extensions: Vec<DwcaExtension>,
-        fetch_photos: bool,
+        fetch_media: bool,
         jwt: Option<String>,
     ) -> Self {
-        Self::from_parts(params, extensions, fetch_photos, None, jwt)
+        Self::from_parts(params, extensions, fetch_media, None, jwt)
     }
 
     /// Create downloader with custom configuration for testing
     pub fn with_config(
         params: observations_api::ObservationsGetParams,
         extensions: Vec<DwcaExtension>,
-        fetch_photos: bool,
+        fetch_media: bool,
         config: inaturalist::apis::configuration::Configuration,
     ) -> Self {
-        Self::from_parts(params, extensions, fetch_photos, Some(config), None)
+        Self::from_parts(params, extensions, fetch_media, Some(config), None)
     }
 
     /// Internal constructor that builds metadata and creates the Downloader
     fn from_parts(
         params: observations_api::ObservationsGetParams,
         extensions: Vec<DwcaExtension>,
-        fetch_photos: bool,
+        fetch_media: bool,
         config: Option<inaturalist::apis::configuration::Configuration>,
         jwt: Option<String>,
     ) -> Self {
@@ -79,15 +79,17 @@ impl Downloader {
                 .into_iter()
                 .map(|c| format!("* {c}"))
         );
-        if fetch_photos {
-            abstract_lines.push("* Photos downloaded and included in archive".to_string());
+        if fetch_media {
+            abstract_lines.push(
+                "* Photos and sounds downloaded and included in archive".to_string()
+            );
         }
         let metadata = Metadata { abstract_lines };
 
         Self {
             params,
             extensions,
-            fetch_photos,
+            fetch_media,
             metadata,
             config,
             jwt,
@@ -114,12 +116,12 @@ impl Downloader {
         )?;
 
         let mut progress = DownloadProgress::default();
-        let mut cumulative_photos_seen: usize = 0;
+        let mut cumulative_media_seen: usize = 0;
 
-        // Track pending photo download from previous batch
+        // Track pending media download from previous batch
         #[allow(clippy::type_complexity)]
-        let mut pending_photos: Option<(
-            tokio::task::JoinHandle<Result<(HashMap<i32, String>, usize), String>>,
+        let mut pending_media: Option<(
+            tokio::task::JoinHandle<Result<(HashMap<i32, String>, HashMap<i32, String>, usize), String>>,
             Vec<inaturalist::models::Observation>,
             HashMap<i32, inaturalist::models::ShowTaxon>,
         )> = None;
@@ -130,9 +132,9 @@ impl Downloader {
             // Check cancellation
             if let Some(token) = &cancellation_token {
                 if token.load(Ordering::Relaxed) {
-                    // Abort any pending photo download task
-                    if let Some((photo_handle, _, _)) = pending_photos.take() {
-                        photo_handle.abort();
+                    // Abort any pending media download task
+                    if let Some((media_handle, _, _)) = pending_media.take() {
+                        media_handle.abort();
                     }
                     return Err("Download cancelled".into());
                 }
@@ -141,19 +143,21 @@ impl Downloader {
             // Fetch next batch
             let batch = self.fetch_batch_with_rate_limit(id_below).await?;
             if batch.results.is_empty() {
-                // Before breaking, finish any pending photo downloads
-                if let Some((photo_handle, observations, taxa_hash)) = pending_photos.take() {
-                    // Check cancellation before waiting for photos
+                // Before breaking, finish any pending media downloads
+                if let Some((media_handle, observations, taxa_hash)) = pending_media.take() {
+                    // Check cancellation before waiting for media
                     if let Some(token) = &cancellation_token {
                         if token.load(Ordering::Relaxed) {
-                            photo_handle.abort();
+                            media_handle.abort();
                             return Err("Download cancelled".into());
                         }
                     }
-                    let (photo_mapping, photos_count) = photo_handle.await
-                        .map_err(|e| format!("Photo download task failed: {e}"))??;
-                    progress.photos_current += photos_count;
-                    self.process_extensions(&observations, &mut archive, &photo_mapping, &taxa_hash).await?;
+                    let (photo_mapping, sound_mapping, media_count) = media_handle.await
+                        .map_err(|e| format!("Media download task failed: {e}"))??;
+                    progress.media_current += media_count;
+                    self.process_extensions(
+                        &observations, &mut archive, &photo_mapping, &sound_mapping, &taxa_hash
+                    ).await?;
                 }
                 break;
             }
@@ -164,36 +168,40 @@ impl Downloader {
             }
 
             // Prepare batch: fetch taxa, convert to occurrences, write to CSV
-            let (taxa_hash, photos_count) = self.prepare_batch(&batch, &mut archive, &mut progress, &progress_callback).await?;
+            let (taxa_hash, media_count) = self.prepare_batch(
+                &batch, &mut archive, &mut progress, &progress_callback
+            ).await?;
 
-            // Update photo estimate using running average (never decreasing)
-            if self.fetch_photos {
-                cumulative_photos_seen += photos_count;
-                progress.photos_total = update_photo_estimate(
-                    progress.photos_total,
-                    cumulative_photos_seen,
+            // Update media estimate using running average (never decreasing)
+            if self.fetch_media {
+                cumulative_media_seen += media_count;
+                progress.media_total = update_photo_estimate(
+                    progress.media_total,
+                    cumulative_media_seen,
                     progress.observations_current,
                     progress.observations_total,
                 );
             }
 
-            // If there's a pending photo download from the previous batch, wait for it and process extensions
-            if let Some((photo_handle, observations, prev_taxa_hash)) = pending_photos.take() {
-                // Check cancellation before waiting for photos
+            // If there's a pending media download from the previous batch, wait and process
+            if let Some((media_handle, observations, prev_taxa_hash)) = pending_media.take() {
+                // Check cancellation before waiting for media
                 if let Some(token) = &cancellation_token {
                     if token.load(Ordering::Relaxed) {
-                        photo_handle.abort();
+                        media_handle.abort();
                         return Err("Download cancelled".into());
                     }
                 }
-                let (photo_mapping, photos_count) = photo_handle.await
-                    .map_err(|e| format!("Photo download task failed: {e}"))??;
-                progress.photos_current += photos_count;
-                self.process_extensions(&observations, &mut archive, &photo_mapping, &prev_taxa_hash).await?;
+                let (photo_mapping, sound_mapping, media_count) = media_handle.await
+                    .map_err(|e| format!("Media download task failed: {e}"))??;
+                progress.media_current += media_count;
+                self.process_extensions(
+                    &observations, &mut archive, &photo_mapping, &sound_mapping, &prev_taxa_hash
+                ).await?;
             }
 
-            // Start photo downloads for current batch in background
-            let photo_handle = self.start_photo_downloads(
+            // Start media downloads for current batch in background
+            let media_handle = self.start_media_downloads(
                 &batch,
                 archive.media_dir().to_path_buf(),
                 &mut progress,
@@ -201,12 +209,14 @@ impl Downloader {
                 cancellation_token.clone(),
             );
 
-            // Store handle and data for next iteration (or process immediately if no photos)
-            if let Some(handle) = photo_handle {
-                pending_photos = Some((handle, batch.results.clone(), taxa_hash));
+            // Store handle and data for next iteration (or process immediately if no media)
+            if let Some(handle) = media_handle {
+                pending_media = Some((handle, batch.results.clone(), taxa_hash));
             } else {
-                // No photos, process extensions immediately
-                self.process_extensions(&batch.results, &mut archive, &HashMap::new(), &taxa_hash).await?;
+                // No media to download, process extensions immediately
+                self.process_extensions(
+                    &batch.results, &mut archive, &HashMap::new(), &HashMap::new(), &taxa_hash
+                ).await?;
             }
 
             // Update pagination for next iteration
@@ -264,21 +274,21 @@ impl Downloader {
         self.fetch_batch(id_below).await
     }
 
-    /// Start photo downloads as a background task
-    /// Returns a handle that can be awaited later to get (photo_mapping, photos_downloaded_count)
+    /// Start media (photo + sound) downloads as a background task.
+    /// Returns a handle that resolves to (photo_mapping, sound_mapping, media_downloaded_count).
     #[allow(clippy::type_complexity)]
-    fn start_photo_downloads<F>(
+    fn start_media_downloads<F>(
         &self,
         batch: &inaturalist::models::ObservationsResponse,
         media_dir: std::path::PathBuf,
         progress: &mut DownloadProgress,
         callback: &F,
         cancellation_token: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
-    ) -> Option<tokio::task::JoinHandle<Result<(HashMap<i32, String>, usize), String>>>
+    ) -> Option<tokio::task::JoinHandle<Result<(HashMap<i32, String>, HashMap<i32, String>, usize), String>>>
     where
         F: Fn(DownloadProgress) + Send + Sync + Clone + 'static,
     {
-        use crate::darwin_core::PhotoDownloader;
+        use crate::darwin_core::{PhotoDownloader, SoundDownloader};
         use std::sync::Arc;
 
         let photos_count = batch.results
@@ -286,53 +296,67 @@ impl Downloader {
             .filter_map(|o| o.photos.as_ref())
             .flatten()
             .count();
+        let sounds_count = batch.results
+            .iter()
+            .filter_map(|o| o.sounds.as_ref())
+            .flatten()
+            .filter(|s| s.file_url.is_some() && !s.hidden.unwrap_or(false))
+            .count();
 
-        if !self.fetch_photos || photos_count == 0 {
+        if !self.fetch_media || (photos_count == 0 && sounds_count == 0) {
             return None;
         }
 
-        progress.stage = DownloadStage::DownloadingPhotos;
+        progress.stage = DownloadStage::DownloadingMedia;
 
-        // Create progress callback for photo downloads
-        // Note: We need to track the base photos_current value to accumulate properly
-        let photos_downloaded = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let photos_downloaded_clone = photos_downloaded.clone();
-        let base_photos_current = progress.photos_current;
+        let media_downloaded = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let media_downloaded_clone = media_downloaded.clone();
+        let base_media_current = progress.media_current;
         let progress_for_callback = progress.clone();
         let callback_clone = callback.clone();
 
-        let photo_callback = move |count: usize| {
-            let batch_photos_count = photos_downloaded_clone.fetch_add(count, std::sync::atomic::Ordering::Relaxed) + count;
+        let media_callback = move |count: usize| {
+            let batch_media_count = media_downloaded_clone.fetch_add(
+                count, std::sync::atomic::Ordering::Relaxed
+            ) + count;
             let mut updated_progress = progress_for_callback.clone();
-            // Set absolute value: base from all previous batches + count from this batch
-            updated_progress.photos_current = base_photos_current + batch_photos_count;
+            updated_progress.media_current = base_media_current + batch_media_count;
             callback_clone(updated_progress);
         };
 
-        // Clone data needed for the spawned task
         let observations = batch.results.clone();
 
-        // Spawn photo download task with error converted to String (Send-compatible)
-        // Returns (photo_mapping, photos_downloaded_count)
         let handle = tokio::spawn(async move {
-            let mapping = PhotoDownloader::fetch_photos_to_dir(
+            let photo_callback = media_callback.clone();
+            let sound_callback = media_callback.clone();
+
+            let photo_mapping = PhotoDownloader::fetch_photos_to_dir(
                 &observations,
                 &media_dir,
                 photo_callback,
+                cancellation_token.clone(),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+            let sound_mapping = SoundDownloader::fetch_sounds_to_dir(
+                &observations,
+                &media_dir,
+                sound_callback,
                 cancellation_token,
             )
             .await
             .map_err(|e| e.to_string())?;
 
-            let count = photos_downloaded.load(std::sync::atomic::Ordering::Relaxed);
-            Ok((mapping, count))
+            let count = media_downloaded.load(std::sync::atomic::Ordering::Relaxed);
+            Ok((photo_mapping, sound_mapping, count))
         });
 
         Some(handle)
     }
 
-    /// Prepare a batch by fetching taxa, converting to occurrences, and writing to CSV
-    /// Returns taxa_hash and photos_count for use in photo downloading and extension processing
+    /// Prepare a batch by fetching taxa, converting to occurrences, and writing to CSV.
+    /// Returns taxa_hash and media_count (photos + sounds) for use in media downloading.
     async fn prepare_batch<F>(
         &self,
         batch: &inaturalist::models::ObservationsResponse,
@@ -367,14 +391,20 @@ impl Downloader {
         progress.stage = DownloadStage::Fetching;
         callback(progress.clone());
 
-        // Count photos for later processing
+        // Count photos + sounds for media download estimate
         let photos_count = batch.results
             .iter()
             .filter_map(|o| o.photos.as_ref())
             .flatten()
             .count();
+        let sounds_count = batch.results
+            .iter()
+            .filter_map(|o| o.sounds.as_ref())
+            .flatten()
+            .filter(|s| s.file_url.is_some() && !s.hidden.unwrap_or(false))
+            .count();
 
-        Ok((taxa_hash, photos_count))
+        Ok((taxa_hash, photos_count + sounds_count))
     }
 
     async fn process_extensions(
@@ -382,11 +412,13 @@ impl Downloader {
         observations: &[Observation],
         archive: &mut crate::darwin_core::ArchiveBuilder,
         photo_mapping: &HashMap<i32, String>,
+        sound_mapping: &HashMap<i32, String>,
         taxa_hash: &HashMap<i32, ShowTaxon>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Multimedia extension
         if self.extensions.contains(&DwcaExtension::SimpleMultimedia) {
-            let records = convert_to_multimedia(observations, photo_mapping);
+            let mut records = convert_to_photo_multimedia(observations, photo_mapping);
+            records.extend(convert_to_sound_multimedia(observations, sound_mapping));
             if !records.is_empty() {
                 archive.add_multimedia(&records).await?;
             }
@@ -440,8 +472,8 @@ use std::collections::HashMap;
 use inaturalist::models::{Observation, ShowTaxon};
 use crate::darwin_core::{Multimedia, Audiovisual, Identification, Comment};
 
-/// Convert observations to multimedia records
-pub fn convert_to_multimedia(
+/// Convert observations to photo multimedia records
+pub fn convert_to_photo_multimedia(
     observations: &[Observation],
     photo_mapping: &HashMap<i32, String>,
 ) -> Vec<Multimedia> {
@@ -452,6 +484,25 @@ pub fn convert_to_multimedia(
             Some(obs.photos.as_ref()?.iter().map(|photo| {
                 Multimedia::from((photo, occurrence_id.as_str(), obs.user.as_deref(), photo_mapping))
             }).collect::<Vec<_>>())
+        })
+        .flatten()
+        .collect()
+}
+
+/// Convert observations to sound multimedia records
+pub fn convert_to_sound_multimedia(
+    observations: &[Observation],
+    sound_mapping: &HashMap<i32, String>,
+) -> Vec<Multimedia> {
+    observations
+        .iter()
+        .filter_map(|obs| {
+            let occurrence_id = obs.id.map(|id| id.to_string())?;
+            Some(obs.sounds.as_ref()?.iter()
+                .filter(|s| !s.hidden.unwrap_or(false))
+                .filter(|s| s.file_url.is_some() || sound_mapping.contains_key(&s.id.unwrap_or_default()))
+                .map(|sound| Multimedia::from((sound, occurrence_id.as_str(), obs.user.as_deref(), sound_mapping)))
+                .collect::<Vec<_>>())
         })
         .flatten()
         .collect()
@@ -531,7 +582,7 @@ mod tests {
 
         assert!(downloader.params.taxon_id == Some(vec!["47126".to_string()]));
         assert_eq!(downloader.extensions.len(), 1);
-        assert!(downloader.fetch_photos);
+        assert!(downloader.fetch_media);
     }
 
     #[test]
@@ -540,8 +591,8 @@ mod tests {
 
         assert_eq!(progress.observations_current, 0);
         assert_eq!(progress.observations_total, 0);
-        assert_eq!(progress.photos_current, 0);
-        assert_eq!(progress.photos_total, 0);
+        assert_eq!(progress.media_current, 0);
+        assert_eq!(progress.media_total, 0);
         assert!(matches!(progress.stage, DownloadStage::Fetching));
     }
 
@@ -569,7 +620,7 @@ mod tests {
         ];
 
         let photo_mapping = HashMap::new();
-        let multimedia = convert_to_multimedia(&observations, &photo_mapping);
+        let multimedia = convert_to_photo_multimedia(&observations, &photo_mapping);
 
         assert_eq!(multimedia.len(), 1);
         assert_eq!(
@@ -592,7 +643,7 @@ mod tests {
         ];
 
         let photo_mapping = HashMap::new();
-        let multimedia = convert_to_multimedia(&observations, &photo_mapping);
+        let multimedia = convert_to_photo_multimedia(&observations, &photo_mapping);
 
         assert_eq!(multimedia.len(), 0);
     }
@@ -671,6 +722,112 @@ mod tests {
         // Should return current estimate unchanged
         assert_eq!(update_photo_estimate(500, 0, 0, 1000), 500);
         assert_eq!(update_photo_estimate(0, 0, 0, 1000), 0);
+    }
+
+    #[test]
+    fn test_convert_sounds_to_multimedia() {
+        use inaturalist::models::{Observation, Sound, User};
+
+        let observations = vec![
+            Observation {
+                id: Some(123),
+                sounds: Some(vec![
+                    Sound {
+                        id: Some(456),
+                        file_url: Some("https://static.inaturalist.org/sounds/456.mp3".to_string()),
+                        file_content_type: Some("audio/mpeg".to_string()),
+                        license_code: Some("cc-by".to_string()),
+                        attribution: Some("(c) testuser".to_string()),
+                        ..Default::default()
+                    }
+                ]),
+                user: Some(Box::new(User {
+                    login: Some("testuser".to_string()),
+                    ..Default::default()
+                })),
+                ..Default::default()
+            }
+        ];
+
+        let sound_mapping = HashMap::new();
+        let multimedia = convert_to_sound_multimedia(&observations, &sound_mapping);
+
+        assert_eq!(multimedia.len(), 1);
+        assert_eq!(multimedia[0].r#type, Some("Sound".to_string()));
+        assert_eq!(multimedia[0].format, Some("audio/mpeg".to_string()));
+        assert_eq!(
+            multimedia[0].identifier,
+            Some("https://static.inaturalist.org/sounds/456.mp3".to_string())
+        );
+        assert_eq!(multimedia[0].license, Some("cc-by".to_string()));
+        assert_eq!(multimedia[0].source, None);
+        assert_eq!(
+            multimedia[0].occurrence_id,
+            "https://www.inaturalist.org/observations/123"
+        );
+    }
+
+    #[test]
+    fn test_convert_sounds_to_multimedia_uses_local_path_when_downloaded() {
+        use inaturalist::models::{Observation, Sound};
+
+        let observations = vec![
+            Observation {
+                id: Some(123),
+                sounds: Some(vec![
+                    Sound {
+                        id: Some(456),
+                        file_url: Some("https://static.inaturalist.org/sounds/456.mp3".to_string()),
+                        file_content_type: Some("audio/mpeg".to_string()),
+                        ..Default::default()
+                    }
+                ]),
+                ..Default::default()
+            }
+        ];
+
+        let mut sound_mapping = HashMap::new();
+        sound_mapping.insert(456i32, "media/2024/01/01/456.mp3".to_string());
+
+        let multimedia = convert_to_sound_multimedia(&observations, &sound_mapping);
+
+        assert_eq!(multimedia.len(), 1);
+        assert_eq!(
+            multimedia[0].identifier,
+            Some("media/2024/01/01/456.mp3".to_string())
+        );
+    }
+
+    #[test]
+    fn test_convert_sounds_to_multimedia_skips_hidden() {
+        use inaturalist::models::{Observation, Sound};
+
+        let observations = vec![
+            Observation {
+                id: Some(123),
+                sounds: Some(vec![
+                    Sound {
+                        id: Some(456),
+                        file_url: Some("https://static.inaturalist.org/sounds/456.mp3".to_string()),
+                        hidden: Some(true),
+                        ..Default::default()
+                    },
+                    Sound {
+                        id: Some(789),
+                        file_url: Some("https://static.inaturalist.org/sounds/789.mp3".to_string()),
+                        hidden: Some(false),
+                        ..Default::default()
+                    }
+                ]),
+                ..Default::default()
+            }
+        ];
+
+        let sound_mapping = HashMap::new();
+        let multimedia = convert_to_sound_multimedia(&observations, &sound_mapping);
+
+        assert_eq!(multimedia.len(), 1);
+        assert_eq!(multimedia[0].identifier, Some("https://static.inaturalist.org/sounds/789.mp3".to_string()));
     }
 
     #[test]
