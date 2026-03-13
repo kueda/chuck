@@ -294,32 +294,48 @@ impl ArchiveBuilder {
         let occurrence_content = std::fs::read(&self.occurrence_file_path)?;
         zip.write_all(&occurrence_content)?;
 
-        // Add multimedia.csv to ZIP if we have multimedia records
-        if self.multimedia_count > 0 {
-            zip.start_file("multimedia.csv", options)?;
-            let multimedia_content = std::fs::read(&self.multimedia_file_path)?;
-            zip.write_all(&multimedia_content)?;
-        }
+        // Add extension CSVs to ZIP for all enabled extensions, even if empty
+        let ext_specs: &[(crate::DwcaExtension, &str, &std::path::Path, Vec<&str>)] = &[
+            (
+                crate::DwcaExtension::SimpleMultimedia,
+                "multimedia.csv",
+                &self.multimedia_file_path,
+                Multimedia::csv_headers(),
+            ),
+            (
+                crate::DwcaExtension::Audiovisual,
+                "audiovisual.csv",
+                &self.audiovisual_file_path,
+                Audiovisual::csv_headers(),
+            ),
+            (
+                crate::DwcaExtension::Identifications,
+                "identification.csv",
+                &self.identification_file_path,
+                Identification::csv_headers(),
+            ),
+            (
+                crate::DwcaExtension::Comments,
+                "comment.csv",
+                &self.comment_file_path,
+                Comment::csv_headers(),
+            ),
+        ];
 
-        // Add audiovisual.csv to ZIP if we have audiovisual records
-        if self.audiovisual_count > 0 {
-            zip.start_file("audiovisual.csv", options)?;
-            let audiovisual_content = std::fs::read(&self.audiovisual_file_path)?;
-            zip.write_all(&audiovisual_content)?;
-        }
-
-        // Add identification.csv to ZIP if we have identification records
-        if self.identification_count > 0 {
-            zip.start_file("identification.csv", options)?;
-            let identification_content = std::fs::read(&self.identification_file_path)?;
-            zip.write_all(&identification_content)?;
-        }
-
-        // Add comment.csv to ZIP if we have comment records
-        if self.comment_count > 0 {
-            zip.start_file("comment.csv", options)?;
-            let comment_content = std::fs::read(&self.comment_file_path)?;
-            zip.write_all(&comment_content)?;
+        for (ext, zip_name, file_path, headers) in ext_specs {
+            if !self.enabled_extensions.contains(ext) {
+                continue;
+            }
+            // Write header-only file if no records were written for this extension
+            if !file_path.exists() {
+                let mut wtr = csv::WriterBuilder::new()
+                    .has_headers(true)
+                    .from_path(file_path)?;
+                wtr.write_record(headers)?;
+                wtr.flush()?;
+            }
+            zip.start_file(*zip_name, options)?;
+            zip.write_all(&std::fs::read(file_path)?)?;
         }
 
         // Add media directory contents to ZIP if it exists and has files
@@ -389,5 +405,57 @@ impl ArchiveBuilder {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::darwin_core::meta::Metadata;
+    use crate::DwcaExtension;
+    use zip::ZipArchive;
+
+    /// Build a minimal archive with no occurrences and the given extensions enabled,
+    /// return the list of file names present in the ZIP.
+    async fn zip_file_names(extensions: Vec<DwcaExtension>) -> Vec<String> {
+        let metadata = Metadata { abstract_lines: vec![] };
+        let builder = ArchiveBuilder::new(extensions, metadata).unwrap();
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        builder.build(&path).await.unwrap();
+        let file = std::fs::File::open(&path).unwrap();
+        let mut archive = ZipArchive::new(file).unwrap();
+        (0..archive.len())
+            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn test_enabled_extensions_with_no_records_produce_csv_files() {
+        let names = zip_file_names(vec![
+            DwcaExtension::Comments,
+            DwcaExtension::Identifications,
+            DwcaExtension::SimpleMultimedia,
+            DwcaExtension::Audiovisual,
+        ])
+        .await;
+
+        assert!(names.contains(&"comment.csv".to_string()),
+            "comment.csv missing from ZIP: {names:?}");
+        assert!(names.contains(&"identification.csv".to_string()),
+            "identification.csv missing from ZIP: {names:?}");
+        assert!(names.contains(&"multimedia.csv".to_string()),
+            "multimedia.csv missing from ZIP: {names:?}");
+        assert!(names.contains(&"audiovisual.csv".to_string()),
+            "audiovisual.csv missing from ZIP: {names:?}");
+    }
+
+    #[tokio::test]
+    async fn test_disabled_extensions_produce_no_csv_files() {
+        let names = zip_file_names(vec![]).await;
+        assert!(!names.contains(&"comment.csv".to_string()));
+        assert!(!names.contains(&"identification.csv".to_string()));
+        assert!(!names.contains(&"multimedia.csv".to_string()));
+        assert!(!names.contains(&"audiovisual.csv".to_string()));
     }
 }
