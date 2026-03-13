@@ -140,7 +140,7 @@ onMount(() => {
 });
 </script>
 
-<div bind:this={containerElement}>
+<div bind:this={containerElement} class="w-full h-full justify-center flex items-center">
   {#if soundUrl}
     {#if noInteraction}
       <div class="flex items-center justify-center w-full h-full">
@@ -167,6 +167,12 @@ onMount(() => {
       />
     {/if}
   {:else}
-    <ImageOff size={46} aria-label="No photo" />
+    <div class="w-1/2 h-1/2 text-gray-500 flex flex-col justify-center items-center text-center">
+      <ImageOff size={46} aria-label="No photo" />
+      {#if multimediaItem?.identifier || audiovisualItem?.accessURI}
+        <p>Cannot load media</p>
+        <p>{multimediaItem?.identifier || audiovisualItem?.accessURI }</p>
+      {/if}
+    </div>
   {/if}
 </div>

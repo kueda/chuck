@@ -280,18 +280,18 @@ const coreFields = {
             {#if occurrence.multimedia?.length || occurrence.audiovisual?.length}
               <section class="mb-8">
                 <h2 class="text-xl font-bold mb-4">Media</h2>
-                <div class="grid grid-cols-2 gap-4">
+                <div class="grid grid-cols-[repeat(auto-fit,minmax(200px,0.5fr))] gap-4">
                   {#each occurrence.multimedia || [] as media}
                     {@const photoUrl = getPhotoUrl(media)}
                     {#if photoUrl}
                       {#if isSoundMedia(media)}
-                        <div class="overflow-hidden rounded border p-2 flex items-center">
+                        <div class="overflow-hidden rounded shadow-lg flex items-center self-center">
                           <MediaItem multimediaItem={media} alt={media.title || 'Sound'} />
                         </div>
                       {:else}
                         <button
                           type="button"
-                          class="aspect-square overflow-hidden rounded border hover:opacity-80 transition-opacity relative"
+                          class="aspect-square overflow-hidden rounded shadow-lg hover:opacity-80 transition-opacity relative"
                           onclick={() => openPhotoViewer(photoUrl)}
                         >
                           <MediaItem multimediaItem={media} alt={media.title || 'Photo'} inatImageSize="large" />
@@ -304,7 +304,7 @@ const coreFields = {
                     {#if photoUrl}
                       <button
                         type="button"
-                        class="aspect-square overflow-hidden rounded border hover:opacity-80 transition-opacity relative"
+                        class="aspect-square overflow-hidden rounded shadow-lg hover:opacity-80 transition-opacity relative"
                         onclick={() => openPhotoViewer(photoUrl)}
                       >
                         <MediaItem audiovisualItem={av} alt={av.title || 'Photo'} inatImageSize="large" />
