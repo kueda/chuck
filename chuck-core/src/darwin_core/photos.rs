@@ -9,6 +9,57 @@ pub struct PhotoDownloader;
 
 pub struct SoundDownloader;
 
+const MAX_RETRIES: usize = 3;
+const RETRY_BASE_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Stream a URL response to a file.
+async fn download_url_to_file(url: &str, file_path: &Path) -> Result<(), String> {
+    let mut f = tokio::fs::File::create(file_path).await
+        .map_err(|e| format!("Failed to create file: {e}"))?;
+    let response = reqwest::get(url).await
+        .map_err(|e| {
+            let status = e.status().map_or_else(
+                || "unknown".to_string(),
+                |s| s.to_string(),
+            );
+            format!("Failed to fetch URL ({status}): {e}")
+        })?;
+    let mut byte_stream = response.bytes_stream();
+    while let Some(item) = byte_stream.next().await {
+        let bytes = item.map_err(|e| format!("Failed to read response bytes: {e}"))?;
+        tokio::io::copy(&mut bytes.as_ref(), &mut f).await
+            .map_err(|e| format!("Failed to write to file: {e}"))?;
+    }
+    Ok(())
+}
+
+/// Download a URL to a file with exponential backoff retry.
+async fn download_with_retry(
+    url: String,
+    file_path: PathBuf,
+    id: i32,
+    label: &str,
+) -> Result<(), String> {
+    let mut last_error = None;
+    for attempt in 1..=MAX_RETRIES {
+        match download_url_to_file(&url, &file_path).await {
+            Ok(()) => return Ok(()),
+            Err(error_msg) => {
+                last_error = Some(error_msg.clone());
+                if attempt < MAX_RETRIES {
+                    let delay = RETRY_BASE_DELAY * (2_u32.pow(attempt as u32 - 1));
+                    log::warn!(
+                        "Download attempt {attempt} failed for {label} {id}: \
+                        {error_msg}. Retrying in {delay:?}..."
+                    );
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
+    }
+    Err(last_error.unwrap())
+}
+
 /// Creates a date-based subdirectory path from observation date.
 /// The intent is to create a human-readable directory structure that does not
 /// result in directories with too many files.
@@ -31,59 +82,6 @@ fn date_subdir(base_dir: &Path, observed_on: &Option<String>) -> PathBuf {
 }
 
 impl PhotoDownloader {
-    const MAX_RETRIES: usize = 3;
-    const RETRY_BASE_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
-
-    async fn download_photo_with_retry(
-        photo_url: String,
-        file_path: PathBuf,
-        photo_id: i32,
-    ) -> Result<(), String> {
-        let mut last_error = None;
-
-        for attempt in 1..=Self::MAX_RETRIES {
-            match Self::download_photo(&photo_url, &file_path).await {
-                Ok(()) => return Ok(()),
-                Err(error_msg) => {
-                    last_error = Some(error_msg.clone());
-                    if attempt < Self::MAX_RETRIES {
-                        let delay = Self::RETRY_BASE_DELAY * (2_u32.pow(attempt as u32 - 1));
-                        log::warn!("Download attempt {attempt} failed for photo {photo_id}: {error_msg}. Retrying in {delay:?}...");
-                        tokio::time::sleep(delay).await;
-                    }
-                }
-            }
-        }
-
-        Err(last_error.unwrap())
-    }
-
-    async fn download_photo(
-        photo_url: &str,
-        file_path: &Path
-    ) -> Result<(), String> {
-        let tmp_file = tokio::fs::File::create(file_path).await
-            .map_err(|e| format!("Failed to create file: {e}"))?;
-        let response = reqwest::get(photo_url).await
-            .map_err(|e| {
-                let status = if let Some(status) = e.status() {
-                    status.to_string()
-                } else {
-                    "unknown".to_string()
-                };
-                format!("Failed to fetch URL ({status}): {e}")
-            })?;
-        let mut byte_stream = response.bytes_stream();
-
-        let mut tmp_file = tmp_file;
-        while let Some(item) = byte_stream.next().await {
-            let bytes = item.map_err(|e| format!("Failed to read response bytes: {e}"))?;
-            tokio::io::copy(&mut bytes.as_ref(), &mut tmp_file).await
-                .map_err(|e| format!("Failed to write to file: {e}"))?;
-        }
-
-        Ok(())
-    }
     /// Downloads photos to a specific directory and returns a mapping of photo ID to filename
     pub async fn fetch_photos_to_dir<F>(
         observations: &[Observation],
@@ -172,14 +170,14 @@ impl PhotoDownloader {
                         .expect("file_path should start with archive_root")
                         .to_path_buf();
 
-                    match Self::download_photo_with_retry(photo_url, file_path, *id).await {
+                    match download_with_retry(photo_url, file_path, *id, "photo").await {
                         Ok(()) => {
                             result = Some((
                                 *id,
                                 rel_path.to_string_lossy().to_string()
                             ));
                         }
-                        Err(e) => log::error!("Failed to download photo {} after {} retries: {}", id, Self::MAX_RETRIES, e),
+                        Err(e) => log::error!("Failed to download photo {id} after {MAX_RETRIES} retries: {e}"),
                     }
                     // Permit is automatically released when _permit goes out of scope
                 }
@@ -199,50 +197,6 @@ impl PhotoDownloader {
 }
 
 impl SoundDownloader {
-    const MAX_RETRIES: usize = 3;
-    const RETRY_BASE_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
-
-    async fn download_file_with_retry(
-        url: String,
-        file_path: PathBuf,
-        sound_id: i32,
-    ) -> Result<(), String> {
-        let mut last_error = None;
-
-        for attempt in 1..=Self::MAX_RETRIES {
-            match Self::download_file(&url, &file_path).await {
-                Ok(()) => return Ok(()),
-                Err(error_msg) => {
-                    last_error = Some(error_msg.clone());
-                    if attempt < Self::MAX_RETRIES {
-                        let delay = Self::RETRY_BASE_DELAY * (2_u32.pow(attempt as u32 - 1));
-                        log::warn!(
-                            "Download attempt {attempt} failed for sound {sound_id}: \
-                            {error_msg}. Retrying in {delay:?}..."
-                        );
-                        tokio::time::sleep(delay).await;
-                    }
-                }
-            }
-        }
-
-        Err(last_error.unwrap())
-    }
-
-    async fn download_file(url: &str, file_path: &Path) -> Result<(), String> {
-        let mut f = tokio::fs::File::create(file_path).await
-            .map_err(|e| format!("Failed to create file: {e}"))?;
-        let response = reqwest::get(url).await
-            .map_err(|e| format!("Failed to fetch URL: {e}"))?;
-        let mut byte_stream = response.bytes_stream();
-        while let Some(item) = byte_stream.next().await {
-            let bytes = item.map_err(|e| format!("Failed to read response bytes: {e}"))?;
-            tokio::io::copy(&mut bytes.as_ref(), &mut f).await
-                .map_err(|e| format!("Failed to write to file: {e}"))?;
-        }
-        Ok(())
-    }
-
     /// Extract file extension from a MIME type like "audio/mpeg" → "mp3"
     fn ext_from_content_type(content_type: &str) -> &str {
         match content_type {
@@ -344,13 +298,12 @@ impl SoundDownloader {
                         .expect("file_path should start with archive_root")
                         .to_path_buf();
 
-                    match Self::download_file_with_retry(file_url.clone(), file_path, *id).await {
+                    match download_with_retry(file_url.clone(), file_path, *id, "sound").await {
                         Ok(()) => {
                             result = Some((*id, rel_path.to_string_lossy().to_string()));
                         }
                         Err(e) => log::error!(
-                            "Failed to download sound {} after {} retries: {}",
-                            id, Self::MAX_RETRIES, e
+                            "Failed to download sound {id} after {MAX_RETRIES} retries: {e}"
                         ),
                     }
                 }
