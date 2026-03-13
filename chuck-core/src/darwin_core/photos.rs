@@ -9,28 +9,30 @@ pub struct PhotoDownloader;
 
 pub struct SoundDownloader;
 
+/// Creates a date-based subdirectory path from observation date.
+/// The intent is to create a human-readable directory structure that does not
+/// result in directories with too many files.
+fn date_subdir(base_dir: &Path, observed_on: &Option<String>) -> PathBuf {
+    match observed_on {
+        Some(date_str) => {
+            // Parse date string (format: "2024-01-15" or similar)
+            if let Some(date_parts) = date_str.split('-').collect::<Vec<_>>().get(0..3) {
+                let year = date_parts[0];
+                let month = date_parts[1];
+                let day = date_parts[2];
+                base_dir.join(year).join(month).join(day)
+            } else {
+                // Fallback to "unknown" if date parsing fails
+                base_dir.join("unknown")
+            }
+        }
+        None => base_dir.join("unknown"),
+    }
+}
+
 impl PhotoDownloader {
     const MAX_RETRIES: usize = 3;
     const RETRY_BASE_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
-
-    /// Creates a date-based subdirectory path from observation date
-    fn create_date_subdir(base_dir: &Path, observed_on: &Option<String>) -> PathBuf {
-        match observed_on {
-            Some(date_str) => {
-                // Parse date string (format: "2024-01-15" or similar)
-                if let Some(date_parts) = date_str.split('-').collect::<Vec<_>>().get(0..3) {
-                    let year = date_parts[0];
-                    let month = date_parts[1];
-                    let day = date_parts[2];
-                    base_dir.join(year).join(month).join(day)
-                } else {
-                    // Fallback to "unknown" if date parsing fails
-                    base_dir.join("unknown")
-                }
-            }
-            None => base_dir.join("unknown")
-        }
-    }
 
     async fn download_photo_with_retry(
         photo_url: String,
@@ -146,14 +148,12 @@ impl PhotoDownloader {
                     let photo_url = url.replace("square", "original");
                     let filename = format!("{id}.jpg");
 
-                    // Create date-based subdirectory. The intent is to create
-                    // a human-readable directory structure that does not
-                    // result in directories with too many files. One
-                    // consequence of this is that photos associated with
-                    // multiple observations will be written twice. Since
-                    // this is rare, it seems worth it.
+                    // Create date-based subdirectory. One consequence of this
+                    // is that photos associated with multiple observations
+                    // will be written twice. Since this is rare, it seems
+                    // worth it.
                     let observed_on = photo_to_date.get(id).unwrap_or(&None);
-                    let date_subdir = Self::create_date_subdir(&output_dir, observed_on);
+                    let date_subdir = date_subdir(&output_dir, observed_on);
 
                     // Create the subdirectory if it doesn't exist
                     if let Err(e) = tokio::fs::create_dir_all(&date_subdir).await {
@@ -323,7 +323,7 @@ impl SoundDownloader {
                     let filename = format!("{id}.{ext}");
 
                     let observed_on = sound_to_date.get(id).unwrap_or(&None);
-                    let date_subdir = PhotoDownloader::create_date_subdir(&output_dir, observed_on);
+                    let date_subdir = date_subdir(&output_dir, observed_on);
 
                     if let Err(e) = tokio::fs::create_dir_all(&date_subdir).await {
                         log::error!(
