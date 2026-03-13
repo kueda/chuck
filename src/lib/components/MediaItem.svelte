@@ -5,7 +5,6 @@ import { onMount } from 'svelte';
 import { fade } from 'svelte/transition';
 import type { Audiovisual, Multimedia } from '$lib/types/archive';
 import { isSoundMedia } from '$lib/utils/media';
-export { isSoundMedia };
 
 const {
   multimediaItem,
