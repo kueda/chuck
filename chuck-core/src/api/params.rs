@@ -110,8 +110,17 @@ pub static DEFAULT_GET_PARAMS: observations_api::ObservationsGetParams = observa
     fails_dqa_wild: None,
 };
 
+// Bool params that iNat URLs can express as bare keys (e.g. "?sounds" means sounds=true)
+const BOOL_PARAM_KEYS: &[&str] = &[
+    "acc", "captive", "endemic", "expected_nearby", "geo", "id_please", "identified",
+    "introduced", "licensed", "mappable", "native", "out_of_range", "pcid",
+    "photo_licensed", "photos", "popular", "reviewed", "sounds", "taxon_is_active",
+    "threatened", "verifiable",
+];
+
 /// Parse an iNat observations query string into ObservationsGetParams.
 /// Unknown keys and `any` values are silently ignored.
+/// Bare boolean keys (e.g. `sounds` with no value) are treated as `true`.
 /// `per_page` is set to PER_PAGE; pagination params are always skipped.
 pub fn parse_url_params(query: &str) -> observations_api::ObservationsGetParams {
     let query = query.trim_start_matches('?');
@@ -121,12 +130,17 @@ pub fn parse_url_params(query: &str) -> observations_api::ObservationsGetParams 
     };
 
     // Collect all values grouped by key, handling repeated keys and
-    // comma-separated values. Drop "any" and empty values.
+    // comma-separated values. Drop "any" and empty values (except bare bool
+    // keys, which are treated as true).
     let mut params_as_string_vecs: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
     for (raw_key, raw_val) in url::form_urlencoded::parse(query.as_bytes()) {
         let key = raw_key.to_string();
-        let val = raw_val.to_string();
+        let val = if raw_val.is_empty() && BOOL_PARAM_KEYS.contains(&key.as_str()) {
+            "true".to_string()
+        } else {
+            raw_val.to_string()
+        };
         if val == "any" || val.is_empty() {
             continue;
         }
@@ -598,6 +612,27 @@ mod tests {
         fn test_bool_verifiable_any_is_dropped() {
             let p = parse_url_params("verifiable=any");
             assert_eq!(p.verifiable, None);
+        }
+
+        #[test]
+        fn test_bool_flag_without_value_treated_as_true() {
+            // iNat URLs use bare keys like "?sounds" to mean sounds=true
+            let p = parse_url_params("sounds");
+            assert_eq!(p.sounds, Some(true));
+        }
+
+        #[test]
+        fn test_bool_flag_without_value_combined_with_other_params() {
+            let p = parse_url_params("place_id=122851&sounds");
+            assert_eq!(p.place_id, Some(vec![122851i32]));
+            assert_eq!(p.sounds, Some(true));
+        }
+
+        #[test]
+        fn test_non_bool_empty_value_dropped() {
+            // Empty value for a non-bool param should still be dropped
+            let p = parse_url_params("place_id=");
+            assert_eq!(p.place_id, None);
         }
 
         #[test]
