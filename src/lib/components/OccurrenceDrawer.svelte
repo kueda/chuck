@@ -55,6 +55,7 @@ let error = $state<string | null>(null);
 let photoViewerOpen = $state(false);
 let photoUrls = $state<string[]>([]);
 let selectedPhotoIndex = $state(0);
+let drawerContent: HTMLDivElement;
 type ActivityItem =
   | { type: 'identification'; date: number; item: IdentificationType }
   | { type: 'comment'; date: number; item: CommentType };
@@ -96,6 +97,39 @@ const displayLocality = $derived.by(() => {
 $effect(() => {
   if (occurrenceId && open) {
     loadOccurrence();
+  }
+});
+
+// Pause other audio elements when one starts playing
+$effect(() => {
+  open;
+  occurrenceId;
+  if (!drawerContent) return;
+  function pauseAll(e: Event) {
+    for (const audio of drawerContent.querySelectorAll<HTMLAudioElement>(
+      'audio',
+    )) {
+      if (audio !== e.target) {
+        audio.pause();
+      }
+    }
+  }
+  drawerContent.addEventListener('play', pauseAll, true);
+  return () => drawerContent.removeEventListener('play', pauseAll, true);
+});
+
+// Stop audio when drawer closes or switches occurrence
+$effect(() => {
+  // We want to pause audio when open or occurrenceId change, even if they're blank
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+  open;
+  occurrenceId;
+  if (drawerContent) {
+    for (const audio of drawerContent.querySelectorAll<HTMLAudioElement>(
+      'audio',
+    )) {
+      audio.pause();
+    }
   }
 });
 
@@ -250,7 +284,7 @@ const coreFields = {
         </header>
 
         <!-- Content -->
-        <div class="px-6 pb-6">
+        <div bind:this={drawerContent} class="px-6 pb-6">
           {#if loading}
             <div class="flex justify-center items-center h-64">
               <div class="text-gray-500">Loading...</div>
