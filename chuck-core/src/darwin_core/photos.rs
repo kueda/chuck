@@ -230,15 +230,16 @@ impl SoundDownloader {
     }
 
     async fn download_file(url: &str, file_path: &Path) -> Result<(), String> {
-        use tokio::io::AsyncWriteExt;
         let mut f = tokio::fs::File::create(file_path).await
             .map_err(|e| format!("Failed to create file: {e}"))?;
         let response = reqwest::get(url).await
             .map_err(|e| format!("Failed to fetch URL: {e}"))?;
-        let bytes = response.bytes().await
-            .map_err(|e| format!("Failed to read response bytes: {e}"))?;
-        f.write_all(&bytes).await
-            .map_err(|e| format!("Failed to write to file: {e}"))?;
+        let mut byte_stream = response.bytes_stream();
+        while let Some(item) = byte_stream.next().await {
+            let bytes = item.map_err(|e| format!("Failed to read response bytes: {e}"))?;
+            tokio::io::copy(&mut bytes.as_ref(), &mut f).await
+                .map_err(|e| format!("Failed to write to file: {e}"))?;
+        }
         Ok(())
     }
 
