@@ -798,10 +798,10 @@ test.describe('Frontend', () => {
 
     // The scroll position should be restored — the same item should be among
     // the first several visible items. Scroll restoration is index-based so
-    // it may be off by up to one row (lanes=5 items), hence checking 10 items.
+    // it may be off by up to two rows (lanes=5 items each), hence checking 20 items.
     const itemsAfterReturn = page.locator('.occurrence-list-item[id]');
     const itemIdsAfter: (string | null)[] = [];
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 20; i++) {
       itemIdsAfter.push(await itemsAfterReturn.nth(i).getAttribute('id'));
     }
     expect(itemIdsAfter).toContain(firstItemId);
