@@ -183,16 +183,32 @@ where
     let downloader = Downloader::new(params, extensions, fetch_media, jwt);
     downloader.execute(&updates_path, progress_callback, None).await?;
 
+    merge_archive_into(zip_path, &updates_path, zip_path, &original_inat_query)?;
+
+    Ok(())
+}
+
+/// Merge `updates_zip` into `existing_zip`, writing the result to `output_path`.
+///
+/// Existing records are updated in-place if the same ID appears in `updates_zip`;
+/// records in `updates_zip` with IDs not found in `existing_zip` are appended.
+/// Media files are merged with updates taking precedence on conflict.
+fn merge_archive_into(
+    existing_zip: &str,
+    updates_zip: &str,
+    output_path: &str,
+    original_inat_query: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     // --- Extract both archives to temp dirs ---
     let existing_dir = tempfile::tempdir()?;
     let updates_dir = tempfile::tempdir()?;
-    extract_zip(zip_path, existing_dir.path())?;
-    extract_zip(&updates_path, updates_dir.path())?;
+    extract_zip(existing_zip, existing_dir.path())?;
+    extract_zip(updates_zip, updates_dir.path())?;
 
     // --- Build updates map from updates occurrence.csv: id → row ---
     let updates_occurrence_csv = updates_dir.path().join(Occurrence::FILENAME);
 
-    // Helper: read a CSV into a HashMap<id_at_col, row>
+    // Read a CSV into a HashMap<id_at_col, row>
     let read_updates_map = |csv_path: &Path, id_col: usize|
         -> Result<HashMap<String, Vec<String>>, Box<dyn std::error::Error>>
     {
@@ -247,7 +263,7 @@ where
     // Write updated eml.xml (pubDate = today) with original inat_query preserved
     let new_metadata = Metadata {
         abstract_lines: vec![],
-        inat_query: Some(original_inat_query.clone()),
+        inat_query: Some(original_inat_query.to_string()),
     };
     let eml_xml = generate_eml(&new_metadata);
     std::fs::write(merge_dir.path().join("eml.xml"), &eml_xml)?;
@@ -262,7 +278,7 @@ where
     copy_dir_into(&updates_dir.path().join("media"), &merged_media)?;
 
     // --- Repack ZIP to output path ---
-    repack_zip(merge_dir.path(), zip_path)?;
+    repack_zip(merge_dir.path(), output_path)?;
 
     Ok(())
 }
@@ -270,6 +286,91 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Build a minimal ZIP with an occurrence.csv (given as raw CSV text),
+    /// a stub meta.xml, an eml.xml with the given pubDate, and a chuck.json.
+    fn build_test_zip(path: &str, occurrence_csv: &str, inat_query: &str, pub_date: &str) {
+        use std::io::Write;
+        use zip::CompressionMethod;
+        use zip::write::FileOptions;
+
+        let file = std::fs::File::create(path).unwrap();
+        let mut zip = zip::write::ZipWriter::new(file);
+        let opts: FileOptions<()> =
+            FileOptions::default().compression_method(CompressionMethod::Deflated);
+
+        zip.start_file("occurrence.csv", opts).unwrap();
+        zip.write_all(occurrence_csv.as_bytes()).unwrap();
+
+        zip.start_file("meta.xml", opts).unwrap();
+        zip.write_all(b"<archive/>").unwrap();
+
+        let eml = format!(
+            "<eml><dataset><pubDate>{pub_date}</pubDate></dataset></eml>"
+        );
+        zip.start_file("eml.xml", opts).unwrap();
+        zip.write_all(eml.as_bytes()).unwrap();
+
+        let chuck = format!(r#"{{"inat_query":"{inat_query}"}}"#);
+        zip.start_file("chuck.json", opts).unwrap();
+        zip.write_all(chuck.as_bytes()).unwrap();
+
+        zip.finish().unwrap();
+    }
+
+    /// Read occurrence.csv from a ZIP and return its data rows (excluding header).
+    fn read_occ_rows(zip_path: &str) -> Vec<String> {
+        use std::io::Read;
+        let file = std::fs::File::open(zip_path).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        let mut entry = archive.by_name(Occurrence::FILENAME).unwrap();
+        let mut content = String::new();
+        entry.read_to_string(&mut content).unwrap();
+        content.lines().skip(1).map(String::from).collect()
+    }
+
+    #[test]
+    fn test_merge_archive_into_updates_in_place_and_appends_new() {
+        let existing_tmp = tempfile::NamedTempFile::new().unwrap();
+        let updates_tmp = tempfile::NamedTempFile::new().unwrap();
+        let output_tmp = tempfile::NamedTempFile::new().unwrap();
+
+        let existing_path = existing_tmp.path().to_str().unwrap().to_string();
+        let updates_path = updates_tmp.path().to_str().unwrap().to_string();
+        let output_path = output_tmp.path().to_str().unwrap().to_string();
+
+        // Existing archive: obs/1 (original value), obs/2
+        build_test_zip(
+            &existing_path,
+            "id,name\n\
+             https://www.inaturalist.org/observations/1,original\n\
+             https://www.inaturalist.org/observations/2,unchanged\n",
+            "taxon_id=47790",
+            "2026-03-01",
+        );
+
+        // Updates archive: obs/1 (updated value), obs/3 (new)
+        build_test_zip(
+            &updates_path,
+            "id,name\n\
+             https://www.inaturalist.org/observations/1,updated\n\
+             https://www.inaturalist.org/observations/3,new\n",
+            "taxon_id=47790",
+            "2026-03-24",
+        );
+
+        merge_archive_into(&existing_path, &updates_path, &output_path, "taxon_id=47790")
+            .unwrap();
+
+        let rows = read_occ_rows(&output_path);
+        assert_eq!(rows.len(), 3, "expected 3 rows: updated obs/1, unchanged obs/2, new obs/3");
+        // obs/1 updated in place (first position preserved)
+        assert_eq!(rows[0], "https://www.inaturalist.org/observations/1,updated");
+        // obs/2 unchanged, original position preserved
+        assert_eq!(rows[1], "https://www.inaturalist.org/observations/2,unchanged");
+        // obs/3 appended
+        assert_eq!(rows[2], "https://www.inaturalist.org/observations/3,new");
+    }
 
     #[test]
     fn test_updated_since_from_pub_date() {
