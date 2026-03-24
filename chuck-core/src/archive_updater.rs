@@ -277,8 +277,19 @@ fn merge_archive_into(
     copy_dir_into(&existing_dir.path().join("media"), &merged_media)?;
     copy_dir_into(&updates_dir.path().join("media"), &merged_media)?;
 
-    // --- Repack ZIP to output path ---
-    repack_zip(merge_dir.path(), output_path)?;
+    // --- Repack ZIP to output path atomically ---
+    // Write to a temp file in the same directory first, then rename over the
+    // target so a crash mid-write never leaves a corrupt or truncated archive.
+    let output_path_obj = Path::new(output_path);
+    let output_dir = output_path_obj.parent().unwrap_or(Path::new("."));
+    let tmp_output = tempfile::NamedTempFile::new_in(output_dir)?;
+    let tmp_path = tmp_output
+        .path()
+        .to_str()
+        .ok_or("temp file path is not valid UTF-8")?
+        .to_string();
+    repack_zip(merge_dir.path(), &tmp_path)?;
+    tmp_output.persist(output_path_obj).map_err(|e| e.error)?;
 
     Ok(())
 }
@@ -370,6 +381,45 @@ mod tests {
         assert_eq!(rows[1], "https://www.inaturalist.org/observations/2,unchanged");
         // obs/3 appended
         assert_eq!(rows[2], "https://www.inaturalist.org/observations/3,new");
+    }
+
+    #[test]
+    fn test_merge_archive_into_in_place_update() {
+        // Verify merge_archive_into works when output_path == existing_zip,
+        // which is the path taken by update_archive. The atomic rename must not
+        // corrupt the source file even though they share a path.
+        let existing_tmp = tempfile::NamedTempFile::new().unwrap();
+        let updates_tmp = tempfile::NamedTempFile::new().unwrap();
+        let existing_path = existing_tmp.path().to_str().unwrap().to_string();
+        let updates_path = updates_tmp.path().to_str().unwrap().to_string();
+
+        build_test_zip(
+            &existing_path,
+            "id,name\n\
+             https://www.inaturalist.org/observations/1,original\n",
+            "taxon_id=1",
+            "2026-01-01",
+        );
+        build_test_zip(
+            &updates_path,
+            "id,name\n\
+             https://www.inaturalist.org/observations/1,updated\n\
+             https://www.inaturalist.org/observations/2,new\n",
+            "taxon_id=1",
+            "2026-01-02",
+        );
+
+        // output_path == existing_zip (in-place)
+        merge_archive_into(&existing_path, &updates_path, &existing_path, "taxon_id=1")
+            .unwrap();
+
+        let rows = read_occ_rows(&existing_path);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            rows[0],
+            "https://www.inaturalist.org/observations/1,updated"
+        );
+        assert_eq!(rows[1], "https://www.inaturalist.org/observations/2,new");
     }
 
     #[test]
