@@ -1,5 +1,6 @@
 <script lang="ts">
-import { SegmentedControl } from '@skeletonlabs/skeleton-svelte';
+import { SegmentedControl, Tabs } from '@skeletonlabs/skeleton-svelte';
+import { AlertCircle } from 'lucide-svelte';
 import { onMount } from 'svelte';
 import InatPlaceChooser from '$lib/components/InatPlaceChooser.svelte';
 import InatProgressOverlay from '$lib/components/InatProgressOverlay.svelte';
@@ -9,6 +10,7 @@ import {
   getCurrentWindow,
   invoke,
   listen,
+  showOpenDialog,
   showSaveDialog,
 } from '$lib/tauri-api';
 import ExtensionCheckbox from './ExtensionCheckbox.svelte';
@@ -54,11 +56,24 @@ let includeAudiovisual = $state<boolean>(false);
 let includeIdentifications = $state<boolean>(true);
 let includeComments = $state<boolean>(true);
 
+// Page mode: create a new archive or update an existing one
+let pageMode = $state<'create' | 'update'>('create');
+
 // Filter mode
 let filterMode = $state<'fields' | 'url'>('fields');
 let urlInput = $state('');
 let effectiveParams = $state('');
 let urlParseError = $state(false);
+
+// Update mode state
+interface ChuckArchiveInfo {
+  inat_query: string | null;
+  extensions: string[];
+  has_media: boolean;
+}
+let updateFilePath = $state<string | null>(null);
+let updateArchiveInfo = $state<ChuckArchiveInfo | null>(null);
+let updateArchiveError = $state<string | null>(null);
 
 let observationCount = $state<number | null>(null);
 let countLoading = $state<boolean>(false);
@@ -539,6 +554,47 @@ function handleCancelDownload() {
   showProgress = false;
 }
 
+async function handlePickUpdateFile() {
+  const result = await showOpenDialog({
+    filters: [{ name: 'Darwin Core Archive', extensions: ['zip'] }],
+    multiple: false,
+  });
+  if (!result) return;
+  const path = Array.isArray(result) ? result[0] : result;
+  updateFilePath = path;
+  updateArchiveInfo = null;
+  updateArchiveError = null;
+  try {
+    updateArchiveInfo = await invoke<ChuckArchiveInfo>(
+      'read_chuck_archive_info',
+      { path },
+    );
+  } catch (e) {
+    updateArchiveError = e instanceof Error ? e.message : String(e);
+  }
+}
+
+async function handleUpdate() {
+  if (!updateFilePath) return;
+  completedArchivePath = updateFilePath;
+  showProgress = true;
+  progressStage = 'building';
+  progressMessage = 'Starting...';
+  downloadCancelled = false;
+  downloadStartTime = null;
+  lastETRUpdateTime = 0;
+  lastETRItemsDownloaded = 0;
+  smoothedRate = null;
+  estimatedSecondsRemaining = null;
+  try {
+    await invoke('update_inat_archive', { path: updateFilePath });
+  } catch (e) {
+    console.error('Failed to update archive:', e);
+    progressStage = 'error';
+    progressMessage = e instanceof Error ? e.message : String(e);
+  }
+}
+
 async function handleOpenInChuck() {
   if (!completedArchivePath) return;
 
@@ -582,7 +638,10 @@ onMount(() => {
       progressMessage = progress.message;
     } else if (progress.stage === 'complete') {
       progressStage = 'complete';
-      progressMessage = 'Archive created successfully!';
+      progressMessage =
+        pageMode === 'update'
+          ? 'Archive updated successfully!'
+          : 'Archive created successfully!';
 
       setTimeout(() => {
         showProgress = false;
@@ -663,292 +722,361 @@ $effect(() => {
     <p>Download iNaturalist observations as a DarwinCore Archive you can open in Chuck.</p>
   </div>
 
-  <ol class="step-list ps-6">
-    <li>
-      <h2 class="h4 mb-3">Sign in</h2>
-      <!-- Auth Section -->
-      <div class="mb-6 p-4 border rounded">
-        {#if authStatus.authenticated}
-          <div class="flex items-center justify-between">
-            <div class="text-sm">
-              <p class="mb-3 text-green-600">
-                {#if authStatus.username}
-                  Signed in as <strong>{authStatus.username}</strong>
-                {:else}
-                  Signed in
-                {/if}
-              </p>
-              <p>Private coordinates you can access will be included</p>
-            </div>
-            <button
-              type="button"
-              class="btn preset-tonal text-sm"
-              disabled={authLoading}
-              onclick={handleSignOut}
-            >
-              {authLoading ? 'Signing out...' : 'Sign Out'}
-            </button>
-          </div>
-        {:else}
-          <div class="flex items-center justify-between">
-            <div class="text-sm text-gray-600">
-              Sign in to access private coordinates (optional)
-            </div>
-            <button
-              type="button"
-              class="btn preset-filled-surface text-sm"
-              disabled={authLoading}
-              onclick={handleSignIn}
-            >
-              {authLoading ? 'Signing in...' : 'Sign In'}
-            </button>
-          </div>
-        {/if}
-      </div>
-    </li>
-
-    <li>
-      <h2 class="h4 mb-3 flex items-center justify-between">
-        <span>Filter observations</span>
-        <SegmentedControl
-          value={filterMode}
-          onValueChange={(e) => { filterMode = (e.value || 'fields') as 'fields' | 'url'; }}
-        >
-          <SegmentedControl.Control class="border-0 bg-gray-200 p-0">
-            <SegmentedControl.Indicator />
-            <SegmentedControl.Item value="fields">
-              <SegmentedControl.ItemText class="text-xs">Fields</SegmentedControl.ItemText>
-              <SegmentedControl.ItemHiddenInput />
-            </SegmentedControl.Item>
-            <SegmentedControl.Item value="url">
-              <SegmentedControl.ItemText class="text-xs">URL</SegmentedControl.ItemText>
-              <SegmentedControl.ItemHiddenInput />
-            </SegmentedControl.Item>
-          </SegmentedControl.Control>
-        </SegmentedControl>
-      </h2>
-
-      {#if filterMode === 'fields'}
-        <div class="mb-6">
-          <div class="space-y-4">
-            <InatTaxonChooser bind:selectedId={taxonId} />
-
-            <InatPlaceChooser bind:selectedId={placeId} />
-
-            <InatUserChooser bind:selectedId={userId} />
-
-            <div>
-              <div class="block text-sm font-medium mb-2">
-                Observation Date Range
-              </div>
-              <div class="space-y-2">
-                <label class="flex items-center w-fit">
-                  <input
-                    type="radio"
-                    name="observed-range"
-                    value="all"
-                    checked={observedDateRange === 'all'}
-                    onchange={() => observedDateRange = 'all'}
-                  />
-                  <span class="ml-2">All time</span>
-                </label>
-                <label class="flex items-center w-fit">
-                  <input
-                    type="radio"
-                    name="observed-range"
-                    value="custom"
-                    checked={observedDateRange === 'custom'}
-                    onchange={() => observedDateRange = 'custom'}
-                  />
-                  <span class="ml-2">Custom range</span>
-                </label>
-                {#if observedDateRange === 'custom'}
-                  <div class="ml-6 space-y-2">
-                    <div>
-                      <label for="observed-d1" class="block text-xs mb-1">From</label>
-                      <input
-                        id="observed-d1"
-                        type="date"
-                        class="input"
-                        bind:value={observedD1}
-                      />
-                    </div>
-                    <div>
-                      <label for="observed-d2" class="block text-xs mb-1">To</label>
-                      <input
-                        id="observed-d2"
-                        type="date"
-                        class="input"
-                        bind:value={observedD2}
-                      />
-                    </div>
-                  </div>
-                {/if}
-              </div>
-            </div>
-
-            <div>
-              <div class="block text-sm font-medium mb-2">
-                Created Date Range
-              </div>
-              <div class="space-y-2">
-                <label class="flex items-center w-fit">
-                  <input
-                    type="radio"
-                    name="created-range"
-                    value="all"
-                    checked={createdDateRange === 'all'}
-                    onchange={() => createdDateRange = 'all'}
-                  />
-                  <span class="ml-2">All time</span>
-                </label>
-                <label class="flex items-center w-fit">
-                  <input
-                    type="radio"
-                    name="created-range"
-                    value="custom"
-                    checked={createdDateRange === 'custom'}
-                    onchange={() => createdDateRange = 'custom'}
-                  />
-                  <span class="ml-2">Custom range</span>
-                </label>
-                {#if createdDateRange === 'custom'}
-                  <div class="ml-6 space-y-2">
-                    <div>
-                      <label for="created-d1" class="block text-xs mb-1">From</label>
-                      <input
-                        id="created-d1"
-                        type="date"
-                        class="input"
-                        bind:value={createdD1}
-                      />
-                    </div>
-                    <div>
-                      <label for="created-d2" class="block text-xs mb-1">To</label>
-                      <input
-                        id="created-d2"
-                        type="date"
-                        class="input"
-                        bind:value={createdD2}
-                      />
-                    </div>
-                  </div>
-                {/if}
-              </div>
-            </div>
-          </div>
-        </div>
-      {:else}
-        <div class="mb-6 space-y-3">
-          <label for="inat-url" class="block text-sm font-medium">
-            Paste an iNaturalist observations URL
-          </label>
-          <input
-            id="inat-url"
-            type="text"
-            class="input w-full"
-            placeholder="E.g. https://www.inaturalist.org/observations?taxon_id=47790"
-            bind:value={urlInput}
-            onblur={parseUrl}
-            onkeydown={(e) => { if (e.key === 'Enter') parseUrl(); }}
-          />
-          {#if urlParseError}
-            <p class="text-red-600 text-sm">Could not parse URL</p>
-          {:else if effectiveParams}
-            <div class="text-sm text-gray-600">
-              <span class="font-medium">Effective params:</span>
-              <code class="ml-1 break-all">{effectiveParams}</code>
-            </div>
-          {:else if urlInput}
-            <p class="text-gray-500 text-sm">No recognized parameters found</p>
-          {/if}
-        </div>
-      {/if}
-    </li>
-
-    <li>
-      <h2 class="h4 mb-3">Choose content</h2>
-
-      <div class="mb-6">
-        <div class="space-y-2">
-          <label class="flex items-start w-fit space-x-2">
-            <input name="fetchMedia" class="checkbox mt-1" type="checkbox" bind:checked={fetchMedia} />
-            <div>
-              <p>Download photos &amp; sounds</p>
-              <p class="text-gray-500">Include all observation photos and sounds in the archive itself for backup or offline use</p>
-            </div>
-          </label>
-
-          <div class="mt-3">
-            <h3 class="h6">Extensions</h3>
-            <p class="mb-4 text-gray-500">Files that contain extra data associated with occurrences.</p>
-            <div class="ml-4 space-y-2">
-              <ExtensionCheckbox
-                bind:value={includeSimpleMultimedia}
-                name="simpleMultimedia"
-                title="Simple Multimedia"
-                desc="Photo and sound data with attribution"
-                url="https://rs.gbif.org/extension/gbif/1.0/multimedia.xml"
-              />
-              <!-- Audiovisual doesn't add much to SimpleMultimedia, let's see if we can do without it -->
-              <!-- <ExtensionCheckbox
-                bind:value={includeAudiovisual}
-                name="audiovisual"
-                title="Audiovisual Media Description"
-                desc="Photo and sound data with attribution, taxonomic, and geographic metadata"
-                url="https://rs.gbif.org/extension/ac/audiovisual_2024_11_07.xml"
-              /> -->
-              <ExtensionCheckbox
-                bind:value={includeIdentifications}
-                name="identifications"
-                title="Identification History"
-                desc="All identifications associated with the observation"
-                url="https://rs.gbif.org/extension/dwc/identification_history_2025-07-10.xml"
-             />
-             <ExtensionCheckbox
-               bind:value={includeComments}
-               name="comments"
-               title="Comments"
-               desc="Discussion comments associated with the observation"
-               url="https://schema.org/Comment"
-             />
-            </div>
-          </div>
-        </div>
-      </div>
-    </li>
-  </ol>
-
+  <!-- Auth Section -->
   <div class="mb-6 p-4 border rounded">
-    {#if countLoading}
-      <div class="text-gray-600">Loading...</div>
-    {:else if countError}
-      <div class="text-red-600">Unable to load observation count</div>
-    {:else if observationCount !== null}
-      <div>{observationCount.toLocaleString()} observations match</div>
-      {#if mediaEstimateLoading}
-        <div class="text-gray-500 text-sm mt-1">Estimating size...</div>
-      {:else}
-        {@const estimatedSize = calculateEstimatedSize()}
-        {#if estimatedSize !== null}
-          <div class="text-gray-600 text-sm mt-1">
-            Estimated archive size: {formatBytes(estimatedSize)}
-          </div>
-        {/if}
-      {/if}
+    {#if authStatus.authenticated}
+      <div class="flex items-center justify-between">
+        <div class="text-sm">
+          <p class="mb-3 text-green-600">
+            {#if authStatus.username}
+              Signed in as <strong>{authStatus.username}</strong>
+            {:else}
+              Signed in
+            {/if}
+          </p>
+          <p>Private coordinates you can access will be included</p>
+        </div>
+        <button
+          type="button"
+          class="btn preset-tonal text-sm"
+          disabled={authLoading}
+          onclick={handleSignOut}
+        >
+          {authLoading ? 'Signing out...' : 'Sign Out'}
+        </button>
+      </div>
     {:else}
-      <div class="text-gray-500">Enter filters to see observation count</div>
+      <div class="flex items-center justify-between">
+        <div class="text-sm text-gray-600">
+          Sign in to access private coordinates (optional)
+        </div>
+        <button
+          type="button"
+          class="btn preset-filled-surface text-sm"
+          disabled={authLoading}
+          onclick={handleSignIn}
+        >
+          {authLoading ? 'Signing in...' : 'Sign In'}
+        </button>
+      </div>
     {/if}
   </div>
 
-  <button
-    type="button"
-    class="btn preset-filled w-full"
-    disabled={countLoading || countError !== null || !observationCount}
-    onclick={handleDownload}
+  <Tabs
+    value={pageMode}
+    onValueChange={(e) => { pageMode = (e.value || 'create') as 'create' | 'update'; }}
   >
-    Download Archive
-  </button>
+    <Tabs.List class="mb-4">
+      <Tabs.Trigger value="create">Create archive</Tabs.Trigger>
+      <Tabs.Trigger value="update">Update existing</Tabs.Trigger>
+      <Tabs.Indicator />
+    </Tabs.List>
+
+    <Tabs.Content value="create">
+      <ol class="step-list ps-6">
+        <li>
+          <h2 class="h4 mb-3 flex items-center justify-between">
+            <span>Filter observations</span>
+            <SegmentedControl
+              value={filterMode}
+              onValueChange={(e) => { filterMode = (e.value || 'fields') as 'fields' | 'url'; }}
+            >
+              <SegmentedControl.Control class="border-0 bg-gray-200 p-0">
+                <SegmentedControl.Indicator />
+                <SegmentedControl.Item value="fields">
+                  <SegmentedControl.ItemText class="text-xs">Fields</SegmentedControl.ItemText>
+                  <SegmentedControl.ItemHiddenInput />
+                </SegmentedControl.Item>
+                <SegmentedControl.Item value="url">
+                  <SegmentedControl.ItemText class="text-xs">URL</SegmentedControl.ItemText>
+                  <SegmentedControl.ItemHiddenInput />
+                </SegmentedControl.Item>
+              </SegmentedControl.Control>
+            </SegmentedControl>
+          </h2>
+
+          {#if filterMode === 'fields'}
+            <div class="mb-6">
+              <div class="space-y-4">
+                <InatTaxonChooser bind:selectedId={taxonId} />
+
+                <InatPlaceChooser bind:selectedId={placeId} />
+
+                <InatUserChooser bind:selectedId={userId} />
+
+                <div>
+                  <div class="block text-sm font-medium mb-2">
+                    Observation Date Range
+                  </div>
+                  <div class="space-y-2">
+                    <label class="flex items-center w-fit">
+                      <input
+                        type="radio"
+                        name="observed-range"
+                        value="all"
+                        checked={observedDateRange === 'all'}
+                        onchange={() => observedDateRange = 'all'}
+                      />
+                      <span class="ml-2">All time</span>
+                    </label>
+                    <label class="flex items-center w-fit">
+                      <input
+                        type="radio"
+                        name="observed-range"
+                        value="custom"
+                        checked={observedDateRange === 'custom'}
+                        onchange={() => observedDateRange = 'custom'}
+                      />
+                      <span class="ml-2">Custom range</span>
+                    </label>
+                    {#if observedDateRange === 'custom'}
+                      <div class="ml-6 space-y-2">
+                        <div>
+                          <label for="observed-d1" class="block text-xs mb-1">From</label>
+                          <input
+                            id="observed-d1"
+                            type="date"
+                            class="input"
+                            bind:value={observedD1}
+                          />
+                        </div>
+                        <div>
+                          <label for="observed-d2" class="block text-xs mb-1">To</label>
+                          <input
+                            id="observed-d2"
+                            type="date"
+                            class="input"
+                            bind:value={observedD2}
+                          />
+                        </div>
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+
+                <div>
+                  <div class="block text-sm font-medium mb-2">
+                    Created Date Range
+                  </div>
+                  <div class="space-y-2">
+                    <label class="flex items-center w-fit">
+                      <input
+                        type="radio"
+                        name="created-range"
+                        value="all"
+                        checked={createdDateRange === 'all'}
+                        onchange={() => createdDateRange = 'all'}
+                      />
+                      <span class="ml-2">All time</span>
+                    </label>
+                    <label class="flex items-center w-fit">
+                      <input
+                        type="radio"
+                        name="created-range"
+                        value="custom"
+                        checked={createdDateRange === 'custom'}
+                        onchange={() => createdDateRange = 'custom'}
+                      />
+                      <span class="ml-2">Custom range</span>
+                    </label>
+                    {#if createdDateRange === 'custom'}
+                      <div class="ml-6 space-y-2">
+                        <div>
+                          <label for="created-d1" class="block text-xs mb-1">From</label>
+                          <input
+                            id="created-d1"
+                            type="date"
+                            class="input"
+                            bind:value={createdD1}
+                          />
+                        </div>
+                        <div>
+                          <label for="created-d2" class="block text-xs mb-1">To</label>
+                          <input
+                            id="created-d2"
+                            type="date"
+                            class="input"
+                            bind:value={createdD2}
+                          />
+                        </div>
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+              </div>
+            </div>
+          {:else}
+            <div class="mb-6 space-y-3">
+              <label for="inat-url" class="block text-sm font-medium">
+                Paste an iNaturalist observations URL
+              </label>
+              <input
+                id="inat-url"
+                type="text"
+                class="input w-full"
+                placeholder="E.g. https://www.inaturalist.org/observations?taxon_id=47790"
+                bind:value={urlInput}
+                onblur={parseUrl}
+                onkeydown={(e) => { if (e.key === 'Enter') parseUrl(); }}
+              />
+              {#if urlParseError}
+                <p class="text-red-600 text-sm">Could not parse URL</p>
+              {:else if effectiveParams}
+                <div class="text-sm text-gray-600">
+                  <span class="font-medium">Effective params:</span>
+                  <code class="ml-1 break-all">{effectiveParams}</code>
+                </div>
+              {:else if urlInput}
+                <p class="text-gray-500 text-sm">No recognized parameters found</p>
+              {/if}
+            </div>
+          {/if}
+        </li>
+
+        <li>
+          <h2 class="h4 mb-3">Choose content</h2>
+
+          <div class="mb-6">
+            <div class="space-y-2">
+              <label class="flex items-start w-fit space-x-2">
+                <input name="fetchMedia" class="checkbox mt-1" type="checkbox" bind:checked={fetchMedia} />
+                <div>
+                  <p>Download photos &amp; sounds</p>
+                  <p class="text-gray-500">
+                    Include all observation photos and sounds in the archive itself for backup or offline use
+                  </p>
+                </div>
+              </label>
+
+              <div class="mt-3">
+                <h3 class="h6">Extensions</h3>
+                <p class="mb-4 text-gray-500">Files that contain extra data associated with occurrences.</p>
+                <div class="ml-4 space-y-2">
+                  <ExtensionCheckbox
+                    bind:value={includeSimpleMultimedia}
+                    name="simpleMultimedia"
+                    title="Simple Multimedia"
+                    desc="Photo and sound data with attribution"
+                    url="https://rs.gbif.org/extension/gbif/1.0/multimedia.xml"
+                  />
+                  <!-- Audiovisual doesn't add much to SimpleMultimedia, let's see if we can do without it -->
+                  <!-- <ExtensionCheckbox
+                    bind:value={includeAudiovisual}
+                    name="audiovisual"
+                    title="Audiovisual Media Description"
+                    desc="Photo and sound data with attribution, taxonomic, and geographic metadata"
+                    url="https://rs.gbif.org/extension/ac/audiovisual_2024_11_07.xml"
+                  /> -->
+                  <ExtensionCheckbox
+                    bind:value={includeIdentifications}
+                    name="identifications"
+                    title="Identification History"
+                    desc="All identifications associated with the observation"
+                    url="https://rs.gbif.org/extension/dwc/identification_history_2025-07-10.xml"
+                  />
+                  <ExtensionCheckbox
+                    bind:value={includeComments}
+                    name="comments"
+                    title="Comments"
+                    desc="Discussion comments associated with the observation"
+                    url="https://schema.org/Comment"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </li>
+      </ol>
+
+      <div class="mb-6 p-4 border rounded">
+        {#if countLoading}
+          <div class="text-gray-600">Loading...</div>
+        {:else if countError}
+          <div class="text-red-600">Unable to load observation count</div>
+        {:else if observationCount !== null}
+          <div>{observationCount.toLocaleString()} observations match</div>
+          {#if mediaEstimateLoading}
+            <div class="text-gray-500 text-sm mt-1">Estimating size...</div>
+          {:else}
+            {@const estimatedSize = calculateEstimatedSize()}
+            {#if estimatedSize !== null}
+              <div class="text-gray-600 text-sm mt-1">
+                Estimated archive size: {formatBytes(estimatedSize)}
+              </div>
+            {/if}
+          {/if}
+        {:else}
+          <div class="text-gray-500">Enter filters to see observation count</div>
+        {/if}
+      </div>
+
+      <button
+        type="button"
+        class="btn preset-filled w-full"
+        disabled={countLoading || countError !== null || !observationCount}
+        onclick={handleDownload}
+      >
+        Download Archive
+      </button>
+    </Tabs.Content>
+
+    <Tabs.Content value="update">
+      <div class="mb-6 space-y-4">
+        <div>
+          <p class="text-sm mb-3">
+            Choose an existing Chuck archive to update with recently changed observations.
+          </p>
+          <button type="button" class="btn preset-tonal text-sm" onclick={handlePickUpdateFile}>
+            {updateFilePath ? 'Choose different file' : 'Choose archive…'}
+          </button>
+          {#if updateFilePath}
+            <p class="text-sm mt-2 text-gray-600 break-all">{updateFilePath}</p>
+          {/if}
+        </div>
+
+        {#if updateArchiveError}
+          <div class="p-3 border border-red-300 rounded text-red-600 text-sm">
+            {updateArchiveError}
+          </div>
+        {:else if updateArchiveInfo}
+          <div class="p-3 border rounded space-y-2 text-sm">
+            <div class="flex flex-row items-center gap-1">
+              <span class="font-medium">Filters:</span>
+              {#if updateArchiveInfo.inat_query}
+                <code class="break-all text-xs">{updateArchiveInfo.inat_query}</code>
+              {:else}
+                <span class="badge preset-filled-error-400-600">
+                  <AlertCircle size={16} />
+                  <span>Archive does not specify filters</span>
+                </span>
+              {/if}
+            </div>
+            <div class="flex flex-row gap-1">
+              <span class="font-medium">Extensions:</span>
+              {#if updateArchiveInfo.extensions.length > 0}
+                <span>{updateArchiveInfo.extensions.join(', ')}</span>
+              {:else}
+                <span class="text-gray-500">none</span>
+              {/if}
+            </div>
+            <div class="flex flex-row gap-1">
+              <span class="font-medium">Media included:</span>
+              <span>{updateArchiveInfo.has_media ? 'Yes' : 'No'}</span>
+            </div>
+          </div>
+        {/if}
+      </div>
+
+      <button
+        type="button"
+        class="btn preset-filled w-full"
+        disabled={!updateFilePath || !!updateArchiveError || !updateArchiveInfo?.inat_query}
+        onclick={handleUpdate}
+      >
+        Update Archive
+      </button>
+    </Tabs.Content>
+  </Tabs>
 </div>
 
 {#if showProgress}
@@ -968,8 +1096,8 @@ $effect(() => {
 {#if showSuccessDialog}
   <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
     <div class="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
-      <h2 class="text-xl font-bold mb-4">Archive Created Successfully!</h2>
-      <p class="mb-6">Your Darwin Core Archive has been created. Would you like to open it in Chuck?</p>
+      <h2 class="text-xl font-bold mb-4">{pageMode === 'update' ? 'Archive Updated Successfully!' : 'Archive Created Successfully!'}</h2>
+      <p class="mb-6">{pageMode === 'update' ? 'Your Darwin Core Archive has been updated.' : 'Your Darwin Core Archive has been created.'} Would you like to open it in Chuck?</p>
 
       <div class="flex gap-3">
         <button
