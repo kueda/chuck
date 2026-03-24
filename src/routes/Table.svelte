@@ -19,8 +19,12 @@ import type {
 import VirtualizedList from '$lib/components/VirtualizedList.svelte';
 import VirtualizedOccurrenceList from '$lib/components/VirtualizedOccurrenceList.svelte';
 import type { Occurrence } from '$lib/types/archive';
-import { getColumnWidthClass } from '$lib/utils/columnWidth';
+import { getDefaultColumnWidth } from '$lib/utils/columnWidth';
 import { createDrawerHandlers, type DrawerState } from '$lib/utils/drawerState';
+import {
+  getColumnWidthPreferences,
+  saveColumnWidthPreferences,
+} from '$lib/utils/viewPreferences';
 
 interface Props
   extends Pick<
@@ -99,6 +103,49 @@ const columns = $derived(
 let dndColumns = $state<typeof columns>([]);
 let isDragging = $state(false);
 let draggedColumnIndex = $state<number | null>(null);
+
+// Column width state
+let columnWidths = $state<Record<string, number>>({});
+let resizing = $state<{
+  field: string;
+  startX: number;
+  startWidth: number;
+} | null>(null);
+
+$effect(() => {
+  columnWidths = getColumnWidthPreferences(archiveName);
+  return () => {
+    resizing = null;
+  };
+});
+
+function getColumnWidth(field: string): number {
+  return columnWidths[field] ?? getDefaultColumnWidth(field);
+}
+
+function handleResizeMouseDown(field: string, event: MouseEvent) {
+  event.stopPropagation();
+  event.preventDefault();
+  resizing = {
+    field,
+    startX: event.clientX,
+    startWidth: getColumnWidth(field),
+  };
+}
+
+function handleResizeMouseMove(event: MouseEvent) {
+  if (!resizing) return;
+  const delta = event.clientX - resizing.startX;
+  const newWidth = Math.max(40, Math.min(2000, resizing.startWidth + delta));
+  columnWidths = { ...columnWidths, [resizing.field]: newWidth };
+}
+
+function handleResizeMouseUp() {
+  if (resizing) {
+    saveColumnWidthPreferences(archiveName, columnWidths);
+    resizing = null;
+  }
+}
 
 // Update dndColumns when columns change
 $effect(() => {
@@ -182,6 +229,11 @@ function shorten(text: string) {
 }
 </script>
 
+<svelte:document
+  onmousemove={handleResizeMouseMove}
+  onmouseup={handleResizeMouseUp}
+/>
+
 <!--
   Force VirtualizedList to remount when count changes.
   This solves a Svelte 5 reactivity issue where TanStack Virtual's virtualizer
@@ -257,9 +309,11 @@ function shorten(text: string) {
             flex
             flex-row
             flex-nowrap
-            shrink-0
-            {getColumnWidthClass(column.field)} p-1 {draggedColumnIndex === index ? 'opacity-40' : ''}
+            relative
+            p-1
+            {draggedColumnIndex === index ? 'opacity-40' : ''}
           "
+          style="width: {getColumnWidth(column.field)}px; min-width: {getColumnWidth(column.field)}px; flex-shrink: 0;"
         >
           <span class="truncate flex-1 cursor-grab active:cursor-grabbing">{column.label}</span>
           <button
@@ -277,6 +331,12 @@ function shorten(text: string) {
               <ArrowUpDown size={14} class="text-gray-300 hover:text-neutral-500" />
             {/if}
           </button>
+          <button
+            type="button"
+            class="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-primary-500/40 z-10 p-0 border-0 bg-transparent"
+            onmousedown={(e) => handleResizeMouseDown(column.field, e)}
+            aria-label="Resize {column.label} column"
+          ></button>
         </div>
       {/each}
     </div>
@@ -338,11 +398,10 @@ function shorten(text: string) {
                       class="
                         table-cell
                         truncate
-                        shrink-0
-                        {getColumnWidthClass(column.field)}
                         p-1
                         {draggedColumnIndex === index ? 'opacity-40' : ''}
                       "
+                      style="width: {getColumnWidth(column.field)}px; min-width: {getColumnWidth(column.field)}px; flex-shrink: 0;"
                     >
                       {shorten(String(occurrence[column.field as keyof Occurrence]))}
                     </div>
