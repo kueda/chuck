@@ -360,7 +360,8 @@ pub async fn update_inat_archive(
         let _ = app_clone.emit("inat-progress", event);
     };
 
-    update_archive(&path, progress_callback, jwt)
+    let cancel_token = Arc::clone(&CANCEL_FLAG);
+    update_archive(&path, progress_callback, jwt, Some(cancel_token))
         .await
         .map_err(|e| e.to_string())?;
 

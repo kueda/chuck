@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::{Arc, atomic::AtomicBool};
 use chrono::NaiveDate;
 
 use crate::chuck_metadata::{read_chuck_metadata, read_pub_date};
@@ -158,6 +159,7 @@ pub async fn update_archive<F>(
     zip_path: &str,
     progress_callback: F,
     jwt: Option<String>,
+    cancel_token: Option<Arc<AtomicBool>>,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     F: Fn(DownloadProgress) + Send + Sync + Clone + 'static,
@@ -181,7 +183,7 @@ where
     let updates_tmp = tempfile::NamedTempFile::new()?;
     let updates_path = updates_tmp.path().to_str().unwrap().to_string();
     let downloader = Downloader::new(params, extensions, fetch_media, jwt);
-    downloader.execute(&updates_path, progress_callback, None).await?;
+    downloader.execute(&updates_path, progress_callback, cancel_token).await?;
 
     merge_archive_into(zip_path, &updates_path, zip_path, &original_inat_query)?;
 

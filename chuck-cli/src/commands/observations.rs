@@ -148,7 +148,7 @@ pub async fn fetch_observations(
                 chuck_core::downloader::DownloadStage::Building => {}
             }
         };
-        return update_archive(zip_path, progress_callback, None).await;
+        return update_archive(zip_path, progress_callback, None, None).await;
     }
 
     // --- CSV update path ---
