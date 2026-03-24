@@ -342,7 +342,10 @@ async fn update_csv(
         if response.results.is_empty() {
             break;
         }
-        last_id = response.results.last().and_then(|o| o.id);
+        let Some(next_last_id) = response.results.last().and_then(|o| o.id) else {
+            break;
+        };
+        last_id = Some(next_last_id);
         for obs in &response.results {
             if let Some(id) = obs.id {
                 let row = vec![
@@ -374,9 +377,6 @@ async fn update_csv(
                 ];
                 updates.insert(id.to_string(), row);
             }
-        }
-        if last_id.is_none() {
-            break;
         }
         rate_limiter.wait_for_next_request().await;
     }
