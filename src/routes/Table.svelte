@@ -219,14 +219,6 @@ function handleSortClick(columnField: string, event: MouseEvent) {
   event.stopPropagation();
   onColumnHeaderClick(columnField);
 }
-
-function shorten(text: string) {
-  if (text?.toString().match(/http/)) {
-    const pieces = text.split('/');
-    return `...${pieces[pieces.length - 1]}`;
-  }
-  return text;
-}
 </script>
 
 <svelte:document
@@ -403,7 +395,7 @@ function shorten(text: string) {
                       "
                       style="width: {getColumnWidth(column.field)}px; min-width: {getColumnWidth(column.field)}px; flex-shrink: 0;"
                     >
-                      {shorten(String(occurrence[column.field as keyof Occurrence]))}
+                      {String(occurrence[column.field as keyof Occurrence])}
                     </div>
                   {/each}
                 {:else}
