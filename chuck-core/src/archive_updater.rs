@@ -141,6 +141,39 @@ fn repack_zip(src_dir: &Path, output_path: &str) -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
+/// Read `<para>` lines from the `<abstract>` section of an EML file.
+/// Returns an empty vec if the file is unreadable or has no `<abstract>`.
+fn read_abstract_lines_from_eml(eml_path: &Path) -> Vec<String> {
+    let content = match std::fs::read_to_string(eml_path) {
+        Ok(c) => c,
+        Err(_) => return vec![],
+    };
+    let abs_start = match content.find("<abstract>") {
+        Some(i) => i + "<abstract>".len(),
+        None => return vec![],
+    };
+    let abs_end = match content[abs_start..].find("</abstract>") {
+        Some(i) => abs_start + i,
+        None => return vec![],
+    };
+    let section = &content[abs_start..abs_end];
+    let mut lines = Vec::new();
+    let mut rest = section;
+    while let Some(start) = rest.find("<para>") {
+        rest = &rest[start + "<para>".len()..];
+        if let Some(end) = rest.find("</para>") {
+            let text = rest[..end].trim().to_string();
+            if !text.is_empty() {
+                lines.push(text);
+            }
+            rest = &rest[end + "</para>".len()..];
+        } else {
+            break;
+        }
+    }
+    lines
+}
+
 /// Compute `updated_since` as `pub_date - 1 day`, formatted as `YYYY-MM-DD`.
 pub fn updated_since_from_pub_date(pub_date: &str) -> Result<String, Box<dyn std::error::Error>> {
     let date = NaiveDate::parse_from_str(pub_date, "%Y-%m-%d")?;
@@ -262,9 +295,11 @@ fn merge_archive_into(
         merge_dir.path().join("meta.xml"),
     )?;
 
-    // Write updated eml.xml (pubDate = today) with original inat_query preserved
+    // Write updated eml.xml (pubDate = today), preserving abstract from existing archive
+    let abstract_lines =
+        read_abstract_lines_from_eml(&existing_dir.path().join("eml.xml"));
     let new_metadata = Metadata {
-        abstract_lines: vec![],
+        abstract_lines,
         inat_query: Some(original_inat_query.to_string()),
     };
     let eml_xml = generate_eml(&new_metadata);
@@ -331,6 +366,59 @@ mod tests {
         zip.finish().unwrap();
     }
 
+    /// Build a minimal ZIP with abstract content in eml.xml.
+    fn build_test_zip_with_abstract(
+        path: &str,
+        occurrence_csv: &str,
+        inat_query: &str,
+        pub_date: &str,
+        abstract_lines: &[&str],
+    ) {
+        use std::io::Write;
+        use zip::CompressionMethod;
+        use zip::write::FileOptions;
+
+        let file = std::fs::File::create(path).unwrap();
+        let mut zip = zip::write::ZipWriter::new(file);
+        let opts: FileOptions<()> =
+            FileOptions::default().compression_method(CompressionMethod::Deflated);
+
+        zip.start_file("occurrence.csv", opts).unwrap();
+        zip.write_all(occurrence_csv.as_bytes()).unwrap();
+
+        zip.start_file("meta.xml", opts).unwrap();
+        zip.write_all(b"<archive/>").unwrap();
+
+        let paras: String = abstract_lines
+            .iter()
+            .map(|l| format!("<para>{l}</para>"))
+            .collect::<Vec<_>>()
+            .join("");
+        let eml = format!(
+            "<eml><dataset><pubDate>{pub_date}</pubDate>\
+             <abstract>{paras}</abstract></dataset></eml>"
+        );
+        zip.start_file("eml.xml", opts).unwrap();
+        zip.write_all(eml.as_bytes()).unwrap();
+
+        let chuck = format!(r#"{{"inat_query":"{inat_query}"}}"#);
+        zip.start_file("chuck.json", opts).unwrap();
+        zip.write_all(chuck.as_bytes()).unwrap();
+
+        zip.finish().unwrap();
+    }
+
+    /// Read eml.xml from a ZIP and return its full content.
+    fn read_eml_from_zip(zip_path: &str) -> String {
+        use std::io::Read;
+        let file = std::fs::File::open(zip_path).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        let mut entry = archive.by_name("eml.xml").unwrap();
+        let mut content = String::new();
+        entry.read_to_string(&mut content).unwrap();
+        content
+    }
+
     /// Read occurrence.csv from a ZIP and return its data rows (excluding header).
     fn read_occ_rows(zip_path: &str) -> Vec<String> {
         use std::io::Read;
@@ -383,6 +471,44 @@ mod tests {
         assert_eq!(rows[1], "https://www.inaturalist.org/observations/2,unchanged");
         // obs/3 appended
         assert_eq!(rows[2], "https://www.inaturalist.org/observations/3,new");
+    }
+
+    #[test]
+    fn test_merge_archive_into_preserves_abstract_lines() {
+        let existing_tmp = tempfile::NamedTempFile::new().unwrap();
+        let updates_tmp = tempfile::NamedTempFile::new().unwrap();
+        let output_tmp = tempfile::NamedTempFile::new().unwrap();
+
+        let existing_path = existing_tmp.path().to_str().unwrap().to_string();
+        let updates_path = updates_tmp.path().to_str().unwrap().to_string();
+        let output_path = output_tmp.path().to_str().unwrap().to_string();
+
+        build_test_zip_with_abstract(
+            &existing_path,
+            "id,name\nhttps://www.inaturalist.org/observations/1,original\n",
+            "taxon_id=1",
+            "2026-01-01",
+            &["Observations of birds in California", "Filtered by user kueda"],
+        );
+        build_test_zip(
+            &updates_path,
+            "id,name\nhttps://www.inaturalist.org/observations/1,updated\n",
+            "taxon_id=1",
+            "2026-01-02",
+        );
+
+        merge_archive_into(&existing_path, &updates_path, &output_path, "taxon_id=1")
+            .unwrap();
+
+        let eml = read_eml_from_zip(&output_path);
+        assert!(
+            eml.contains("Observations of birds in California"),
+            "first abstract line not preserved in eml.xml"
+        );
+        assert!(
+            eml.contains("Filtered by user kueda"),
+            "second abstract line not preserved in eml.xml"
+        );
     }
 
     #[test]
