@@ -70,10 +70,17 @@ interface ChuckArchiveInfo {
   inat_query: string | null;
   extensions: string[];
   has_media: boolean;
+  file_size_bytes: number;
+  pub_date: string | null;
 }
 let updateFilePath = $state<string | null>(null);
 let updateArchiveInfo = $state<ChuckArchiveInfo | null>(null);
 let updateArchiveError = $state<string | null>(null);
+let updateObsCount = $state<number | null>(null);
+let updateObsCountLoading = $state<boolean>(false);
+let updateObsCountError = $state<string | null>(null);
+let updateMediaEstimate = $state<MediaEstimate | null>(null);
+let updateMediaEstimateLoading = $state<boolean>(false);
 
 let observationCount = $state<number | null>(null);
 let countLoading = $state<boolean>(false);
@@ -421,6 +428,37 @@ function calculateEstimatedSize(): number | null {
   return sizeBytes;
 }
 
+function calculateEstimatedUpdateSize(): number | null {
+  if (updateObsCount === null || !updateArchiveInfo) return null;
+
+  let sizeBytes = updateObsCount * BYTES_PER_OBSERVATION;
+
+  if (updateArchiveInfo.extensions.includes('SimpleMultimedia')) {
+    sizeBytes += updateObsCount * BYTES_PER_OBSERVATION_MULTIMEDIA;
+  }
+  if (updateArchiveInfo.extensions.includes('Identifications')) {
+    sizeBytes += updateObsCount * BYTES_PER_OBSERVATION_IDENTIFICATIONS;
+  }
+  if (updateArchiveInfo.extensions.includes('Comments')) {
+    sizeBytes += updateObsCount * BYTES_PER_OBSERVATION_COMMENTS;
+  }
+
+  if (
+    updateArchiveInfo.has_media &&
+    updateMediaEstimate &&
+    updateMediaEstimate.sample_size > 0
+  ) {
+    const photosPerObs =
+      updateMediaEstimate.photo_count / updateMediaEstimate.sample_size;
+    const soundsPerObs =
+      updateMediaEstimate.sound_count / updateMediaEstimate.sample_size;
+    sizeBytes += Math.round(photosPerObs * updateObsCount) * BYTES_PER_PHOTO;
+    sizeBytes += Math.round(soundsPerObs * updateObsCount) * BYTES_PER_SOUND;
+  }
+
+  return sizeBytes;
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1_000) return `${bytes} bytes`;
   if (bytes < 1_000_000) return `${(bytes / 1_000).toFixed(1)} KB`;
@@ -564,6 +602,9 @@ async function handlePickUpdateFile() {
   updateFilePath = path;
   updateArchiveInfo = null;
   updateArchiveError = null;
+  updateObsCount = null;
+  updateObsCountError = null;
+  updateMediaEstimate = null;
   try {
     updateArchiveInfo = await invoke<ChuckArchiveInfo>(
       'read_chuck_archive_info',
@@ -571,6 +612,34 @@ async function handlePickUpdateFile() {
     );
   } catch (e) {
     updateArchiveError = e instanceof Error ? e.message : String(e);
+    return;
+  }
+
+  if (updateArchiveInfo?.inat_query) {
+    updateObsCountLoading = true;
+    try {
+      updateObsCount = await invoke<number>('get_update_observation_count', {
+        path,
+      });
+    } catch (e) {
+      updateObsCountError = e instanceof Error ? e.message : String(e);
+    } finally {
+      updateObsCountLoading = false;
+    }
+
+    if (updateArchiveInfo.has_media) {
+      updateMediaEstimateLoading = true;
+      try {
+        updateMediaEstimate = await invoke<MediaEstimate>(
+          'estimate_media_count',
+          { params: { url_params: updateArchiveInfo.inat_query } },
+        );
+      } catch {
+        // best-effort; size estimate will omit media if unavailable
+      } finally {
+        updateMediaEstimateLoading = false;
+      }
+    }
   }
 }
 
@@ -1063,7 +1132,35 @@ $effect(() => {
               <span class="font-medium">Media included:</span>
               <span>{updateArchiveInfo.has_media ? 'Yes' : 'No'}</span>
             </div>
+            <div class="flex flex-row gap-1">
+              <span class="font-medium">Current size:</span>
+              <span>{formatBytes(updateArchiveInfo.file_size_bytes)}</span>
+            </div>
           </div>
+
+          {#if updateArchiveInfo.inat_query}
+            <div class="p-3 border rounded text-sm">
+              {#if updateObsCountLoading}
+                <div class="text-gray-600">Counting updated observations…</div>
+              {:else if updateObsCountError}
+                <div class="text-red-600">Unable to count updated observations</div>
+              {:else if updateObsCount !== null}
+                <div>{updateObsCount.toLocaleString()} observations to update</div>
+                {#if updateObsCount > 0}
+                  {#if updateMediaEstimateLoading}
+                    <div class="text-gray-500 text-sm mt-1">Estimating additions…</div>
+                  {:else}
+                    {@const estimatedAdditions = calculateEstimatedUpdateSize()}
+                    {#if estimatedAdditions !== null}
+                      <div class="text-gray-600 text-sm mt-1">
+                        Estimated additions: up to {formatBytes(estimatedAdditions)}
+                      </div>
+                    {/if}
+                  {/if}
+                {/if}
+              {/if}
+            </div>
+          {/if}
         {/if}
       </div>
 

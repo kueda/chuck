@@ -141,7 +141,7 @@ fn repack_zip(src_dir: &Path, output_path: &str) -> Result<(), Box<dyn std::erro
 }
 
 /// Compute `updated_since` as `pub_date - 1 day`, formatted as `YYYY-MM-DD`.
-fn updated_since_from_pub_date(pub_date: &str) -> Result<String, Box<dyn std::error::Error>> {
+pub fn updated_since_from_pub_date(pub_date: &str) -> Result<String, Box<dyn std::error::Error>> {
     let date = NaiveDate::parse_from_str(pub_date, "%Y-%m-%d")?;
     let updated_since = date - chrono::Duration::days(1);
     Ok(updated_since.format("%Y-%m-%d").to_string())

@@ -267,12 +267,14 @@ pub struct ChuckArchiveInfo {
     inat_query: Option<String>,
     extensions: Vec<String>,
     has_media: bool,
+    file_size_bytes: u64,
+    pub_date: Option<String>,
 }
 
 #[tauri::command]
 pub async fn read_chuck_archive_info(path: String) -> Result<ChuckArchiveInfo, String> {
     use chuck_core::archive_updater::{archive_has_media, infer_extensions};
-    use chuck_core::chuck_metadata::read_chuck_metadata;
+    use chuck_core::chuck_metadata::{read_chuck_metadata, read_pub_date};
 
     let chuck_meta = read_chuck_metadata(&path).map_err(|e| e.to_string())?;
     let inat_query = chuck_meta.and_then(|m| m.inat_query);
@@ -282,7 +284,41 @@ pub async fn read_chuck_archive_info(path: String) -> Result<ChuckArchiveInfo, S
         .map(|e| format!("{e:?}"))
         .collect();
     let has_media = archive_has_media(&path).map_err(|e| e.to_string())?;
-    Ok(ChuckArchiveInfo { inat_query, extensions, has_media })
+    let file_size_bytes = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
+    let pub_date = read_pub_date(&path).map_err(|e| e.to_string())?;
+    Ok(ChuckArchiveInfo { inat_query, extensions, has_media, file_size_bytes, pub_date })
+}
+
+#[tauri::command]
+pub async fn get_update_observation_count(path: String) -> Result<i32, String> {
+    use chuck_core::api::{client, params};
+    use chuck_core::archive_updater::updated_since_from_pub_date;
+    use chuck_core::chuck_metadata::{read_chuck_metadata, read_pub_date};
+
+    let chuck_meta = read_chuck_metadata(&path)
+        .map_err(|e| e.to_string())?
+        .ok_or("Not a Chuck archive")?;
+    let inat_query = chuck_meta.inat_query
+        .ok_or("No inat_query stored in archive")?;
+    let pub_date = read_pub_date(&path)
+        .map_err(|e| e.to_string())?
+        .ok_or("No pubDate in archive")?;
+    let updated_since = updated_since_from_pub_date(&pub_date).map_err(|e| e.to_string())?;
+
+    let mut api_params = params::parse_url_params(&inat_query);
+    api_params.updated_since = Some(updated_since);
+    api_params.per_page = Some("0".to_string());
+
+    let config = client::get_config().await;
+    let config_guard = config.read().await;
+
+    match inaturalist::apis::observations_api::observations_get(&config_guard, api_params).await {
+        Ok(response) => Ok(response.total_results.unwrap_or(0)),
+        Err(e) => {
+            log::error!("Failed to get update observation count: {e:?}");
+            Err(format!("Failed to get update observation count: {e}"))
+        }
+    }
 }
 
 #[tauri::command]
