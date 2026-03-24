@@ -10,9 +10,10 @@ use crate::darwin_core::{
 use chrono::Utc;
 
 /// Metadata for the DarwinCore Archive
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Metadata {
     pub abstract_lines: Vec<String>,
+    pub inat_query: Option<String>,
 }
 
 /// Write `<field index="N" term="..."/>` elements
