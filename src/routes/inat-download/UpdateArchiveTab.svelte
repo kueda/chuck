@@ -1,6 +1,13 @@
 <script lang="ts">
 import { AlertCircle } from 'lucide-svelte';
-import { invoke, showOpenDialog } from '$lib/tauri-api';
+import {
+  type ChuckArchiveInfo,
+  estimateMediaCount,
+  getUpdateObservationCount,
+  type MediaEstimate,
+  readChuckArchiveInfo,
+  showOpenDialog,
+} from '$lib/tauri-api';
 import {
   BYTES_PER_OBSERVATION,
   BYTES_PER_OBSERVATION_COMMENTS,
@@ -16,20 +23,6 @@ interface Props {
 }
 
 const { onupdatestart }: Props = $props();
-
-interface ChuckArchiveInfo {
-  inat_query: string | null;
-  extensions: string[];
-  has_media: boolean;
-  file_size_bytes: number;
-  pub_date: string | null;
-}
-
-interface MediaEstimate {
-  photo_count: number;
-  sound_count: number;
-  sample_size: number;
-}
 
 let updateFilePath = $state<string | null>(null);
 let updateArchiveInfo = $state<ChuckArchiveInfo | null>(null);
@@ -82,10 +75,7 @@ async function handlePickUpdateFile() {
   updateObsCountError = null;
   updateMediaEstimate = null;
   try {
-    updateArchiveInfo = await invoke<ChuckArchiveInfo>(
-      'read_chuck_archive_info',
-      { path },
-    );
+    updateArchiveInfo = await readChuckArchiveInfo(path);
   } catch (e) {
     updateArchiveError = e instanceof Error ? e.message : String(e);
     return;
@@ -94,9 +84,7 @@ async function handlePickUpdateFile() {
   if (updateArchiveInfo?.inat_query) {
     updateObsCountLoading = true;
     try {
-      updateObsCount = await invoke<number>('get_update_observation_count', {
-        path,
-      });
+      updateObsCount = await getUpdateObservationCount(path);
     } catch (e) {
       updateObsCountError = e instanceof Error ? e.message : String(e);
     } finally {
@@ -106,9 +94,8 @@ async function handlePickUpdateFile() {
     if (updateArchiveInfo.has_media) {
       updateMediaEstimateLoading = true;
       try {
-        updateMediaEstimate = await invoke<MediaEstimate>(
-          'estimate_media_count',
-          { params: { url_params: updateArchiveInfo.inat_query } },
+        updateMediaEstimate = await estimateMediaCount(
+          updateArchiveInfo.inat_query,
         );
       } catch {
         // best-effort; size estimate will omit media if unavailable

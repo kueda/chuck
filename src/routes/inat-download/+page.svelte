@@ -6,7 +6,7 @@ import {
   getCurrentWindow,
   invoke,
   listen,
-  showOpenDialog,
+  updateInatArchive,
 } from '$lib/tauri-api';
 import CreateArchiveTab, {
   type GenerateParams,
@@ -164,7 +164,7 @@ async function handleUpdateStart(path: string) {
   completedArchivePath = path;
   resetProgressState();
   try {
-    await invoke('update_inat_archive', { path });
+    await updateInatArchive(path);
   } catch (e) {
     console.error('Failed to update archive:', e);
     progressStage = 'error';
