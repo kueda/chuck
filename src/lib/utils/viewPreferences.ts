@@ -13,7 +13,7 @@ interface ViewPreferences {
   archives?: {
     [archiveName: string]: {
       selectedColumns: string[];
-      version?: number;
+      columnWidths?: Record<string, number>;
     };
   };
 }
@@ -85,6 +85,33 @@ export function getColumnPreferences(
   return defaults.length > 0 ? defaults : [availableColumns[0]];
 }
 
+export function getColumnWidthPreferences(
+  archiveName: string,
+): Record<string, number> {
+  const prefs = loadPreferences();
+  const widths = prefs.archives?.[archiveName]?.columnWidths ?? {};
+  return Object.fromEntries(
+    Object.entries(widths).filter(
+      ([, v]) => typeof v === 'number' && Number.isFinite(v) && v > 0,
+    ),
+  );
+}
+
+export function saveColumnWidthPreferences(
+  archiveName: string,
+  widths: Record<string, number>,
+): void {
+  const prefs = loadPreferences();
+  if (!prefs.archives) {
+    prefs.archives = {};
+  }
+  if (!prefs.archives[archiveName]) {
+    prefs.archives[archiveName] = { selectedColumns: [] };
+  }
+  prefs.archives[archiveName].columnWidths = widths;
+  savePreferences(prefs);
+}
+
 export function saveColumnPreferences(
   archiveName: string,
   selectedColumns: string[],
@@ -96,8 +123,8 @@ export function saveColumnPreferences(
   }
 
   prefs.archives[archiveName] = {
+    ...prefs.archives[archiveName],
     selectedColumns,
-    version: 1,
   };
 
   savePreferences(prefs);

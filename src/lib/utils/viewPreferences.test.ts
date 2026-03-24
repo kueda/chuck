@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   getColumnPreferences,
+  getColumnWidthPreferences,
   getViewType,
   saveColumnPreferences,
+  saveColumnWidthPreferences,
   saveViewType,
 } from './viewPreferences';
 
@@ -29,6 +31,85 @@ describe('viewPreferences', () => {
         localStorage.getItem('chuck:viewPreferences') || '{}',
       );
       expect(stored.globalView).toBe('cards');
+    });
+  });
+
+  describe('getColumnWidthPreferences', () => {
+    it('returns empty object when no preference saved', () => {
+      expect(getColumnWidthPreferences('test-archive')).toEqual({});
+    });
+
+    it('returns saved column widths', () => {
+      saveColumnWidthPreferences('test-archive', {
+        scientificName: 200,
+        eventDate: 100,
+      });
+      expect(getColumnWidthPreferences('test-archive')).toEqual({
+        scientificName: 200,
+        eventDate: 100,
+      });
+    });
+
+    it('returns empty object for unknown archive', () => {
+      saveColumnWidthPreferences('other-archive', { foo: 150 });
+      expect(getColumnWidthPreferences('test-archive')).toEqual({});
+    });
+
+    it('filters out non-numeric widths from corrupt data', () => {
+      localStorage.setItem(
+        'chuck:viewPreferences',
+        JSON.stringify({
+          archives: {
+            'test-archive': {
+              selectedColumns: [],
+              columnWidths: { good: 150, bad: 'wide', alsoGood: 80 },
+            },
+          },
+        }),
+      );
+      expect(getColumnWidthPreferences('test-archive')).toEqual({
+        good: 150,
+        alsoGood: 80,
+      });
+    });
+
+    it('filters out non-positive widths from corrupt data', () => {
+      localStorage.setItem(
+        'chuck:viewPreferences',
+        JSON.stringify({
+          archives: {
+            'test-archive': {
+              selectedColumns: [],
+              columnWidths: {
+                zero: 0,
+                negative: -50,
+                nan: NaN,
+                inf: Infinity,
+                valid: 120,
+              },
+            },
+          },
+        }),
+      );
+      expect(getColumnWidthPreferences('test-archive')).toEqual({ valid: 120 });
+    });
+  });
+
+  describe('saveColumnWidthPreferences', () => {
+    it('saves without overwriting selectedColumns', () => {
+      saveColumnPreferences('test-archive', ['id', 'name']);
+      saveColumnWidthPreferences('test-archive', { id: 80 });
+      const result = getColumnPreferences('test-archive', 'id', ['id', 'name']);
+      expect(result).toEqual(['id', 'name']);
+      expect(getColumnWidthPreferences('test-archive')).toEqual({ id: 80 });
+    });
+  });
+
+  describe('saveColumnPreferences', () => {
+    it('does not overwrite saved column widths', () => {
+      saveColumnWidthPreferences('test-archive', { id: 80 });
+      saveColumnPreferences('test-archive', ['id', 'name']);
+      expect(getColumnWidthPreferences('test-archive')).toEqual({ id: 80 });
     });
   });
 

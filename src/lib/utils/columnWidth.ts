@@ -1,8 +1,8 @@
-// Returns Tailwind CSS classes for column width based on field name
-export function getColumnWidthClass(fieldName: string): string {
+// Returns default pixel width for a column based on field name
+export function getDefaultColumnWidth(fieldName: string): number {
   // Coordinate fields
   if (fieldName === 'decimalLatitude' || fieldName === 'decimalLongitude') {
-    return 'w-24';
+    return 96;
   }
 
   // Date and time fields
@@ -13,7 +13,7 @@ export function getColumnWidthClass(fieldName: string): string {
     fieldName === 'modified' ||
     fieldName === 'created'
   ) {
-    return 'w-32';
+    return 128;
   }
 
   // ID and numeric fields
@@ -23,9 +23,8 @@ export function getColumnWidthClass(fieldName: string): string {
     fieldName === 'month' ||
     fieldName === 'day'
   ) {
-    return 'w-32';
+    return 128;
   }
 
-  // Default to fixed width for text fields (names, descriptions, etc)
-  return 'w-48';
+  return 192;
 }
