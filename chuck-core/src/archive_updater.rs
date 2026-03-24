@@ -141,6 +141,28 @@ fn repack_zip(src_dir: &Path, output_path: &str) -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
+/// Read a CSV into a `HashMap<id_at_col, row>`.
+/// Returns an empty map if the file does not exist.
+fn read_updates_map(
+    csv_path: &Path,
+    id_col: usize,
+) -> Result<HashMap<String, Vec<String>>, Box<dyn std::error::Error>> {
+    if !csv_path.exists() {
+        return Ok(HashMap::new());
+    }
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(true)
+        .from_path(csv_path)?;
+    Ok(rdr
+        .records()
+        .filter_map(|r| r.ok())
+        .filter_map(|r| {
+            let id = r.get(id_col).map(String::from)?;
+            Some((id, r.iter().map(String::from).collect()))
+        })
+        .collect())
+}
+
 /// Read `<para>` lines from the `<abstract>` section of an EML file.
 /// Returns an empty vec if the file is unreadable or has no `<abstract>`.
 fn read_abstract_lines_from_eml(eml_path: &Path) -> Vec<String> {
@@ -242,25 +264,6 @@ fn merge_archive_into(
 
     // --- Build updates map from updates occurrence.csv: id → row ---
     let updates_occurrence_csv = updates_dir.path().join(Occurrence::FILENAME);
-
-    // Read a CSV into a HashMap<id_at_col, row>
-    let read_updates_map = |csv_path: &Path, id_col: usize|
-        -> Result<HashMap<String, Vec<String>>, Box<dyn std::error::Error>>
-    {
-        if !csv_path.exists() {
-            return Ok(HashMap::new());
-        }
-        let mut rdr = csv::ReaderBuilder::new()
-            .has_headers(true)
-            .from_path(csv_path)?;
-        Ok(rdr.records()
-            .filter_map(|r| r.ok())
-            .filter_map(|r| {
-                let id = r.get(id_col).map(String::from)?;
-                Some((id, r.iter().map(String::from).collect()))
-            })
-            .collect())
-    };
 
     // --- Merge CSVs ---
     let merge_dir = tempfile::tempdir()?;
