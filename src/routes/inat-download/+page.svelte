@@ -851,7 +851,7 @@ $effect(() => {
               onValueChange={(e) => { filterMode = (e.value || 'fields') as 'fields' | 'url'; }}
             >
               <SegmentedControl.Control class="border-0 bg-gray-200 p-0">
-                <SegmentedControl.Indicator />
+                <SegmentedControl.Indicator class="bg-gray-600" />
                 <SegmentedControl.Item value="fields">
                   <SegmentedControl.ItemText class="text-xs">Fields</SegmentedControl.ItemText>
                   <SegmentedControl.ItemHiddenInput />
@@ -1095,8 +1095,15 @@ $effect(() => {
           <p class="text-sm mb-3">
             Choose an existing Chuck archive to update with recently changed observations.
           </p>
-          <button type="button" class="btn preset-tonal text-sm" onclick={handlePickUpdateFile}>
-            {updateFilePath ? 'Choose different file' : 'Choose archive…'}
+          <button
+            type="button"
+            class={[
+              "btn text-sm",
+              updateArchiveInfo?.inat_query ? "preset-tonal" : "preset-filled"
+            ]}
+            onclick={handlePickUpdateFile}
+          >
+            {updateArchiveInfo?.inat_query ? 'Choose different file' : 'Choose archive…'}
           </button>
           {#if updateFilePath}
             <p class="text-sm mt-2 text-gray-600 break-all">{updateFilePath}</p>
