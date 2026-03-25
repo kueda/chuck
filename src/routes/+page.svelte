@@ -22,16 +22,19 @@ import BottomControls from '$lib/components/BottomControls.svelte';
 import Filters from '$lib/components/Filters.svelte';
 import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
 import {
+  currentArchive,
   exportCsv,
   exportDwca,
   exportKml,
   getCurrentWebview,
-  invoke,
+  getOpenedFile,
   listen,
+  openArchive as openArchiveCommand,
+  search,
   showOpenDialog,
   showSaveDialog,
 } from '$lib/tauri-api';
-import type { ArchiveInfo, Occurrence, SearchResult } from '$lib/types/archive';
+import type { ArchiveInfo, Occurrence } from '$lib/types/archive';
 import type { SearchParams } from '$lib/utils/filterCategories';
 import {
   getColumnPreferences,
@@ -196,12 +199,12 @@ async function loadChunk(chunkIndex: number) {
   loadingChunks.add(chunkIndex);
 
   try {
-    const searchResult = await invoke<SearchResult>('search', {
-      limit: CHUNK_SIZE,
-      offset: offset,
-      searchParams: searchParams,
-      fields: fetchedFields,
-    });
+    const searchResult = await search(
+      CHUNK_SIZE,
+      offset,
+      searchParams,
+      fetchedFields,
+    );
 
     // Add results to cache
     searchResult.results.forEach((occurrence, i) => {
@@ -283,12 +286,7 @@ async function handleSearchChange(params: SearchParams) {
 
   // Load first chunk with new params to get the filtered count
   try {
-    const searchResult = await invoke<SearchResult>('search', {
-      limit: CHUNK_SIZE,
-      offset: 0,
-      searchParams: params,
-      fields: fetchedFields,
-    });
+    const searchResult = await search(CHUNK_SIZE, 0, params, fetchedFields);
 
     // Now that we have the results, update the rest atomically
     filteredTotal = searchResult.total;
@@ -363,7 +361,7 @@ async function openArchiveFromPath(path: string) {
   clearArchiveData();
 
   try {
-    archive = await invoke('open_archive', { path });
+    archive = await openArchiveCommand(path as string);
     archiveLoadingStatus = null;
 
     if (scrollElement) {
@@ -374,7 +372,7 @@ async function openArchiveFromPath(path: string) {
     archiveLoadingStatus = null;
     // Try to restore the previous archive if it still exists on disk
     try {
-      archive = await invoke('current_archive');
+      archive = await currentArchive();
     } catch {
       archive = undefined;
     }
@@ -418,16 +416,16 @@ async function handleExportDwca() {
 }
 
 onMount(() => {
-  invoke('current_archive')
+  currentArchive()
     .then((result) => {
-      archive = result as ArchiveInfo;
+      archive = result;
     })
     .catch((_e) => {
       // it's ok if there's no open archive
     });
 
   // Check if the app was launched via file association (Windows/Linux)
-  invoke<string | null>('get_opened_file').then((path) => {
+  getOpenedFile().then((path) => {
     if (path) openArchiveFromPath(path);
   });
 
@@ -499,9 +497,9 @@ onMount(() => {
         archiveLoadingStatus = null;
         archiveLoadingError = progress.message;
         // Try to restore the previous archive if it still exists on disk
-        invoke('current_archive')
+        currentArchive()
           .then((result) => {
-            archive = result as ArchiveInfo;
+            archive = result;
           })
           .catch(() => {
             archive = undefined;

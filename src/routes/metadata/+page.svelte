@@ -3,19 +3,15 @@ import { Switch, Tabs } from '@skeletonlabs/skeleton-svelte';
 import { onMount } from 'svelte';
 import EMLDisplay from '$lib/components/EMLDisplay.svelte';
 import MetaDisplay from '$lib/components/MetaDisplay.svelte';
-import { getCurrentWindow, invoke } from '$lib/tauri-api';
+import {
+  type ArchiveMetadata,
+  currentArchive,
+  getArchiveMetadata,
+  getCurrentWindow,
+} from '$lib/tauri-api';
 import type { ArchiveInfo } from '$lib/types/archive';
 import type { EMLData, MetaData } from '$lib/utils/xmlParser';
 import { parseEML, parseMeta, prettify } from '$lib/utils/xmlParser';
-
-interface XmlFile {
-  filename: string;
-  content: string;
-}
-
-interface ArchiveMetadata {
-  xml_files: XmlFile[];
-}
 
 type XmlFileType = 'eml' | 'meta' | 'raw';
 
@@ -103,7 +99,7 @@ async function loadMetadata() {
   try {
     loading = true;
     error = null;
-    metadata = await invoke<ArchiveMetadata>('get_archive_metadata');
+    metadata = await getArchiveMetadata();
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
     console.error('Failed to load metadata:', e);
@@ -121,9 +117,9 @@ $effect(() => {
 
 onMount(() => {
   loadMetadata();
-  invoke('current_archive')
+  currentArchive()
     .then((result) => {
-      archive = result as ArchiveInfo;
+      archive = result;
     })
     .catch((_e) => {
       // it's ok if there's no open archive

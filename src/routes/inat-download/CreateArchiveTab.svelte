@@ -3,7 +3,15 @@ import { SegmentedControl } from '@skeletonlabs/skeleton-svelte';
 import InatPlaceChooser from '$lib/components/InatPlaceChooser.svelte';
 import InatTaxonChooser from '$lib/components/InatTaxonChooser.svelte';
 import InatUserChooser from '$lib/components/InatUserChooser.svelte';
-import { invoke, showSaveDialog } from '$lib/tauri-api';
+import {
+  estimateMediaCountByParams,
+  type GenerateParams,
+  getObservationCount,
+  type InatCountParams,
+  type MediaEstimate,
+  parseInatUrl,
+  showSaveDialog,
+} from '$lib/tauri-api';
 import ExtensionCheckbox from './ExtensionCheckbox.svelte';
 import {
   BYTES_PER_OBSERVATION,
@@ -21,38 +29,6 @@ interface Props {
 }
 
 const { ondownloadstart }: Props = $props();
-
-// Keep in sync w/ src-tauri/commands/inat_download.rs
-interface CountParams {
-  taxon_id: number | null;
-  place_id: number | null;
-  user: string | null;
-  d1: string | null;
-  d2: string | null;
-  created_d1: string | null;
-  created_d2: string | null;
-  url_params: string | null;
-}
-
-export interface GenerateParams {
-  output_path: string;
-  taxon_id: number | null;
-  place_id: number | null;
-  user: string | null;
-  d1: string | null;
-  d2: string | null;
-  created_d1: string | null;
-  created_d2: string | null;
-  url_params: string | null;
-  fetch_media: boolean;
-  extensions: string[];
-}
-
-interface MediaEstimate {
-  photo_count: number;
-  sound_count: number;
-  sample_size: number;
-}
 
 let filterMode = $state<'fields' | 'url'>('fields');
 let urlInput = $state('');
@@ -94,7 +70,7 @@ const DEBOUNCE_MS = 500;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let photoDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-function buildCountParams(): CountParams {
+function buildCountParams(): InatCountParams {
   return filterMode === 'url'
     ? {
         taxon_id: null,
@@ -130,9 +106,7 @@ async function fetchCount() {
   countLoading = true;
   countError = null;
   try {
-    observationCount = await invoke<number>('get_observation_count', {
-      params: buildCountParams(),
-    });
+    observationCount = await getObservationCount(buildCountParams());
   } catch (e) {
     console.error('Failed to fetch count:', e);
     countError = 'Unable to load observation count';
@@ -156,9 +130,7 @@ async function fetchMediaEstimate() {
   }
   mediaEstimateLoading = true;
   try {
-    mediaEstimate = await invoke<MediaEstimate>('estimate_media_count', {
-      params: buildCountParams(),
-    });
+    mediaEstimate = await estimateMediaCountByParams(buildCountParams());
   } catch (e) {
     console.error('Failed to fetch media estimate:', e);
     mediaEstimate = null;
@@ -181,10 +153,7 @@ async function parseUrl() {
     return;
   }
   try {
-    const result = await invoke<{ effective_params: string }>(
-      'parse_inat_url',
-      { url: urlInput },
-    );
+    const result = await parseInatUrl(urlInput);
     effectiveParams = result.effective_params;
     urlParseError = false;
   } catch (e) {

@@ -7,10 +7,11 @@ import { buildMapStyle } from '$lib/mapStyle';
 import {
   type BasemapInfo,
   type Bounds,
+  cancelBasemapDownload,
   deleteBasemap,
+  downloadBasemap,
   downloadRegionalBasemap,
   estimateRegionalSize,
-  invoke,
   listBasemaps,
   listen,
   reverseGeocode,
@@ -121,7 +122,7 @@ async function startGlobalDownload() {
   errorMessage = '';
 
   try {
-    await invoke('download_basemap', { maxZoom: selectedZoom });
+    await downloadBasemap(selectedZoom);
     phase = 'complete';
     await refreshBasemaps();
   } catch (e) {
@@ -174,7 +175,7 @@ async function startRegionalDownload() {
 
 async function cancelDownload() {
   try {
-    await invoke('cancel_basemap_download');
+    await cancelBasemapDownload();
   } catch {
     // ignore
   }

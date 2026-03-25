@@ -17,6 +17,7 @@ import {
   open as tauriOpen,
   save as tauriSave,
 } from '@tauri-apps/plugin-dialog';
+import type { ArchiveInfo, SearchResult } from '$lib/types/archive';
 import type { SearchParams } from '$lib/utils/filterCategories';
 
 // Interface for mock Tauri object used in tests
@@ -253,4 +254,122 @@ export async function estimateMediaCount(
   return invoke<MediaEstimate>('estimate_media_count', {
     params: { url_params: urlParams },
   });
+}
+
+export interface AuthStatus {
+  authenticated: boolean;
+  username: string | null;
+}
+
+export async function getInatAuthStatus(): Promise<AuthStatus> {
+  return invoke<AuthStatus>('inat_get_auth_status');
+}
+
+export async function inatAuthenticate(): Promise<AuthStatus> {
+  return invoke<AuthStatus>('inat_authenticate');
+}
+
+export async function inatSignOut(): Promise<void> {
+  return invoke('inat_sign_out');
+}
+
+export interface GenerateParams {
+  output_path: string;
+  taxon_id: number | null;
+  place_id: number | null;
+  user: string | null;
+  d1: string | null;
+  d2: string | null;
+  created_d1: string | null;
+  created_d2: string | null;
+  url_params: string | null;
+  fetch_media: boolean;
+  extensions: string[];
+}
+
+export async function generateInatArchive(
+  params: GenerateParams,
+): Promise<void> {
+  return invoke('generate_inat_archive', { params });
+}
+
+export async function cancelInatArchive(): Promise<void> {
+  return invoke('cancel_inat_archive');
+}
+
+export async function openArchive(path: string): Promise<ArchiveInfo> {
+  return invoke<ArchiveInfo>('open_archive', { path });
+}
+
+export async function currentArchive(): Promise<ArchiveInfo> {
+  return invoke<ArchiveInfo>('current_archive');
+}
+
+export async function getOpenedFile(): Promise<string | null> {
+  return invoke<string | null>('get_opened_file');
+}
+
+export async function downloadBasemap(maxZoom: number): Promise<void> {
+  return invoke('download_basemap', { maxZoom });
+}
+
+export async function cancelBasemapDownload(): Promise<void> {
+  return invoke('cancel_basemap_download');
+}
+
+// Keep in sync w/ src-tauri/commands/inat_download.rs
+export interface InatCountParams {
+  taxon_id: number | null;
+  place_id: number | null;
+  user: string | null;
+  d1: string | null;
+  d2: string | null;
+  created_d1: string | null;
+  created_d2: string | null;
+  url_params: string | null;
+}
+
+export async function getObservationCount(
+  params: InatCountParams,
+): Promise<number> {
+  return invoke<number>('get_observation_count', { params });
+}
+
+export async function estimateMediaCountByParams(
+  params: InatCountParams,
+): Promise<MediaEstimate> {
+  return invoke<MediaEstimate>('estimate_media_count', { params });
+}
+
+export async function parseInatUrl(
+  url: string,
+): Promise<{ effective_params: string }> {
+  return invoke<{ effective_params: string }>('parse_inat_url', { url });
+}
+
+export async function search(
+  limit: number,
+  offset: number,
+  searchParams: SearchParams,
+  fields: string[],
+): Promise<SearchResult> {
+  return invoke<SearchResult>('search', {
+    limit,
+    offset,
+    searchParams,
+    fields,
+  });
+}
+
+export interface XmlFile {
+  filename: string;
+  content: string;
+}
+
+export interface ArchiveMetadata {
+  xml_files: XmlFile[];
+}
+
+export async function getArchiveMetadata(): Promise<ArchiveMetadata> {
+  return invoke<ArchiveMetadata>('get_archive_metadata');
 }

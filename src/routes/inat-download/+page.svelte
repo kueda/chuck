@@ -3,14 +3,19 @@ import { Tabs } from '@skeletonlabs/skeleton-svelte';
 import { onMount } from 'svelte';
 import InatProgressOverlay from '$lib/components/InatProgressOverlay.svelte';
 import {
+  type AuthStatus,
+  cancelInatArchive,
+  type GenerateParams,
+  generateInatArchive,
   getCurrentWindow,
-  invoke,
+  getInatAuthStatus,
+  inatAuthenticate,
+  inatSignOut,
   listen,
+  openArchive,
   updateInatArchive,
 } from '$lib/tauri-api';
-import CreateArchiveTab, {
-  type GenerateParams,
-} from './CreateArchiveTab.svelte';
+import CreateArchiveTab from './CreateArchiveTab.svelte';
 import { formatETR } from './format-etr';
 import UpdateArchiveTab from './UpdateArchiveTab.svelte';
 
@@ -19,11 +24,6 @@ interface InatProgress {
   current?: number;
   total?: number;
   message?: string;
-}
-
-interface AuthStatus {
-  authenticated: boolean;
-  username: string | null;
 }
 
 let pageMode = $state<'create' | 'update'>('create');
@@ -56,7 +56,7 @@ let downloadCancelled = $state<boolean>(false);
 
 async function loadAuthStatus() {
   try {
-    authStatus = await invoke<AuthStatus>('inat_get_auth_status');
+    authStatus = await getInatAuthStatus();
   } catch (e) {
     console.error('Failed to load auth status:', e);
   }
@@ -65,7 +65,7 @@ async function loadAuthStatus() {
 async function handleSignIn() {
   authLoading = true;
   try {
-    authStatus = await invoke<AuthStatus>('inat_authenticate');
+    authStatus = await inatAuthenticate();
   } catch (e) {
     console.error('Authentication failed:', e);
     alert(`Authentication failed: ${e}`);
@@ -77,7 +77,7 @@ async function handleSignIn() {
 async function handleSignOut() {
   authLoading = true;
   try {
-    await invoke('inat_sign_out');
+    await inatSignOut();
     authStatus = { authenticated: false, username: null };
   } catch (e) {
     console.error('Sign out failed:', e);
@@ -164,7 +164,7 @@ async function handleDownloadStart(filePath: string, params: GenerateParams) {
   completedArchivePath = filePath;
   resetProgressState();
   try {
-    await invoke('generate_inat_archive', { params });
+    await generateInatArchive(params);
   } catch (e) {
     console.error('Failed to generate archive:', e);
     progressStage = 'error';
@@ -186,7 +186,7 @@ async function handleUpdateStart(path: string) {
 
 function handleCancelDownload() {
   downloadCancelled = true;
-  invoke('cancel_inat_archive').catch((e) => {
+  cancelInatArchive().catch((e) => {
     console.error('Failed to cancel:', e);
   });
   showProgress = false;
@@ -195,7 +195,7 @@ function handleCancelDownload() {
 async function handleOpenInChuck() {
   if (!completedArchivePath) return;
   try {
-    await invoke('open_archive', { path: completedArchivePath });
+    await openArchive(completedArchivePath);
     showSuccessDialog = false;
     getCurrentWindow().close();
   } catch (e) {
