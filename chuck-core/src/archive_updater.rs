@@ -15,7 +15,7 @@ use crate::darwin_core::{
     comment::Comment,
 };
 use crate::downloader::{Downloader, DownloadProgress};
-use crate::merge::merge_csv_streams;
+use crate::merge::{merge_csv_streams, merge_extension_csv_streams};
 use crate::DwcaExtension;
 
 /// Infer which DwC-A extensions are present in a ZIP archive by checking for
@@ -65,7 +65,8 @@ pub fn archive_has_media(zip_path: &str) -> Result<bool, Box<dyn std::error::Err
     Ok(false)
 }
 
-/// Read a CSV stream into a `HashMap<id_at_col, row>`.
+/// Read a CSV stream into a `HashMap<id_at_col, row>` (one row per id).
+/// Used for occurrence.csv where each observation has exactly one row.
 fn read_updates_map_from_reader<R: std::io::Read>(
     reader: R,
     id_col: usize,
@@ -81,6 +82,29 @@ fn read_updates_map_from_reader<R: std::io::Read>(
             Some((id, r.iter().map(String::from).collect()))
         })
         .collect())
+}
+
+/// Read a CSV stream into a `HashMap<id_at_col, Vec<rows>>`, grouping all rows
+/// with the same id. Used for extension CSVs where one observation (coreid) has
+/// multiple rows (e.g. one row per photo in multimedia.csv).
+type GroupedMap = HashMap<String, Vec<Vec<String>>>;
+fn read_grouped_updates_from_reader<R: std::io::Read>(
+    reader: R,
+    id_col: usize,
+) -> Result<GroupedMap, Box<dyn std::error::Error>> {
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(true)
+        .from_reader(reader);
+    let mut map: HashMap<String, Vec<Vec<String>>> = HashMap::new();
+    for result in rdr.records() {
+        let record = result?;
+        let id = match record.get(id_col) {
+            Some(id) => id.to_string(),
+            None => continue,
+        };
+        map.entry(id).or_default().push(record.iter().map(String::from).collect());
+    }
+    Ok(map)
 }
 
 /// Read `<para>` lines from the `<abstract>` section of an EML stream.
@@ -205,7 +229,10 @@ fn merge_archive_into(
         .unix_permissions(0o644);
 
     // --- Pass 1: Build CSV update maps and media filename set from updates ZIP ---
-    let mut csv_maps: HashMap<String, HashMap<String, Vec<String>>> = HashMap::new();
+    // occurrence.csv: one row per id → HashMap<id, row>
+    // extension CSVs: many rows per coreid → HashMap<coreid, Vec<rows>>
+    let mut occ_map: HashMap<String, Vec<String>> = HashMap::new();
+    let mut ext_maps: HashMap<String, GroupedMap> = HashMap::new();
     let mut media_in_updates: HashSet<String> = HashSet::new();
     {
         let updates_file = std::fs::File::open(updates_zip)?;
@@ -213,8 +240,10 @@ fn merge_archive_into(
         for i in 0..updates_archive.len() {
             let mut entry = updates_archive.by_index(i)?;
             let name = entry.name().to_string();
-            if csv_filenames.contains(name.as_str()) {
-                csv_maps.insert(name, read_updates_map_from_reader(&mut entry, 0)?);
+            if name == Occurrence::FILENAME {
+                occ_map = read_updates_map_from_reader(&mut entry, 0)?;
+            } else if csv_filenames.contains(name.as_str()) {
+                ext_maps.insert(name, read_grouped_updates_from_reader(&mut entry, 0)?);
             } else if name.starts_with("media/") {
                 media_in_updates.insert(name);
             }
@@ -247,11 +276,14 @@ fn merge_archive_into(
             } else if name == "meta.xml" {
                 zip_out.start_file(&name, options)?;
                 std::io::copy(&mut entry, &mut zip_out)?;
+            } else if name == Occurrence::FILENAME {
+                zip_out.start_file(&name, options)?;
+                merge_csv_streams(&mut entry, &mut zip_out, &occ_map, 0)?;
             } else if csv_filenames.contains(name.as_str()) {
                 let empty_map = HashMap::new();
-                let updates = csv_maps.get(&name).unwrap_or(&empty_map);
+                let updates = ext_maps.get(&name).unwrap_or(&empty_map);
                 zip_out.start_file(&name, options)?;
-                merge_csv_streams(&mut entry, &mut zip_out, updates, 0)?;
+                merge_extension_csv_streams(&mut entry, &mut zip_out, updates, 0)?;
             } else if name.starts_with("media/") && !media_in_updates.contains(&name) {
                 zip_out.start_file(&name, media_options)?;
                 std::io::copy(&mut entry, &mut zip_out)?;
@@ -360,6 +392,58 @@ mod tests {
         zip.write_all(chuck.as_bytes()).unwrap();
 
         zip.finish().unwrap();
+    }
+
+    /// Build a ZIP with an extra CSV (e.g. multimedia.csv) in addition to the
+    /// standard occurrence.csv / meta.xml / eml.xml / chuck.json.
+    fn build_test_zip_with_extra_csv(
+        path: &str,
+        occurrence_csv: &str,
+        inat_query: &str,
+        pub_date: &str,
+        extra_csv_name: &str,
+        extra_csv: &str,
+    ) {
+        use std::io::Write;
+        use zip::CompressionMethod;
+        use zip::write::FileOptions;
+
+        let file = std::fs::File::create(path).unwrap();
+        let mut zip = zip::write::ZipWriter::new(file);
+        let opts: FileOptions<()> =
+            FileOptions::default().compression_method(CompressionMethod::Deflated);
+
+        zip.start_file("occurrence.csv", opts).unwrap();
+        zip.write_all(occurrence_csv.as_bytes()).unwrap();
+
+        zip.start_file(extra_csv_name, opts).unwrap();
+        zip.write_all(extra_csv.as_bytes()).unwrap();
+
+        zip.start_file("meta.xml", opts).unwrap();
+        zip.write_all(b"<archive/>").unwrap();
+
+        let eml = format!(
+            "<eml><dataset><pubDate>{pub_date}</pubDate></dataset></eml>"
+        );
+        zip.start_file("eml.xml", opts).unwrap();
+        zip.write_all(eml.as_bytes()).unwrap();
+
+        let chuck = format!(r#"{{"inat_query":"{inat_query}"}}"#);
+        zip.start_file("chuck.json", opts).unwrap();
+        zip.write_all(chuck.as_bytes()).unwrap();
+
+        zip.finish().unwrap();
+    }
+
+    /// Read a named CSV from a ZIP and return its data rows (excluding header).
+    fn read_csv_rows_from_zip(zip_path: &str, csv_name: &str) -> Vec<String> {
+        use std::io::Read;
+        let file = std::fs::File::open(zip_path).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        let mut entry = archive.by_name(csv_name).unwrap();
+        let mut content = String::new();
+        entry.read_to_string(&mut content).unwrap();
+        content.lines().skip(1).map(String::from).collect()
     }
 
     /// Build a minimal ZIP with media files.
@@ -483,6 +567,73 @@ mod tests {
         assert_eq!(rows[1], "https://www.inaturalist.org/observations/2,unchanged");
         // obs/3 appended
         assert_eq!(rows[2], "https://www.inaturalist.org/observations/3,new");
+    }
+
+    #[test]
+    fn test_merge_archive_into_preserves_multiple_multimedia_rows_per_observation() {
+        // Regression: when an observation has multiple multimedia rows (one per
+        // photo), the update map must not collapse them into a single row.
+        let existing_tmp = tempfile::NamedTempFile::new().unwrap();
+        let updates_tmp = tempfile::NamedTempFile::new().unwrap();
+        let output_tmp = tempfile::NamedTempFile::new().unwrap();
+
+        let existing_path = existing_tmp.path().to_str().unwrap().to_string();
+        let updates_path = updates_tmp.path().to_str().unwrap().to_string();
+        let output_path = output_tmp.path().to_str().unwrap().to_string();
+
+        // Existing: obs/1 has photo_a and photo_b
+        // Updates:  obs/1 has photo_c and photo_d (both changed)
+        // Expected: output has exactly photo_c and photo_d — not photo_a/b,
+        //           and not both rows collapsed to photo_d.
+        let obs_id = "https://www.inaturalist.org/observations/1";
+
+        build_test_zip_with_extra_csv(
+            &existing_path,
+            &format!("id,name\n{obs_id},original\n"),
+            "taxon_id=1",
+            "2026-01-01",
+            Multimedia::FILENAME,
+            &format!(
+                "coreid,identifier\n\
+                 {obs_id},http://photo_a\n\
+                 {obs_id},http://photo_b\n"
+            ),
+        );
+        build_test_zip_with_extra_csv(
+            &updates_path,
+            &format!("id,name\n{obs_id},updated\n"),
+            "taxon_id=1",
+            "2026-01-02",
+            Multimedia::FILENAME,
+            &format!(
+                "coreid,identifier\n\
+                 {obs_id},http://photo_c\n\
+                 {obs_id},http://photo_d\n"
+            ),
+        );
+
+        merge_archive_into(&existing_path, &updates_path, &output_path, "taxon_id=1")
+            .unwrap();
+
+        let rows = read_csv_rows_from_zip(&output_path, Multimedia::FILENAME);
+        assert_eq!(
+            rows.len(),
+            2,
+            "expected 2 multimedia rows, got {}: {rows:?}",
+            rows.len()
+        );
+        assert!(
+            rows.iter().any(|r| r.contains("photo_c")),
+            "photo_c missing from output: {rows:?}"
+        );
+        assert!(
+            rows.iter().any(|r| r.contains("photo_d")),
+            "photo_d missing from output: {rows:?}"
+        );
+        assert!(
+            !rows.iter().any(|r| r.contains("photo_a")),
+            "photo_a should have been replaced: {rows:?}"
+        );
     }
 
     #[test]

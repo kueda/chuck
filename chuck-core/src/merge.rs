@@ -46,6 +46,58 @@ pub fn merge_csv_streams<R: Read, W: Write>(
     Ok(())
 }
 
+/// Group-replace CSV merge for extension CSVs (one-to-many relationships).
+///
+/// Unlike `merge_csv_streams`, `updates` maps each id to ALL rows for that id.
+/// When a coreid is encountered in `existing`, ALL its existing rows are replaced
+/// by the corresponding group from `updates` (written on the first encounter,
+/// subsequent rows for the same coreid are silently dropped). Coreids present in
+/// `updates` but absent from `existing` are appended at the end.
+pub fn merge_extension_csv_streams<R: Read, W: Write>(
+    existing: R,
+    output: W,
+    updates: &HashMap<String, Vec<Vec<String>>>,
+    id_col_index: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(true)
+        .from_reader(existing);
+    let mut writer = csv::WriterBuilder::new()
+        .has_headers(false)
+        .from_writer(output);
+
+    writer.write_record(reader.headers()?)?;
+
+    let mut written: HashSet<String> = HashSet::new();
+    for result in reader.records() {
+        let record = result?;
+        let id = record.get(id_col_index).unwrap_or("").to_string();
+        if let Some(update_rows) = updates.get(&id) {
+            if !written.contains(&id) {
+                for row in update_rows {
+                    writer.write_record(row)?;
+                }
+                written.insert(id);
+            }
+            // Remaining existing rows for this id are dropped (replaced by update_rows)
+        } else {
+            writer.write_record(&record)?;
+        }
+    }
+
+    // Append update groups for coreids not present in existing
+    for (id, rows) in updates {
+        if !written.contains(id) {
+            for row in rows {
+                writer.write_record(row)?;
+            }
+        }
+    }
+
+    writer.flush()?;
+    Ok(())
+}
+
 /// Convenience wrapper around `merge_csv_streams` for file paths.
 pub fn merge_csv(
     existing_path: &std::path::Path,
