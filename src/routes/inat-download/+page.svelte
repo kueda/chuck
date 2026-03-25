@@ -41,13 +41,14 @@ let mediaCurrent = $state<number | undefined>(undefined);
 let mediaTotal = $state<number | undefined>(undefined);
 let progressMessage = $state<string | undefined>(undefined);
 
+// ETR state
 let downloadStartTime = $state<number | null>(null);
 let lastETRUpdateTime = $state<number>(0);
 let lastETRItemsDownloaded = $state<number>(0);
 let smoothedRate = $state<number | null>(null);
 let estimatedSecondsRemaining = $state<number | null>(null);
-const ETR_UPDATE_INTERVAL_MS = 2000;
-const ETR_SMOOTHING_ALPHA = 0.3;
+const ETR_UPDATE_INTERVAL_MS = 2000; // Update display every 2 seconds
+const ETR_SMOOTHING_ALPHA = 0.3; // Weight for new rate samples (lower = smoother)
 
 let showSuccessDialog = $state<boolean>(false);
 let completedArchivePath = $state<string | null>(null);
@@ -88,6 +89,9 @@ async function handleSignOut() {
 
 function updateETR() {
   const now = Date.now();
+
+  // Use media for rate calculation if available (they dominate download time),
+  // otherwise fall back to observations
   const hasMedia = (mediaTotal || 0) > 0;
   const itemsDownloaded = hasMedia
     ? mediaCurrent || 0
@@ -103,23 +107,29 @@ function updateETR() {
     return;
   }
 
+  // Only update display every 2 seconds
   const timeSinceLastUpdate = now - lastETRUpdateTime;
   if (timeSinceLastUpdate < ETR_UPDATE_INTERVAL_MS) return;
 
+  // Need some progress to estimate
   if (itemsDownloaded === 0 || totalItems === 0) {
     estimatedSecondsRemaining = null;
     return;
   }
 
+  // Calculate instantaneous rate from recent progress
   const itemsDelta = itemsDownloaded - lastETRItemsDownloaded;
   const secondsDelta = timeSinceLastUpdate / 1000;
 
+  // If no progress in this window, keep previous estimate
   if (itemsDelta <= 0 || secondsDelta < 0.1) {
     lastETRUpdateTime = now;
     return;
   }
 
   const instantRate = itemsDelta / secondsDelta;
+
+  // Apply exponential moving average to smooth rate fluctuations
   smoothedRate =
     smoothedRate === null
       ? instantRate
@@ -127,6 +137,8 @@ function updateETR() {
         (1 - ETR_SMOOTHING_ALPHA) * smoothedRate;
 
   const remainingItems = totalItems - itemsDownloaded;
+
+  // Estimate exceeded or stalled: don't show ETR
   estimatedSecondsRemaining =
     remainingItems <= 0 || smoothedRate < 0.1
       ? null

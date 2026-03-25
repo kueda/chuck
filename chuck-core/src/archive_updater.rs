@@ -767,6 +767,40 @@ mod tests {
     }
 
     #[test]
+    fn test_merge_archive_into_updates_pub_date_to_today() {
+        let existing_tmp = tempfile::NamedTempFile::new().unwrap();
+        let updates_tmp = tempfile::NamedTempFile::new().unwrap();
+        let output_tmp = tempfile::NamedTempFile::new().unwrap();
+
+        let existing_path = existing_tmp.path().to_str().unwrap().to_string();
+        let updates_path = updates_tmp.path().to_str().unwrap().to_string();
+        let output_path = output_tmp.path().to_str().unwrap().to_string();
+
+        build_test_zip(
+            &existing_path,
+            "id,name\n",
+            "taxon_id=1",
+            "2020-01-01",
+        );
+        build_test_zip(
+            &updates_path,
+            "id,name\n",
+            "taxon_id=1",
+            "2020-01-02",
+        );
+
+        merge_archive_into(&existing_path, &updates_path, &output_path, "taxon_id=1")
+            .unwrap();
+
+        let eml = read_eml_from_zip(&output_path);
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        assert!(
+            eml.contains(&format!("<pubDate>{today}</pubDate>")),
+            "pubDate not updated to today ({today}) in eml.xml: {eml}"
+        );
+    }
+
+    #[test]
     fn test_updated_since_from_pub_date() {
         assert_eq!(
             updated_since_from_pub_date("2026-03-24").unwrap(),
