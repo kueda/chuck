@@ -1,7 +1,7 @@
 use tokio::sync::mpsc;
 use inaturalist::models::ObservationsResponse;
 use inaturalist::apis::observations_api::ObservationsGetParams;
-use crate::output::{CsvOutput, ObservationWriter};
+use crate::output::{CsvOutput, ObservationWriter, csv::observation_to_row};
 use chuck_core::api::{client, params::{build_params, parse_url_params}, rate_limiter::get_rate_limiter};
 use chuck_core::archive_updater::update_archive;
 use chuck_core::downloader::Downloader;
@@ -348,34 +348,7 @@ async fn update_csv(
         last_id = Some(next_last_id);
         for obs in &response.results {
             if let Some(id) = obs.id {
-                let row = vec![
-                    id.to_string(),
-                    obs.user.as_ref().and_then(|u| u.login.clone()).unwrap_or_default(),
-                    obs.taxon.as_ref().and_then(|t| t.name.clone()).unwrap_or_default(),
-                    obs.taxon.as_ref().and_then(|t| t.id.map(|i| i.to_string())).unwrap_or_default(),
-                    obs.location.as_ref().and_then(|l| {
-                        let parts: Vec<&str> = l.splitn(2, ',').collect();
-                        parts.first().map(|s| s.to_string())
-                    }).unwrap_or_default(),
-                    obs.location.as_ref().and_then(|l| {
-                        let parts: Vec<&str> = l.splitn(2, ',').collect();
-                        parts.get(1).map(|s| s.to_string())
-                    }).unwrap_or_default(),
-                    // private_latitude, private_longitude (not in public API)
-                    String::new(),
-                    String::new(),
-                    obs.positional_accuracy.map(|a| a.to_string()).unwrap_or_default(),
-                    obs.public_positional_accuracy.map(|a| a.to_string()).unwrap_or_default(),
-                    obs.obscured.map(|b| b.to_string()).unwrap_or_default(),
-                    obs.geoprivacy.clone().unwrap_or_default(),
-                    obs.taxon_geoprivacy.clone().unwrap_or_default(),
-                    obs.updated_at.clone().unwrap_or_default(),
-                    obs.captive.map(|b| b.to_string()).unwrap_or_default(),
-                    obs.time_observed_at.clone().unwrap_or_default(),
-                    obs.observed_on_string.clone().unwrap_or_default(),
-                    obs.place_guess.clone().unwrap_or_default(),
-                ];
-                updates.insert(id.to_string(), row);
+                updates.insert(id.to_string(), observation_to_row(obs));
             }
         }
         rate_limiter.wait_for_next_request().await;
