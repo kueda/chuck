@@ -15,11 +15,21 @@ use crate::darwin_core::{
     comment::Comment,
 };
 use crate::downloader::{Downloader, DownloadProgress};
-use crate::merge::merge_csv;
+use crate::merge::merge_csv_streams;
 use crate::DwcaExtension;
 
 /// Infer which DwC-A extensions are present in a ZIP archive by checking for
 /// the corresponding CSV filenames.
+///
+/// This approach was chosen over parsing `meta.xml` because it confirms the
+/// extension file actually exists, whereas `meta.xml` could declare an extension
+/// whose CSV is absent in a corrupt or partial archive.
+///
+/// Trade-off: detection is coupled to the `FILENAME` constants on each type
+/// (e.g. `Multimedia::FILENAME`). If a constant is renamed, this function will
+/// silently stop detecting that extension. The alternative — matching on the
+/// stable `rowType` URI in `meta.xml` — would be resilient to filename changes
+/// but would trust the manifest over the actual contents.
 pub fn infer_extensions(zip_path: &str) -> Result<Vec<DwcaExtension>, Box<dyn std::error::Error>> {
     let file = std::fs::File::open(zip_path)?;
     let mut archive = zip::ZipArchive::new(file)?;
@@ -55,104 +65,14 @@ pub fn archive_has_media(zip_path: &str) -> Result<bool, Box<dyn std::error::Err
     Ok(false)
 }
 
-/// Extract all entries from a ZIP archive into `dest_dir`.
-fn extract_zip(zip_path: &str, dest_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let file = std::fs::File::open(zip_path)?;
-    let mut archive = zip::ZipArchive::new(file)?;
-    for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)?;
-        let out_path = dest_dir.join(entry.name());
-        if entry.is_dir() {
-            std::fs::create_dir_all(&out_path)?;
-        } else {
-            if let Some(parent) = out_path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            let mut out_file = std::fs::File::create(&out_path)?;
-            std::io::copy(&mut entry, &mut out_file)?;
-        }
-    }
-    Ok(())
-}
-
-/// Recursively copy all files from `src` into `dest`, overwriting on conflict.
-fn copy_dir_into(src: &Path, dest: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    if !src.exists() {
-        return Ok(());
-    }
-    std::fs::create_dir_all(dest)?;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let src_path = entry.path();
-        let dest_path = dest.join(entry.file_name());
-        if src_path.is_dir() {
-            copy_dir_into(&src_path, &dest_path)?;
-        } else {
-            std::fs::copy(&src_path, &dest_path)?;
-        }
-    }
-    Ok(())
-}
-
-/// Repack a directory of files into a ZIP archive.
-fn repack_zip(src_dir: &Path, output_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    use zip::write::{FileOptions, ZipWriter};
-    use zip::CompressionMethod;
-
-    let zip_file = std::fs::File::create(output_path)?;
-    let mut zip = ZipWriter::new(zip_file);
-
-    let options: FileOptions<()> = FileOptions::default()
-        .compression_method(CompressionMethod::Deflated)
-        .unix_permissions(0o644);
-    let media_options: FileOptions<()> = FileOptions::default()
-        .compression_method(CompressionMethod::Stored)
-        .unix_permissions(0o644);
-
-    fn add_dir(
-        zip: &mut ZipWriter<std::fs::File>,
-        dir: &Path,
-        prefix: &str,
-        options: FileOptions<()>,
-        media_options: FileOptions<()>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            let name = if prefix.is_empty() {
-                entry.file_name().to_string_lossy().to_string()
-            } else {
-                format!("{}/{}", prefix, entry.file_name().to_string_lossy())
-            };
-            if path.is_dir() {
-                add_dir(zip, &path, &name, options, media_options)?;
-            } else {
-                let is_media = name.starts_with("media/");
-                zip.start_file(&name, if is_media { media_options } else { options })?;
-                let mut file = std::fs::File::open(&path)?;
-                std::io::copy(&mut file, zip)?;
-            }
-        }
-        Ok(())
-    }
-
-    add_dir(&mut zip, src_dir, "", options, media_options)?;
-    zip.finish()?;
-    Ok(())
-}
-
-/// Read a CSV into a `HashMap<id_at_col, row>`.
-/// Returns an empty map if the file does not exist.
-fn read_updates_map(
-    csv_path: &Path,
+/// Read a CSV stream into a `HashMap<id_at_col, row>`.
+fn read_updates_map_from_reader<R: std::io::Read>(
+    reader: R,
     id_col: usize,
 ) -> Result<HashMap<String, Vec<String>>, Box<dyn std::error::Error>> {
-    if !csv_path.exists() {
-        return Ok(HashMap::new());
-    }
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(true)
-        .from_path(csv_path)?;
+        .from_reader(reader);
     Ok(rdr
         .records()
         .filter_map(|r| r.ok())
@@ -163,13 +83,13 @@ fn read_updates_map(
         .collect())
 }
 
-/// Read `<para>` lines from the `<abstract>` section of an EML file.
-/// Returns an empty vec if the file is unreadable or has no `<abstract>`.
-fn read_abstract_lines_from_eml(eml_path: &Path) -> Vec<String> {
-    let content = match std::fs::read_to_string(eml_path) {
-        Ok(c) => c,
-        Err(_) => return vec![],
-    };
+/// Read `<para>` lines from the `<abstract>` section of an EML stream.
+/// Returns an empty vec if the stream is unreadable or has no `<abstract>`.
+fn read_abstract_lines_from_reader<R: std::io::Read>(mut reader: R) -> Vec<String> {
+    let mut content = String::new();
+    if reader.read_to_string(&mut content).is_err() {
+        return vec![];
+    }
     let abs_start = match content.find("<abstract>") {
         Some(i) => i + "<abstract>".len(),
         None => return vec![],
@@ -247,88 +167,119 @@ where
 
 /// Merge `updates_zip` into `existing_zip`, writing the result to `output_path`.
 ///
-/// Existing records are updated in-place if the same ID appears in `updates_zip`;
-/// records in `updates_zip` with IDs not found in `existing_zip` are appended.
-/// Media files are merged with updates taking precedence on conflict.
+/// Streams directly between ZIP files without extracting to disk:
+///
+/// - Pass 1: scan `updates_zip` to build in-memory CSV update maps and a set
+///   of media filenames present in the updates.
+/// - Pass 2: stream `existing_zip` → output ZIP, merging each CSV and skipping
+///   media files that are superseded by the updates.
+/// - Pass 3: stream update media from `updates_zip` → output ZIP.
+///
+/// The output is written atomically: a temp file in the same directory as
+/// `output_path` is used, then renamed over the target.
 fn merge_archive_into(
     existing_zip: &str,
     updates_zip: &str,
     output_path: &str,
     original_inat_query: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // --- Extract both archives to temp dirs ---
-    let existing_dir = tempfile::tempdir()?;
-    let updates_dir = tempfile::tempdir()?;
-    extract_zip(existing_zip, existing_dir.path())?;
-    extract_zip(updates_zip, updates_dir.path())?;
+    use std::io::Write;
+    use zip::write::{FileOptions, ZipWriter};
+    use zip::CompressionMethod;
 
-    // --- Build updates map from updates occurrence.csv: id → row ---
-    let updates_occurrence_csv = updates_dir.path().join(Occurrence::FILENAME);
-
-    // --- Merge CSVs ---
-    let merge_dir = tempfile::tempdir()?;
-
-    // Merge occurrence.csv
-    let existing_occ = existing_dir.path().join(Occurrence::FILENAME);
-    let merged_occ = merge_dir.path().join(Occurrence::FILENAME);
-    let occ_updates = read_updates_map(&updates_occurrence_csv, 0)?;
-    merge_csv(&existing_occ, &merged_occ, &occ_updates, 0)?;
-
-    // Build a coreid-keyed map for each extension CSV (coreid is column 0)
-    let extension_filenames = [
+    let csv_filenames: HashSet<&str> = [
+        Occurrence::FILENAME,
         Multimedia::FILENAME,
         Audiovisual::FILENAME,
         Identification::FILENAME,
         Comment::FILENAME,
-    ];
-    for filename in &extension_filenames {
-        let existing_csv = existing_dir.path().join(filename);
-        let updates_csv = updates_dir.path().join(filename);
-        if !existing_csv.exists() {
-            continue;
+    ]
+    .into_iter()
+    .collect();
+
+    let options: FileOptions<()> = FileOptions::default()
+        .compression_method(CompressionMethod::Deflated)
+        .unix_permissions(0o644);
+    let media_options: FileOptions<()> = FileOptions::default()
+        .compression_method(CompressionMethod::Stored)
+        .unix_permissions(0o644);
+
+    // --- Pass 1: Build CSV update maps and media filename set from updates ZIP ---
+    let mut csv_maps: HashMap<String, HashMap<String, Vec<String>>> = HashMap::new();
+    let mut media_in_updates: HashSet<String> = HashSet::new();
+    {
+        let updates_file = std::fs::File::open(updates_zip)?;
+        let mut updates_archive = zip::ZipArchive::new(updates_file)?;
+        for i in 0..updates_archive.len() {
+            let mut entry = updates_archive.by_index(i)?;
+            let name = entry.name().to_string();
+            if csv_filenames.contains(name.as_str()) {
+                csv_maps.insert(name, read_updates_map_from_reader(&mut entry, 0)?);
+            } else if name.starts_with("media/") {
+                media_in_updates.insert(name);
+            }
         }
-        let merged_csv = merge_dir.path().join(filename);
-        let ext_updates = read_updates_map(&updates_csv, 0)?;
-        merge_csv(&existing_csv, &merged_csv, &ext_updates, 0)?;
     }
 
-    // Copy meta.xml from existing (schema hasn't changed)
-    std::fs::copy(
-        existing_dir.path().join("meta.xml"),
-        merge_dir.path().join("meta.xml"),
-    )?;
-
-    // Write updated eml.xml (pubDate = today), preserving abstract from existing archive
-    let abstract_lines =
-        read_abstract_lines_from_eml(&existing_dir.path().join("eml.xml"));
-    let new_metadata = Metadata {
-        abstract_lines,
-        inat_query: Some(original_inat_query.to_string()),
-    };
-    let eml_xml = generate_eml(&new_metadata);
-    std::fs::write(merge_dir.path().join("eml.xml"), &eml_xml)?;
-
-    // Write chuck.json with original inat_query (not the updated_since version)
-    let chuck_json = serde_json::json!({ "inat_query": original_inat_query }).to_string();
-    std::fs::write(merge_dir.path().join("chuck.json"), &chuck_json)?;
-
-    // Merge media dirs: existing first, then overlay updates
-    let merged_media = merge_dir.path().join("media");
-    copy_dir_into(&existing_dir.path().join("media"), &merged_media)?;
-    copy_dir_into(&updates_dir.path().join("media"), &merged_media)?;
-
-    // --- Repack ZIP to output path atomically ---
-    // Write to a temp file in the same directory first, then rename over the
-    // target so a crash mid-write never leaves a corrupt or truncated archive.
+    // --- Passes 2 & 3: Stream to output ZIP (atomically via temp file) ---
     let output_path_obj = Path::new(output_path);
     let output_dir = output_path_obj.parent().unwrap_or(Path::new("."));
     let tmp_output = tempfile::NamedTempFile::new_in(output_dir)?;
-    let tmp_path = tmp_output
-        .path()
-        .to_str()
-        .ok_or("temp file path is not valid UTF-8")?
-        .to_string();
-    repack_zip(merge_dir.path(), &tmp_path)?;
+    let mut zip_out = ZipWriter::new(tmp_output);
+
+    // Pass 2: Stream existing ZIP → output, merging CSVs, skipping superseded media
+    {
+        let existing_file = std::fs::File::open(existing_zip)?;
+        let mut existing_archive = zip::ZipArchive::new(existing_file)?;
+        for i in 0..existing_archive.len() {
+            let mut entry = existing_archive.by_index(i)?;
+            let name = entry.name().to_string();
+            if name == "chuck.json" {
+                // Written fresh below
+            } else if name == "eml.xml" {
+                let abstract_lines = read_abstract_lines_from_reader(&mut entry);
+                let new_metadata = Metadata {
+                    abstract_lines,
+                    inat_query: Some(original_inat_query.to_string()),
+                };
+                zip_out.start_file(&name, options)?;
+                zip_out.write_all(generate_eml(&new_metadata).as_bytes())?;
+            } else if name == "meta.xml" {
+                zip_out.start_file(&name, options)?;
+                std::io::copy(&mut entry, &mut zip_out)?;
+            } else if csv_filenames.contains(name.as_str()) {
+                let empty_map = HashMap::new();
+                let updates = csv_maps.get(&name).unwrap_or(&empty_map);
+                zip_out.start_file(&name, options)?;
+                merge_csv_streams(&mut entry, &mut zip_out, updates, 0)?;
+            } else if name.starts_with("media/") && !media_in_updates.contains(&name) {
+                zip_out.start_file(&name, media_options)?;
+                std::io::copy(&mut entry, &mut zip_out)?;
+            }
+            // media superseded by updates and unknown entries are skipped
+        }
+    }
+
+    // Pass 3: Stream update media → output ZIP (updates take precedence)
+    {
+        let updates_file = std::fs::File::open(updates_zip)?;
+        let mut updates_archive = zip::ZipArchive::new(updates_file)?;
+        for i in 0..updates_archive.len() {
+            let mut entry = updates_archive.by_index(i)?;
+            let name = entry.name().to_string();
+            if name.starts_with("media/") {
+                zip_out.start_file(&name, media_options)?;
+                std::io::copy(&mut entry, &mut zip_out)?;
+            }
+        }
+    }
+
+    // Write fresh chuck.json preserving the original (non-updated_since) query
+    let chuck_json = serde_json::json!({ "inat_query": original_inat_query }).to_string();
+    zip_out.start_file("chuck.json", options)?;
+    zip_out.write_all(chuck_json.as_bytes())?;
+
+    let tmp_output = zip_out.finish()?;
     tmp_output.persist(output_path_obj).map_err(|e| e.error)?;
 
     Ok(())
@@ -411,6 +362,64 @@ mod tests {
         zip.finish().unwrap();
     }
 
+    /// Build a minimal ZIP with media files.
+    fn build_test_zip_with_media(
+        path: &str,
+        occurrence_csv: &str,
+        inat_query: &str,
+        pub_date: &str,
+        media_files: &[(&str, &[u8])],
+    ) {
+        use std::io::Write;
+        use zip::CompressionMethod;
+        use zip::write::FileOptions;
+
+        let file = std::fs::File::create(path).unwrap();
+        let mut zip = zip::write::ZipWriter::new(file);
+        let opts: FileOptions<()> =
+            FileOptions::default().compression_method(CompressionMethod::Deflated);
+
+        zip.start_file("occurrence.csv", opts).unwrap();
+        zip.write_all(occurrence_csv.as_bytes()).unwrap();
+
+        zip.start_file("meta.xml", opts).unwrap();
+        zip.write_all(b"<archive/>").unwrap();
+
+        let eml = format!(
+            "<eml><dataset><pubDate>{pub_date}</pubDate></dataset></eml>"
+        );
+        zip.start_file("eml.xml", opts).unwrap();
+        zip.write_all(eml.as_bytes()).unwrap();
+
+        let chuck = format!(r#"{{"inat_query":"{inat_query}"}}"#);
+        zip.start_file("chuck.json", opts).unwrap();
+        zip.write_all(chuck.as_bytes()).unwrap();
+
+        for (name, content) in media_files {
+            zip.start_file(name, opts).unwrap();
+            zip.write_all(content).unwrap();
+        }
+
+        zip.finish().unwrap();
+    }
+
+    /// Read all media entries from a ZIP, returning a map of name → bytes.
+    fn read_media_from_zip(zip_path: &str) -> std::collections::HashMap<String, Vec<u8>> {
+        use std::io::Read;
+        let file = std::fs::File::open(zip_path).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        let mut result = std::collections::HashMap::new();
+        for i in 0..archive.len() {
+            let mut entry = archive.by_index(i).unwrap();
+            if entry.name().starts_with("media/") {
+                let mut content = Vec::new();
+                entry.read_to_end(&mut content).unwrap();
+                result.insert(entry.name().to_string(), content);
+            }
+        }
+        result
+    }
+
     /// Read eml.xml from a ZIP and return its full content.
     fn read_eml_from_zip(zip_path: &str) -> String {
         use std::io::Read;
@@ -474,6 +483,59 @@ mod tests {
         assert_eq!(rows[1], "https://www.inaturalist.org/observations/2,unchanged");
         // obs/3 appended
         assert_eq!(rows[2], "https://www.inaturalist.org/observations/3,new");
+    }
+
+    #[test]
+    fn test_merge_archive_into_streams_media_correctly() {
+        let existing_tmp = tempfile::NamedTempFile::new().unwrap();
+        let updates_tmp = tempfile::NamedTempFile::new().unwrap();
+        let output_tmp = tempfile::NamedTempFile::new().unwrap();
+
+        let existing_path = existing_tmp.path().to_str().unwrap().to_string();
+        let updates_path = updates_tmp.path().to_str().unwrap().to_string();
+        let output_path = output_tmp.path().to_str().unwrap().to_string();
+
+        build_test_zip_with_media(
+            &existing_path,
+            "id,name\nhttps://www.inaturalist.org/observations/1,original\n",
+            "taxon_id=1",
+            "2026-01-01",
+            &[
+                ("media/photo_a.jpg", b"existing_photo_a"),
+                ("media/photo_b.jpg", b"photo_b"),
+            ],
+        );
+        build_test_zip_with_media(
+            &updates_path,
+            "id,name\nhttps://www.inaturalist.org/observations/1,updated\n",
+            "taxon_id=1",
+            "2026-01-02",
+            &[
+                ("media/photo_a.jpg", b"updated_photo_a"),
+                ("media/photo_c.jpg", b"photo_c"),
+            ],
+        );
+
+        merge_archive_into(&existing_path, &updates_path, &output_path, "taxon_id=1")
+            .unwrap();
+
+        let media = read_media_from_zip(&output_path);
+        assert_eq!(media.len(), 3, "expected 3 media files");
+        assert_eq!(
+            media.get("media/photo_a.jpg").unwrap().as_slice(),
+            b"updated_photo_a",
+            "photo_a should be replaced by update"
+        );
+        assert_eq!(
+            media.get("media/photo_b.jpg").unwrap().as_slice(),
+            b"photo_b",
+            "photo_b should be preserved from existing"
+        );
+        assert_eq!(
+            media.get("media/photo_c.jpg").unwrap().as_slice(),
+            b"photo_c",
+            "photo_c should be added from updates"
+        );
     }
 
     #[test]

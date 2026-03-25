@@ -1,22 +1,25 @@
 use std::collections::{HashMap, HashSet};
+use std::io::{Read, Write};
 
-/// Stream `existing_path` CSV row-by-row into `output_path`, replacing any row
-/// whose value at `id_col_index` appears in `updates` with the updated version.
-/// Rows in `updates` whose IDs were not encountered in the existing file are
-/// appended at the end (they are new records with no existing position).
+/// Stream-based CSV merge: reads from `existing` and writes to `output`,
+/// replacing any row whose value at `id_col_index` appears in `updates`.
+/// Rows in `updates` not found in `existing` are appended at the end.
 /// The header row is always preserved. Both CSVs must share the same schema.
-pub fn merge_csv(
-    existing_path: &std::path::Path,
-    output_path: &std::path::Path,
+///
+/// Accepts generic `Read`/`Write` so callers can stream directly between ZIP
+/// entries without materialising files on disk.
+pub fn merge_csv_streams<R: Read, W: Write>(
+    existing: R,
+    output: W,
     updates: &HashMap<String, Vec<String>>,
     id_col_index: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut reader = csv::ReaderBuilder::new()
         .has_headers(true)
-        .from_path(existing_path)?;
+        .from_reader(existing);
     let mut writer = csv::WriterBuilder::new()
         .has_headers(false)
-        .from_path(output_path)?;
+        .from_writer(output);
 
     writer.write_record(reader.headers()?)?;
 
@@ -41,6 +44,18 @@ pub fn merge_csv(
 
     writer.flush()?;
     Ok(())
+}
+
+/// Convenience wrapper around `merge_csv_streams` for file paths.
+pub fn merge_csv(
+    existing_path: &std::path::Path,
+    output_path: &std::path::Path,
+    updates: &HashMap<String, Vec<String>>,
+    id_col_index: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let reader = std::fs::File::open(existing_path)?;
+    let writer = std::fs::File::create(output_path)?;
+    merge_csv_streams(reader, writer, updates, id_col_index)
 }
 
 #[cfg(test)]
