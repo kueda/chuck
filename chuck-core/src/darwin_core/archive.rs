@@ -284,10 +284,16 @@ impl ArchiveBuilder {
         zip.write_all(&meta_content)?;
 
         // Add eml.xml to ZIP
-
         zip.start_file("eml.xml", options)?;
         let eml_content = std::fs::read(&eml_file_path)?;
         zip.write_all(&eml_content)?;
+
+        // Add chuck.json if inat_query is set
+        if let Some(ref inat_query) = self.metadata.inat_query {
+            let chuck_json = serde_json::json!({ "inat_query": inat_query }).to_string();
+            zip.start_file("chuck.json", options)?;
+            zip.write_all(chuck_json.as_bytes())?;
+        }
 
         // Add occurrence.csv to ZIP
         zip.start_file("occurrence.csv", options)?;
@@ -418,7 +424,7 @@ mod tests {
     /// Build a minimal archive with no occurrences and the given extensions enabled,
     /// return the list of file names present in the ZIP.
     async fn zip_file_names(extensions: Vec<DwcaExtension>) -> Vec<String> {
-        let metadata = Metadata { abstract_lines: vec![] };
+        let metadata = Metadata::default();
         let builder = ArchiveBuilder::new(extensions, metadata).unwrap();
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let path = tmp.path().to_str().unwrap().to_string();
@@ -428,6 +434,31 @@ mod tests {
         (0..archive.len())
             .map(|i| archive.by_index(i).unwrap().name().to_string())
             .collect()
+    }
+
+    #[tokio::test]
+    async fn test_chuck_json_written_when_inat_query_present() {
+        let metadata = Metadata {
+            inat_query: Some("taxon_id=47790".to_string()),
+            ..Default::default()
+        };
+        let builder = ArchiveBuilder::new(vec![], metadata).unwrap();
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        builder.build(&path).await.unwrap();
+        let file = std::fs::File::open(&path).unwrap();
+        let mut archive = ZipArchive::new(file).unwrap();
+        let mut chuck_file = archive.by_name("chuck.json").expect("chuck.json missing");
+        let mut contents = String::new();
+        std::io::Read::read_to_string(&mut chuck_file, &mut contents).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&contents).unwrap();
+        assert_eq!(json["inat_query"], "taxon_id=47790");
+    }
+
+    #[tokio::test]
+    async fn test_chuck_json_absent_when_no_inat_query() {
+        let names = zip_file_names(vec![]).await;
+        assert!(!names.contains(&"chuck.json".to_string()), "chuck.json should be absent");
     }
 
     #[tokio::test]

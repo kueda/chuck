@@ -218,3 +218,39 @@ export async function aggregateByField(
     limit,
   });
 }
+
+export interface ChuckArchiveInfo {
+  inat_query: string | null;
+  extensions: string[];
+  has_media: boolean;
+  file_size_bytes: number;
+  pub_date: string | null;
+}
+
+export async function readChuckArchiveInfo(
+  path: string,
+): Promise<ChuckArchiveInfo> {
+  return invoke<ChuckArchiveInfo>('read_chuck_archive_info', { path });
+}
+
+export async function getUpdateObservationCount(path: string): Promise<number> {
+  return invoke<number>('get_update_observation_count', { path });
+}
+
+export async function updateInatArchive(path: string): Promise<void> {
+  return invoke('update_inat_archive', { path });
+}
+
+export interface MediaEstimate {
+  photo_count: number;
+  sound_count: number;
+  sample_size: number;
+}
+
+export async function estimateMediaCount(
+  urlParams: string,
+): Promise<MediaEstimate> {
+  return invoke<MediaEstimate>('estimate_media_count', {
+    params: { url_params: urlParams },
+  });
+}

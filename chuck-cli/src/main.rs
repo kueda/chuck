@@ -16,7 +16,7 @@ struct Cli {
     command: Commands,
 }
 
-#[derive(Clone, Debug, ValueEnum)]
+#[derive(Clone, Debug, PartialEq, ValueEnum)]
 enum OutputFormat {
     /// CSV (default)
     Csv,
@@ -112,6 +112,12 @@ enum Commands {
         #[arg(long)]
         file: Option<String>,
 
+        /// Update an existing archive or CSV with recently changed observations.
+        /// Requires --file. For --format dwc, reads filter params from the archive
+        /// and errors if any filter args are also provided.
+        #[arg(long)]
+        update: bool,
+
         /// Fetch photos and include in a DarwinCore Archive
         #[arg(long)]
         fetch_media: bool,
@@ -166,6 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             format,
             place_id,
             taxon,
+            update,
             url,
             user,
         } => commands::fetch_observations(commands::FetchObservationsOptions {
@@ -181,6 +188,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             fetch_media,
             format,
             dwc_extensions,
+            update,
         }).await?,
     }
     Ok(())

@@ -84,7 +84,8 @@ impl Downloader {
                 "* Photos and sounds downloaded and included in archive".to_string()
             );
         }
-        let metadata = Metadata { abstract_lines };
+        let inat_query = Some(crate::api::params::serialize_params(&params));
+        let metadata = Metadata { abstract_lines, inat_query };
 
         Self {
             params,

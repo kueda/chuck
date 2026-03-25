@@ -163,6 +163,46 @@ async function setupInatDownloadMocks(page: Page) {
           case 'inat_sign_out':
             return null;
 
+          case 'read_chuck_archive_info':
+            return {
+              inat_query: 'taxon_id=47126&user_id=mockuser',
+              extensions: ['SimpleMultimedia', 'Identifications'],
+              has_media: false,
+              file_size_bytes: 2048000,
+              pub_date: '2025-01-15T00:00:00Z',
+            };
+
+          case 'get_update_observation_count':
+            return new Promise((resolve) => setTimeout(() => resolve(42), 300));
+
+          case 'estimate_media_count':
+            return { photo_count: 0, sound_count: 0, sample_size: 0 };
+
+          case 'update_inat_archive': {
+            const eventsToEmit =
+              progressEventSequence.length > 0
+                ? progressEventSequence
+                : [
+                    { stage: 'fetching', current: 20, total: 42 },
+                    { stage: 'fetching', current: 42, total: 42 },
+                    { stage: 'building', message: 'Repacking archive...' },
+                    { stage: 'complete' },
+                  ];
+
+            eventsToEmit.forEach((event, index) => {
+              setTimeout(
+                () => {
+                  if (progressListener) {
+                    progressListener({ payload: event });
+                  }
+                },
+                (index + 1) * 50,
+              );
+            });
+
+            return null;
+          }
+
           default:
             throw new Error(`Unknown command: ${command}`);
         }
@@ -661,5 +701,109 @@ test.describe('Extension checkbox functionality', () => {
     expect(capturedInvokeArgs.params.extensions).toEqual(
       expect.arrayContaining(['SimpleMultimedia', 'Identifications']),
     );
+  });
+});
+
+test.describe('Update existing archive', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupInatDownloadMocks(page);
+    await page.goto('/inat-download');
+    await page.waitForSelector('h1:has-text("Download from iNaturalist")', {
+      timeout: 10000,
+    });
+    await page.evaluate(() => {
+      (window as any).__MOCK_TAURI__.setProgressEventSequence([]);
+    });
+  });
+
+  test('switches to update tab and shows file picker', async ({ page }) => {
+    await page.click('button:has-text("Update existing")');
+    await expect(
+      page.locator('button:has-text("Choose archive…")'),
+    ).toBeVisible();
+    await expect(
+      page.locator('text=Choose an existing Chuck archive to update'),
+    ).toBeVisible();
+  });
+
+  test('Update Archive button is disabled without a valid archive', async ({
+    page,
+  }) => {
+    await page.click('button:has-text("Update existing")');
+    await expect(
+      page.locator('button:has-text("Update Archive")'),
+    ).toBeDisabled();
+  });
+
+  test('shows archive info card after picking a file', async ({ page }) => {
+    await page.click('button:has-text("Update existing")');
+    await page.click('button:has-text("Choose archive…")');
+
+    // Info card should appear with data from mock
+    await expect(
+      page.locator('text=taxon_id=47126&user_id=mockuser'),
+    ).toBeVisible({ timeout: 3000 });
+    await expect(
+      page.locator('text=SimpleMultimedia, Identifications'),
+    ).toBeVisible();
+    await expect(page.locator('text=2.0 MB')).toBeVisible();
+  });
+
+  test('shows updated observation count after picking a file', async ({
+    page,
+  }) => {
+    await page.click('button:has-text("Update existing")');
+    await page.click('button:has-text("Choose archive…")');
+
+    await expect(page.locator('text=42 observations to update')).toBeVisible({
+      timeout: 3000,
+    });
+  });
+
+  test('Update Archive button is enabled after picking a valid archive', async ({
+    page,
+  }) => {
+    await page.click('button:has-text("Update existing")');
+    await page.click('button:has-text("Choose archive…")');
+
+    // Wait for the info to load
+    await expect(page.locator('text=42 observations to update')).toBeVisible({
+      timeout: 3000,
+    });
+
+    await expect(
+      page.locator('button:has-text("Update Archive")'),
+    ).toBeEnabled();
+  });
+
+  test('shows progress overlay and success dialog on update', async ({
+    page,
+  }) => {
+    await page.click('button:has-text("Update existing")');
+    await page.click('button:has-text("Choose archive…")');
+
+    // Wait for archive info to load
+    await expect(page.locator('text=42 observations to update')).toBeVisible({
+      timeout: 3000,
+    });
+
+    await page.click('button:has-text("Update Archive")');
+
+    // Progress overlay should appear
+    await expect(
+      page.locator('text=Generating Darwin Core Archive'),
+    ).toBeVisible();
+
+    // Trigger completion
+    await page.evaluate(() => {
+      (window as any).__MOCK_TAURI__.triggerProgressEvent({
+        stage: 'complete',
+      });
+    });
+
+    // Success dialog should say "Archive Updated Successfully!"
+    await expect(
+      page.locator('text=Archive Updated Successfully!'),
+    ).toBeVisible({ timeout: 3000 });
   });
 });
