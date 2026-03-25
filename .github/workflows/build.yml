@@ -1,0 +1,120 @@
+# Make build artifacts for testing without making a release
+name: Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-tauri:
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: 'Mac'
+            image: 'macos-latest'
+            args: '--target universal-apple-darwin'
+          - os: 'Linux'
+            image: 'ubuntu-24.04'
+            args: ''
+          - os: 'Linux'
+            image: 'ubuntu-24.04-arm'
+            args: ''
+          - os: 'Windows'
+            image: 'windows-latest'
+            args: ''
+
+    runs-on: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1.15.2
+        with:
+          cache-workspaces: |
+            src-tauri
+            chuck-core
+            chuck-cli
+          target: ${{ matrix.os == 'Mac' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Install dependencies (Linux only)
+        if: matrix.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build Tauri app
+        id: tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: ${{ matrix.args }}
+
+      - name: Rename artifacts (Unix)
+        if: matrix.os != 'Windows'
+        shell: bash
+        run: |
+          ARTIFACTS='${{ steps.tauri.outputs.artifactPaths }}'
+          mkdir -p renamed-artifacts
+
+          echo "$ARTIFACTS" | jq -r '.[]' | while read -r filepath; do
+            filename=$(basename "$filepath")
+
+            if [[ "$filename" == *.app.tar.gz ]] || [[ "$filename" == *.app ]]; then
+              echo "Skipping $filename"
+              continue
+            fi
+
+            newname="$filename"
+            newname=$(echo "$newname" | sed -E 's/^Chuck-([0-9]+\.[0-9]+\.[0-9]+)-[0-9]+\./Chuck_\1_/')
+            newname="${newname//_amd64/_x64}"
+            newname="${newname//_x86_64/_x64}"
+            newname="${newname//_aarch64/_arm64}"
+            newname=$(echo "$newname" | sed -E "s/(Chuck_[0-9]+\.[0-9]+\.[0-9]+_)/\1${{ matrix.os }}_/")
+
+            echo "Renaming $filename -> $newname"
+            cp "$filepath" "renamed-artifacts/$newname"
+          done
+
+      - name: Rename artifacts (Windows)
+        if: matrix.os == 'Windows'
+        shell: pwsh
+        run: |
+          $artifacts = '${{ steps.tauri.outputs.artifactPaths }}' | ConvertFrom-Json
+          New-Item -ItemType Directory -Force -Path renamed-artifacts
+
+          foreach ($filepath in $artifacts) {
+            $filename = Split-Path $filepath -Leaf
+
+            $newname = $filename
+            $newname = $newname -replace '_amd64', '_x64'
+            $newname = $newname -replace '_x86_64', '_x64'
+            $newname = $newname -replace '_en-US', ''
+            $newname = $newname -replace '(Chuck_[\d]+\.[\d]+\.[\d]+_)', "`$1${{ matrix.os }}_"
+
+            Write-Host "Renaming $filename -> $newname"
+            Copy-Item $filepath "renamed-artifacts/$newname"
+          }
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: chuck-${{ matrix.os }}-${{ matrix.image }}
+          path: renamed-artifacts/*
+          retention-days: 7
