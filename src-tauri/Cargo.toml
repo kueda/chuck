@@ -23,7 +23,7 @@ bytes = "1"
 chrono = "0.4"
 chuck-core = { path = "../chuck-core", features = ["keyring-storage"] }
 duckdb = { version = "1.4.1", features = ["bundled", "json"] }
-env_logger = { workspace = true }
+tauri-plugin-log = "2"
 futures = "0.3.31"
 inaturalist = { git = "https://github.com/kueda/rust-inaturalist.git", branch = "sound-attributes" }
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service"] }
@@ -52,4 +52,5 @@ pmtiles = { version = "0.19", default-features = false, features = ["mmap-async-
 gtk = "0.18.2"
 
 [dev-dependencies]
+env_logger = { workspace = true }
 tempfile = "3"

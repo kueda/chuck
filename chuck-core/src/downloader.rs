@@ -116,6 +116,11 @@ impl Downloader {
             self.metadata.clone(),
         )?;
 
+        log::info!(
+            "Download starting: output={output_path}, fetch_media={}, extensions={:?}",
+            self.fetch_media, self.extensions
+        );
+
         let mut progress = DownloadProgress::default();
         let mut cumulative_media_seen: usize = 0;
 
@@ -153,8 +158,14 @@ impl Downloader {
                             return Err("Download cancelled".into());
                         }
                     }
+                    log::debug!("Waiting for final media batch task");
                     let (photo_mapping, sound_mapping, media_count) = media_handle.await
                         .map_err(|e| format!("Media download task failed: {e}"))??;
+                    log::debug!(
+                        "Final media batch done: {media_count} downloaded \
+                        ({} photos, {} sounds)",
+                        photo_mapping.len(), sound_mapping.len()
+                    );
                     progress.media_current += media_count;
                     self.process_extensions(
                         &observations, &mut archive, &photo_mapping, &sound_mapping, &taxa_hash
@@ -193,8 +204,14 @@ impl Downloader {
                         return Err("Download cancelled".into());
                     }
                 }
+                log::debug!("Waiting for previous media batch task");
                 let (photo_mapping, sound_mapping, media_count) = media_handle.await
                     .map_err(|e| format!("Media download task failed: {e}"))??;
+                log::debug!(
+                    "Media batch done: {media_count} downloaded \
+                    ({} photos, {} sounds)",
+                    photo_mapping.len(), sound_mapping.len()
+                );
                 progress.media_current += media_count;
                 self.process_extensions(
                     &observations, &mut archive, &photo_mapping, &sound_mapping, &prev_taxa_hash
@@ -225,6 +242,12 @@ impl Downloader {
         }
 
         // Build final archive
+        log::info!(
+            "Building archive: {} obs, {}/{} media",
+            progress.observations_current,
+            progress.media_current,
+            progress.media_total
+        );
         progress.stage = DownloadStage::Building;
         progress_callback(progress.clone());
         archive.build(output_path).await?;
@@ -308,6 +331,9 @@ impl Downloader {
             return None;
         }
 
+        log::info!(
+            "Spawning media batch task: {photos_count} photos + {sounds_count} sounds"
+        );
         progress.stage = DownloadStage::DownloadingMedia;
 
         let media_downloaded = Arc::new(std::sync::atomic::AtomicUsize::new(0));

@@ -23,6 +23,26 @@ struct OpenedFile(Mutex<Option<String>>);
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(log::LevelFilter::Debug)
+                .level_for("mvt", log::LevelFilter::Info)
+                .level_for("h2", log::LevelFilter::Warn)
+                .level_for("hyper", log::LevelFilter::Warn)
+                .level_for("reqwest", log::LevelFilter::Warn)
+                .level_for("rustls", log::LevelFilter::Warn)
+                .targets([
+                    tauri_plugin_log::Target::new(
+                        tauri_plugin_log::TargetKind::LogDir {
+                            file_name: Some("chuck".to_string()),
+                        }
+                    ),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview)
+                        .filter(|meta| meta.level() <= log::Level::Info),
+                ])
+                .build()
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(crate::tile_server::init())
@@ -37,6 +57,7 @@ pub fn run() {
             commands::archive::get_photo,
             commands::archive::aggregate_by_field,
             commands::archive::get_archive_metadata,
+            commands::archive::save_text_file,
             commands::inat_download::get_observation_count,
             commands::inat_download::estimate_media_count,
             commands::inat_download::generate_inat_archive,
@@ -102,6 +123,10 @@ pub fn run() {
             )
             .accelerator("CmdOrCtrl+I")
             .build(app)?;
+
+            let logs_item = MenuItemBuilder::with_id("show-logs", "Show Logs")
+                .accelerator("CmdOrCtrl+Shift+L")
+                .build(app)?;
 
             // Get the existing menu or create one for the main window (needed for Windows/Linux)
             let menu = match app.menu() {
@@ -205,6 +230,7 @@ pub fn run() {
                     if let Ok(text) = submenu.text() {
                         if text == "View" {
                             submenu.append(&metadata_item)?;
+                            submenu.append(&logs_item)?;
                             view_submenu_exists = true;
                             break;
                         }
@@ -216,6 +242,7 @@ pub fn run() {
             if !view_submenu_exists {
                 let view_submenu = SubmenuBuilder::new(app, "View")
                     .item(&metadata_item)
+                    .item(&logs_item)
                     .build()?;
                 menu.append(&view_submenu)?;
             }
@@ -274,6 +301,8 @@ pub fn run() {
                     app.emit("menu-export-kml", ()).unwrap();
                 } else if event.id() == "export-dwca" {
                     app.emit("menu-export-dwca", ()).unwrap();
+                } else if event.id() == "show-logs" {
+                    app.emit("menu-show-logs", ()).unwrap();
                 } else if event.id() == "show-metadata" {
                     // Open new window for archive metadata
                     let window = tauri::WebviewWindowBuilder::new(

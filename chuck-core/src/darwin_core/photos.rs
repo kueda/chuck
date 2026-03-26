@@ -192,6 +192,13 @@ impl PhotoDownloader {
             photo_mapping.insert(photo_id, filename);
         }
 
+        let attempted = photos.len();
+        let succeeded = photo_mapping.len();
+        log::info!(
+            "Photo batch: {succeeded}/{attempted} succeeded ({} failed)",
+            attempted - succeeded
+        );
+
         Ok(photo_mapping)
     }
 }
@@ -316,6 +323,13 @@ impl SoundDownloader {
         for (sound_id, path) in results.into_iter().filter_map(|r| r.ok().flatten()) {
             sound_mapping.insert(sound_id, path);
         }
+
+        let attempted = sounds.len();
+        let succeeded = sound_mapping.len();
+        log::info!(
+            "Sound batch: {succeeded}/{attempted} succeeded ({} failed)",
+            attempted - succeeded
+        );
 
         Ok(sound_mapping)
     }

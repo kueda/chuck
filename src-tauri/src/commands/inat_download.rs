@@ -199,6 +199,11 @@ pub async fn generate_inat_archive(
     // Build API params
     let api_params = build_api_params_from_generate(&params);
 
+    log::info!(
+        "generate_inat_archive: output={}, fetch_media={}, extensions={:?}",
+        params.output_path, params.fetch_media, params.extensions
+    );
+
     // Emit building message
     app.emit("inat-progress", InatProgress::Building {
         message: "Initializing archive...".to_string()
@@ -237,10 +242,15 @@ pub async fn generate_inat_archive(
 
     // Execute download
     let cancel_token = Arc::clone(&CANCEL_FLAG);
-    downloader
+    let result = downloader
         .execute(&params.output_path, progress_callback, Some(cancel_token))
-        .await
-        .map_err(|e| e.to_string())?;
+        .await;
+
+    match &result {
+        Ok(()) => log::info!("generate_inat_archive: complete"),
+        Err(e) => log::error!("generate_inat_archive: failed: {e}"),
+    }
+    result.map_err(|e| e.to_string())?;
 
     // Emit completion
     app.emit("inat-progress", InatProgress::Complete)

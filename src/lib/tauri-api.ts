@@ -373,3 +373,10 @@ export interface ArchiveMetadata {
 export async function getArchiveMetadata(): Promise<ArchiveMetadata> {
   return invoke<ArchiveMetadata>('get_archive_metadata');
 }
+
+export async function saveTextFile(
+  path: string,
+  content: string,
+): Promise<void> {
+  return invoke('save_text_file', { path, content });
+}

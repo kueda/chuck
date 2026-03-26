@@ -32,6 +32,7 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-cli": "^2.4.0",
     "@tauri-apps/plugin-dialog": "^2.4.0",
+    "@tauri-apps/plugin-log": "^2.8.0",
     "@tauri-apps/plugin-opener": "^2",
     "dompurify": "^3.3.0",
     "inaturalistjs": "github:inaturalist/inaturalistjs",

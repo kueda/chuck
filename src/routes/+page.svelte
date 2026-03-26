@@ -20,6 +20,7 @@ import {
 import { onMount } from 'svelte';
 import BottomControls from '$lib/components/BottomControls.svelte';
 import Filters from '$lib/components/Filters.svelte';
+import LogDrawer from '$lib/components/LogDrawer.svelte';
 import ViewSwitcher from '$lib/components/ViewSwitcher.svelte';
 import {
   currentArchive,
@@ -75,6 +76,8 @@ let scrollState = $state({ targetIndex: 0, shouldScroll: false });
 
 // Tab state
 let activeTab = $state<string>('occurrences');
+
+let showLogDrawer = $state(false);
 
 // Map state preservation
 let mapCenter = $state<[number, number]>([0, 0]);
@@ -450,6 +453,13 @@ onMount(() => {
     unlistenExportDwca = fn;
   });
 
+  let unlistenShowLogs: (() => void) | undefined;
+  listen('menu-show-logs', () => {
+    showLogDrawer = true;
+  }).then((fn) => {
+    unlistenShowLogs = fn;
+  });
+
   // Listen for file association events (e.g. drop on Dock icon, "Open With")
   let unlistenFileOpen: (() => void) | undefined;
   listen<string>('file-open', (event) => {
@@ -539,6 +549,7 @@ onMount(() => {
     unlistenExportCsv?.();
     unlistenExportKml?.();
     unlistenExportDwca?.();
+    unlistenShowLogs?.();
     unlistenFileOpen?.();
     unlistenProgress?.();
     unlistenDragDrop?.();
@@ -816,3 +827,5 @@ onMount(() => {
     </Dialog.Positioner>
   </Portal>
 </Dialog>
+
+<LogDrawer bind:open={showLogDrawer} />

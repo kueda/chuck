@@ -333,6 +333,14 @@ pub fn get_archive_metadata(app: tauri::AppHandle) -> Result<ArchiveMetadata> {
     get_metadata_from_storage(&archive.storage_dir)
 }
 
+#[tauri::command]
+pub fn save_text_file(path: String, content: String) -> Result<()> {
+    let p = std::path::PathBuf::from(&path);
+    std::fs::write(&p, content.as_bytes()).map_err(|source| {
+        crate::error::ChuckError::FileWrite { path: p, source }
+    })
+}
+
 #[cfg(test)]
 mod metadata_tests {
     use super::*;
