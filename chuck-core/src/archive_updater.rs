@@ -825,6 +825,7 @@ mod tests {
         let builder = ArchiveBuilder::new(
             vec![DwcaExtension::SimpleMultimedia, DwcaExtension::Identifications],
             metadata,
+            &std::env::temp_dir(),
         ).unwrap();
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let path = tmp.path().to_str().unwrap().to_string();
@@ -843,7 +844,7 @@ mod tests {
         use crate::darwin_core::archive::ArchiveBuilder;
 
         let metadata = Metadata::default();
-        let builder = ArchiveBuilder::new(vec![], metadata).unwrap();
+        let builder = ArchiveBuilder::new(vec![], metadata, &std::env::temp_dir()).unwrap();
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let path = tmp.path().to_str().unwrap().to_string();
         builder.build(&path).await.unwrap();

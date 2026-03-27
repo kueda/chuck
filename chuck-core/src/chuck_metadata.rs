@@ -56,7 +56,7 @@ mod tests {
 
     async fn build_archive(inat_query: Option<String>) -> tempfile::NamedTempFile {
         let metadata = Metadata { inat_query, ..Default::default() };
-        let builder = ArchiveBuilder::new(vec![], metadata).unwrap();
+        let builder = ArchiveBuilder::new(vec![], metadata, &std::env::temp_dir()).unwrap();
         let tmp = tempfile::NamedTempFile::new().unwrap();
         builder.build(tmp.path().to_str().unwrap()).await.unwrap();
         tmp

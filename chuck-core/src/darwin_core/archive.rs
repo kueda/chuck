@@ -37,9 +37,15 @@ pub struct ArchiveBuilder {
 }
 
 impl ArchiveBuilder {
-    /// Create a new DarwinCore Archive builder
-    pub fn new(dwc_extensions: Vec<crate::DwcaExtension>, metadata: Metadata) -> Result<Self, Box<dyn std::error::Error>> {
-        let temp_dir = TempDir::new()?;
+    /// Create a new DarwinCore Archive builder.
+    /// `base_dir` is the directory in which the temporary working directory is created;
+    /// pass the parent of the output ZIP so temp files land on the same filesystem.
+    pub fn new(
+        dwc_extensions: Vec<crate::DwcaExtension>,
+        metadata: Metadata,
+        base_dir: &std::path::Path,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let temp_dir = TempDir::new_in(base_dir)?;
         let occurrence_file_path = temp_dir.path().join("occurrence.csv");
         let multimedia_file_path = temp_dir.path().join("multimedia.csv");
         let audiovisual_file_path = temp_dir.path().join("audiovisual.csv");
@@ -421,11 +427,25 @@ mod tests {
     use crate::DwcaExtension;
     use zip::ZipArchive;
 
+    #[test]
+    fn test_archive_builder_temp_dir_in_base_dir() {
+        let base = tempfile::TempDir::new().unwrap();
+        let metadata = Metadata::default();
+        let builder = ArchiveBuilder::new(vec![], metadata, base.path()).unwrap();
+        // media_dir lives inside temp_dir, so it must be under base
+        assert!(
+            builder.media_dir().starts_with(base.path()),
+            "expected media_dir {:?} to be under {:?}",
+            builder.media_dir(),
+            base.path()
+        );
+    }
+
     /// Build a minimal archive with no occurrences and the given extensions enabled,
     /// return the list of file names present in the ZIP.
     async fn zip_file_names(extensions: Vec<DwcaExtension>) -> Vec<String> {
         let metadata = Metadata::default();
-        let builder = ArchiveBuilder::new(extensions, metadata).unwrap();
+        let builder = ArchiveBuilder::new(extensions, metadata, &std::env::temp_dir()).unwrap();
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let path = tmp.path().to_str().unwrap().to_string();
         builder.build(&path).await.unwrap();
@@ -442,7 +462,7 @@ mod tests {
             inat_query: Some("taxon_id=47790".to_string()),
             ..Default::default()
         };
-        let builder = ArchiveBuilder::new(vec![], metadata).unwrap();
+        let builder = ArchiveBuilder::new(vec![], metadata, &std::env::temp_dir()).unwrap();
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let path = tmp.path().to_str().unwrap().to_string();
         builder.build(&path).await.unwrap();

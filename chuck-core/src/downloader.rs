@@ -110,10 +110,16 @@ impl Downloader {
         use std::sync::atomic::Ordering;
         use crate::darwin_core::ArchiveBuilder;
 
-        // Create archive builder
+        // Create archive builder with temp dir on the same filesystem as the output.
+        // Using the output's parent avoids writing to tmpfs (a common Linux default for
+        // /tmp), which can exhaust RAM-backed space even when the disk has room.
+        let output_parent = std::path::Path::new(output_path)
+            .parent()
+            .unwrap_or(std::path::Path::new("."));
         let mut archive = ArchiveBuilder::new(
             self.extensions.clone(),
             self.metadata.clone(),
+            output_parent,
         )?;
 
         log::info!(
@@ -146,8 +152,18 @@ impl Downloader {
                 }
             }
 
-            // Fetch next batch
-            let batch = self.fetch_batch_with_rate_limit(id_below).await?;
+            // Fetch next batch. Abort any in-flight media task before propagating errors:
+            // dropping a JoinHandle does not abort the task in Tokio, so if we return
+            // early the spawned task would keep running and sending stale progress events.
+            let batch = match self.fetch_batch_with_rate_limit(id_below).await {
+                Ok(b) => b,
+                Err(e) => {
+                    if let Some((handle, _, _)) = pending_media.take() {
+                        handle.abort();
+                    }
+                    return Err(e);
+                }
+            };
             if batch.results.is_empty() {
                 // Before breaking, finish any pending media downloads
                 if let Some((media_handle, observations, taxa_hash)) = pending_media.take() {
@@ -180,9 +196,17 @@ impl Downloader {
             }
 
             // Prepare batch: fetch taxa, convert to occurrences, write to CSV
-            let (taxa_hash, media_count) = self.prepare_batch(
+            let (taxa_hash, media_count) = match self.prepare_batch(
                 &batch, &mut archive, &mut progress, &progress_callback
-            ).await?;
+            ).await {
+                Ok(r) => r,
+                Err(e) => {
+                    if let Some((handle, _, _)) = pending_media.take() {
+                        handle.abort();
+                    }
+                    return Err(e);
+                }
+            };
 
             // Update media estimate using running average (never decreasing)
             if self.fetch_media {
