@@ -110,16 +110,12 @@ impl Downloader {
         use std::sync::atomic::Ordering;
         use crate::darwin_core::ArchiveBuilder;
 
-        // Create archive builder with temp dir on the same filesystem as the output.
-        // Using the output's parent avoids writing to tmpfs (a common Linux default for
-        // /tmp), which can exhaust RAM-backed space even when the disk has room.
-        let output_parent = std::path::Path::new(output_path)
-            .parent()
-            .unwrap_or(std::path::Path::new("."));
+        // Pass the output path directly so the builder opens the ZIP immediately and
+        // places temp files on the same filesystem (avoids Linux tmpfs exhaustion).
         let mut archive = ArchiveBuilder::new(
             self.extensions.clone(),
             self.metadata.clone(),
-            output_parent,
+            std::path::Path::new(output_path),
         )?;
 
         log::info!(
@@ -186,6 +182,9 @@ impl Downloader {
                     self.process_extensions(
                         &observations, &mut archive, &photo_mapping, &sound_mapping, &taxa_hash
                     ).await?;
+                    for rel_path in photo_mapping.values().chain(sound_mapping.values()) {
+                        archive.add_media_from_temp(rel_path)?;
+                    }
                 }
                 break;
             }
@@ -240,12 +239,15 @@ impl Downloader {
                 self.process_extensions(
                     &observations, &mut archive, &photo_mapping, &sound_mapping, &prev_taxa_hash
                 ).await?;
+                for rel_path in photo_mapping.values().chain(sound_mapping.values()) {
+                    archive.add_media_from_temp(rel_path)?;
+                }
             }
 
             // Start media downloads for current batch in background
             let media_handle = self.start_media_downloads(
                 &batch,
-                archive.media_dir().to_path_buf(),
+                archive.media_dir(),
                 &mut progress,
                 &progress_callback,
                 cancellation_token.clone(),
@@ -274,7 +276,7 @@ impl Downloader {
         );
         progress.stage = DownloadStage::Building;
         progress_callback(progress.clone());
-        archive.build(output_path).await?;
+        archive.build().await?;
 
         Ok(())
     }
