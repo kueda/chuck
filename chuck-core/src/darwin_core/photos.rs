@@ -16,7 +16,7 @@ const RETRY_BASE_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 async fn download_url_to_file(url: &str, file_path: &Path) -> Result<(), String> {
     let mut f = tokio::fs::File::create(file_path).await
         .map_err(|e| format!("Failed to create file: {e}"))?;
-    let response = reqwest::get(url).await
+    let response = crate::api::client::http_client().get(url).send().await
         .map_err(|e| {
             let status = e.status().map_or_else(
                 || "unknown".to_string(),

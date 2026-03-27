@@ -4,6 +4,26 @@ use tokio::sync::{OnceCell, RwLock};
 
 use crate::auth::{fetch_jwt, TokenStorage};
 
+const USER_AGENT: &str = concat!(
+    "Chuck/", env!("CARGO_PKG_VERSION"),
+    " (https://github.com/kueda/chuck)"
+);
+
+fn build_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .user_agent(USER_AGENT)
+        .build()
+        .expect("failed to build reqwest client")
+}
+
+static HTTP_CLIENT: std::sync::LazyLock<reqwest::Client> =
+    std::sync::LazyLock::new(build_client);
+
+/// Shared HTTP client with the Chuck user agent. Use this for all outbound requests.
+pub(crate) fn http_client() -> &'static reqwest::Client {
+    &HTTP_CLIENT
+}
+
 // OnceCell ensures the config is initialized exactly once across the entire application,
 // avoiding redundant API calls and JWT fetching. RwLock provides interior mutability
 // so the shared config can be updated (e.g., JWT token refresh) while maintaining
@@ -25,6 +45,7 @@ pub async fn get_config() -> &'static RwLock<Configuration> {
 async fn create_config() -> Configuration {
     Configuration {
         base_path: "https://api.inaturalist.org/v1".to_string(),
+        client: build_client(),
         ..Configuration::default()
     }
 }
@@ -34,6 +55,7 @@ async fn create_config() -> Configuration {
 pub fn create_config_with_jwt(jwt: Option<String>) -> Configuration {
     let mut config = Configuration {
         base_path: "https://api.inaturalist.org/v1".to_string(),
+        client: build_client(),
         ..Configuration::default()
     };
 
@@ -55,6 +77,7 @@ pub fn create_config_with_base_url_and_jwt(
 ) -> Configuration {
     let mut config = Configuration {
         base_path: base_url,
+        client: build_client(),
         ..Configuration::default()
     };
 
