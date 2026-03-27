@@ -240,6 +240,18 @@ pub async fn generate_inat_archive(
         let _ = app_clone.emit("inat-progress", event);
     };
 
+    // Hold a system sleep inhibitor for the duration of the download.
+    // Non-fatal: if the OS rejects it (e.g. non-systemd Linux), we just log and continue.
+    let _awake = keepawake::Builder::default()
+        .reason("Downloading iNaturalist archive".to_string())
+        .app_name("Chuck".to_string())
+        .app_reverse_domain("org.inaturalist.chuck".to_string())
+        .idle(true)
+        .sleep(true)
+        .create()
+        .inspect_err(|e| log::warn!("Could not acquire sleep inhibitor: {e}"))
+        .ok();
+
     // Execute download
     let cancel_token = Arc::clone(&CANCEL_FLAG);
     let result = downloader
@@ -369,6 +381,16 @@ pub async fn update_inat_archive(
         };
         let _ = app_clone.emit("inat-progress", event);
     };
+
+    let _awake = keepawake::Builder::default()
+        .reason("Updating iNaturalist archive".to_string())
+        .app_name("Chuck".to_string())
+        .app_reverse_domain("org.inaturalist.chuck".to_string())
+        .idle(true)
+        .sleep(true)
+        .create()
+        .inspect_err(|e| log::warn!("Could not acquire sleep inhibitor: {e}"))
+        .ok();
 
     let cancel_token = Arc::clone(&CANCEL_FLAG);
     update_archive(&path, progress_callback, jwt, Some(cancel_token))
