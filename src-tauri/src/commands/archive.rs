@@ -1,4 +1,5 @@
 use std::backtrace::Backtrace;
+use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use serde::{Serialize};
 use tauri::{Emitter, Manager};
@@ -9,7 +10,9 @@ use gtk::{EventBox, HeaderBar};
 
 use crate::dwca::Archive;
 use crate::error::{ChuckError, Result};
+use crate::photo_cache::PhotoCache;
 use crate::search_params::SearchParams;
+use crate::ZipState;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "status", rename_all = "camelCase")]
@@ -117,19 +120,30 @@ pub async fn open_archive(
     app.emit("archive-open-progress", ArchiveOpenProgress::Importing)
         .map_err(|e| ChuckError::Tauri(e.to_string()))?;
 
+    // Drop the cached ZipArchive before opening a new archive. On Windows,
+    // open file handles prevent deletion, so release it before the new archive
+    // open removes old archive directories.
+    if let Ok(mut guard) = app.state::<ZipState>().0.lock() {
+        *guard = None;
+    }
+
     // Create a channel for progress updates
     let (tx, rx) = mpsc::channel();
 
     // Spawn blocking task
     let app_for_thread = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        Archive::open(
+        let archive = Archive::open(
             Path::new(&path_clone),
             &base_dir,
             |stage| {
                 let _ = tx.send(stage.to_string());
             },
-        )
+        )?;
+        // Parse the zip central directory once while still on a blocking thread.
+        // Returns None on failure; get_photo will re-attempt lazily if needed.
+        let zip_archive = build_zip_archive(&archive.storage_dir);
+        Ok::<_, ChuckError>((archive, zip_archive))
     });
 
     // Listen for progress updates and emit events
@@ -146,8 +160,14 @@ pub async fn open_archive(
     });
 
     match result.await {
-        Ok(Ok(archive)) => {
+        Ok(Ok((archive, zip_archive))) => {
             let info = archive.info()?;
+
+            if let Some(zip) = zip_archive {
+                if let Ok(mut guard) = app.state::<ZipState>().0.lock() {
+                    *guard = Some(zip);
+                }
+            }
 
             // Emit completion event
             app.emit(
@@ -300,13 +320,101 @@ pub fn get_occurrence(
     archive.get_occurrence(&occurrence_id)
 }
 
+/// Opens the archive zip and parses its central directory, returning a ZipArchive
+/// ready for repeated photo lookups. Returns None and logs a warning on failure.
+fn build_zip_archive(storage_dir: &Path) -> Option<zip::ZipArchive<std::fs::File>> {
+    let zip_path = storage_dir.join("archive.zip");
+    let file = match std::fs::File::open(&zip_path) {
+        Ok(f) => f,
+        Err(e) => {
+            log::warn!("Failed to open archive.zip for zip index: {e}");
+            return None;
+        }
+    };
+    match zip::ZipArchive::new(file) {
+        Ok(z) => {
+            log::debug!("ZipArchive central directory cached ({} entries)", z.len());
+            Some(z)
+        }
+        Err(e) => {
+            log::warn!("Failed to parse zip central directory: {e}");
+            None
+        }
+    }
+}
+
 #[tauri::command]
 pub fn get_photo(
     app: tauri::AppHandle,
+    zip_state: tauri::State<'_, ZipState>,
     photo_path: String,
 ) -> Result<String> {
     let archive = Archive::current(&get_archives_dir(app)?)?;
-    archive.get_photo(&photo_path)
+
+    let cache_dir = archive.storage_dir.join("photo_cache");
+    std::fs::create_dir_all(&cache_dir).map_err(|e| ChuckError::DirectoryCreate {
+        path: cache_dir.clone(),
+        source: e,
+    })?;
+    let photo_cache = PhotoCache::new(&cache_dir);
+
+    if let Some(cached_path) = photo_cache.get_cached_photo(&photo_path)? {
+        photo_cache.touch_file(&cached_path)?;
+        return Ok(cached_path.to_string_lossy().to_string());
+    }
+
+    let normalized_path = photo_path.replace('\\', "/");
+    let cached_file_path = photo_cache.get_cache_path(&photo_path);
+
+    if let Some(p) = cached_file_path.parent() {
+        if !p.exists() {
+            std::fs::create_dir_all(p).map_err(|e| ChuckError::DirectoryCreate {
+                path: p.to_path_buf(),
+                source: e,
+            })?;
+        }
+    }
+
+    // Use the shared ZipArchive so the central directory is only parsed once.
+    // Initialise lazily here if open_archive hasn't run yet (e.g. after restart).
+    {
+        let mut guard = zip_state
+            .0
+            .lock()
+            .map_err(|_| ChuckError::Tauri("ZipState mutex poisoned".to_string()))?;
+
+        if guard.is_none() {
+            *guard = build_zip_archive(&archive.storage_dir);
+            if guard.is_none() {
+                return Err(ChuckError::Tauri(
+                    "Failed to open archive zip for photo extraction".to_string(),
+                ));
+            }
+            log::debug!("ZipState initialised lazily in get_photo");
+        }
+
+        let zip = guard.as_mut().unwrap();
+        let zip_file = zip
+            .by_name(&normalized_path)
+            .map_err(ChuckError::ArchiveExtraction)?;
+
+        let outfile = std::fs::File::create(&cached_file_path).map_err(|e| ChuckError::FileOpen {
+            path: cached_file_path.clone(),
+            source: e,
+        })?;
+
+        let mut reader = BufReader::with_capacity(64 * 1024, zip_file);
+        let mut writer = BufWriter::with_capacity(64 * 1024, outfile);
+        std::io::copy(&mut reader, &mut writer).map_err(|e| ChuckError::FileRead {
+            path: cached_file_path.clone(),
+            source: e,
+        })?;
+    } // release the mutex before eviction
+
+    const MAX_CACHE_SIZE: u64 = 2 * 1024 * 1024 * 1024;
+    photo_cache.evict_lru(MAX_CACHE_SIZE)?;
+
+    Ok(cached_file_path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
