@@ -30,6 +30,7 @@ let pageMode = $state<'create' | 'update'>('create');
 
 let authStatus = $state<AuthStatus>({ authenticated: false, username: null });
 let authLoading = $state<boolean>(false);
+let authError = $state<string | null>(null);
 
 let showProgress = $state<boolean>(false);
 let progressStage = $state<'active' | 'building' | 'complete' | 'error'>(
@@ -64,11 +65,12 @@ async function loadAuthStatus() {
 
 async function handleSignIn() {
   authLoading = true;
+  authError = null;
   try {
     authStatus = await inatAuthenticate();
   } catch (e) {
     console.error('Authentication failed:', e);
-    alert(`Authentication failed: ${e}`);
+    authError = e instanceof Error ? e.message : String(e);
   } finally {
     authLoading = false;
   }
@@ -289,6 +291,9 @@ onMount(() => {
           {authLoading ? 'Signing in...' : 'Sign In'}
         </button>
       </div>
+      {#if authError}
+        <p class="mt-2 text-sm text-error-500">Authentication failed: {authError}</p>
+      {/if}
     {/if}
   </div>
 

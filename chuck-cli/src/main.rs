@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use chuck_core::auth::TokenStorage;
+use std::io::Write;
 
 mod commands;
 mod output;
@@ -134,6 +135,21 @@ enum Commands {
 #[tokio::main(worker_threads = 5)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+
+    let log_level = match cli.debug {
+        0 => log::LevelFilter::Info,
+        1 => log::LevelFilter::Debug,
+        _ => log::LevelFilter::Trace,
+    };
+    env_logger::Builder::new()
+        .filter_level(log_level)
+        .format(|buf, record| match record.level() {
+            log::Level::Info => writeln!(buf, "{}", record.args()),
+            log::Level::Warn => writeln!(buf, "Warning: {}", record.args()),
+            log::Level::Error => writeln!(buf, "Error: {}", record.args()),
+            _ => writeln!(buf, "[{}] {}: {}", record.level(), record.target(), record.args()),
+        })
+        .init();
     match cli.command {
         Commands::Auth { auth_command } => {
             match auth_command {

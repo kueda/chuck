@@ -4,8 +4,8 @@ use oauth2::{
     RedirectUrl, Scope, TokenResponse, TokenUrl,
 };
 use std::collections::HashMap;
-use std::io::prelude::*;
-use std::net::TcpListener;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 use url::Url;
 
 use crate::auth::{TokenStorage, AuthError, AuthToken};
@@ -15,7 +15,7 @@ const INATURALIST_TOKEN_URL: &str = "https://www.inaturalist.org/oauth/token";
 const REDIRECT_URI: &str = "http://localhost:8080/callback";
 
 pub async fn authenticate_user<S: TokenStorage>(storage: &S) -> Result<AuthToken, AuthError> {
-    println!("Starting iNaturalist authentication...");
+    log::info!("Starting iNaturalist authentication...");
 
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
 
@@ -41,21 +41,35 @@ pub async fn authenticate_user<S: TokenStorage>(storage: &S) -> Result<AuthToken
         .set_pkce_challenge(pkce_challenge)
         .url();
 
-    println!("Opening browser for authentication...");
-    println!("If the browser doesn't open automatically, please visit: {auth_url}");
+    log::info!("Opening browser for authentication...");
+    log::info!("If the browser doesn't open automatically, please visit: {auth_url}");
 
     if let Err(e) = open::that(auth_url.to_string()) {
-        eprintln!("Failed to open browser: {e}. Please visit the URL manually.");
+        log::warn!("Failed to open browser: {e}. Please visit the URL manually.");
     }
 
     let authorization_code = wait_for_callback(csrf_token).await?;
+    log::info!("CSRF token validated, exchanging authorization code for token...");
 
     let token_result = client
         .exchange_code(authorization_code)
         .set_pkce_verifier(pkce_verifier)
-        .request_async(oauth2::reqwest::async_http_client)
+        .request_async(|req| async move {
+            let resp = oauth2::reqwest::async_http_client(req).await;
+            match &resp {
+                Ok(r) => log::info!(
+                    "Token exchange response: status={}, body={}",
+                    r.status_code,
+                    String::from_utf8_lossy(&r.body)
+                ),
+                Err(e) => log::error!("Token exchange HTTP error: {e}"),
+            }
+            resp
+        })
         .await
         .map_err(|e| AuthError::OAuthFailed(format!("Token exchange failed: {e}")))?;
+
+    log::info!("Token exchange successful");
 
     let expires_at = token_result
         .expires_in()
@@ -71,7 +85,7 @@ pub async fn authenticate_user<S: TokenStorage>(storage: &S) -> Result<AuthToken
     };
 
     storage.save_token(&auth_token)?;
-    println!("Authentication successful! Token saved.");
+    log::info!("Authentication successful! Token saved.");
 
     Ok(auth_token)
 }
@@ -82,78 +96,90 @@ fn get_client_id() -> Result<String, AuthError> {
 }
 
 async fn wait_for_callback(expected_csrf: CsrfToken) -> Result<AuthorizationCode, AuthError> {
-    let listener = TcpListener::bind("127.0.0.1:8080").map_err(|e| {
-        AuthError::OAuthFailed(format!("Failed to bind to localhost:8080: {e}"))
-    })?;
+    let listener = TcpListener::bind("127.0.0.1:8080")
+        .await
+        .map_err(|e| AuthError::OAuthFailed(format!("Failed to bind to localhost:8080: {e}")))?;
 
-    println!("Waiting for authentication callback...");
+    log::info!("Waiting for authentication callback...");
 
+    tokio::time::timeout(
+        std::time::Duration::from_secs(300),
+        wait_for_callback_inner(&listener, expected_csrf),
+    )
+    .await
+    .map_err(|_| AuthError::OAuthFailed("Authentication timed out after 5 minutes".to_string()))?
+}
+
+async fn wait_for_callback_inner(
+    listener: &TcpListener,
+    expected_csrf: CsrfToken,
+) -> Result<AuthorizationCode, AuthError> {
     let mut auth_code: Option<AuthorizationCode> = None;
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(mut stream) => {
-                let mut buffer = [0; 1024];
-                if let Ok(size) = stream.read(&mut buffer) {
-                    let request = String::from_utf8_lossy(&buffer[..size]);
+    loop {
+        // Once we have the code, wait up to 1 second for additional asset requests
+        // (e.g. the success page icon), then return.
+        let accept_result = if auth_code.is_some() {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                listener.accept(),
+            )
+            .await
+            {
+                Ok(r) => r,
+                Err(_) => {
+                    return auth_code.ok_or_else(|| {
+                        AuthError::OAuthFailed("No valid callback received".to_string())
+                    });
+                }
+            }
+        } else {
+            listener.accept().await
+        };
 
-                    if let Some(line) = request.lines().next() {
-                        if line.starts_with("GET /chuck_icon.png") {
-                            const ICON: &[u8] = include_bytes!(
-                                "../../../src-tauri/icons/icon.png"
-                            );
-                            let _ = stream.write_all(
-                                b"HTTP/1.1 200 OK\r\n\
-                                  Content-Type: image/png\r\n\r\n",
-                            );
-                            let _ = stream.write_all(ICON);
-                            let _ = stream.flush();
-                        } else if line.starts_with("GET /callback")
-                            && auth_code.is_none()
-                        {
-                            auth_code = Some(handle_callback_request(
-                                line,
-                                expected_csrf.clone(),
-                            )?);
-
-                            const SUCCESS_PAGE: &str =
-                                include_str!("oauth_success.html");
-                            let _ = stream.write_all(
-                                b"HTTP/1.1 200 OK\r\n\
-                                  Content-Type: text/html\r\n\r\n",
-                            );
-                            let _ = stream.write_all(
-                                SUCCESS_PAGE.as_bytes(),
-                            );
-                            let _ = stream.flush();
-
-                            // Stay alive briefly to serve page assets
-                            // (e.g. images), then switch to non-blocking
-                            // so we return once no more requests arrive.
-                            std::thread::sleep(
-                                std::time::Duration::from_secs(1),
-                            );
-                            listener.set_nonblocking(true).ok();
+        match accept_result {
+            Ok((mut stream, _)) => {
+                let mut buffer = [0u8; 1024];
+                match stream.read(&mut buffer).await {
+                    Ok(size) if size > 0 => {
+                        let request = String::from_utf8_lossy(&buffer[..size]);
+                        if let Some(line) = request.lines().next() {
+                            if line.starts_with("GET /chuck_icon.png") {
+                                const ICON: &[u8] =
+                                    include_bytes!("../../../src-tauri/icons/icon.png");
+                                let _ = stream
+                                    .write_all(
+                                        b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n\r\n",
+                                    )
+                                    .await;
+                                let _ = stream.write_all(ICON).await;
+                            } else if line.starts_with("GET /callback") && auth_code.is_none() {
+                                auth_code = Some(handle_callback_request(
+                                    line,
+                                    expected_csrf.clone(),
+                                )?);
+                                log::debug!("Callback received, serving success page");
+                                const SUCCESS_PAGE: &str = include_str!("oauth_success.html");
+                                let _ = stream
+                                    .write_all(
+                                        b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n",
+                                    )
+                                    .await;
+                                let _ = stream.write_all(SUCCESS_PAGE.as_bytes()).await;
+                            }
                         }
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::warn!("Connection read failed: {e}");
                     }
                 }
             }
-            Err(ref e)
-                if e.kind() == std::io::ErrorKind::WouldBlock =>
-            {
-                if let Some(code) = auth_code {
-                    return Ok(code);
-                }
-            }
             Err(e) => {
-                eprintln!("Connection failed: {e}");
+                log::warn!("Connection accept failed: {e}");
             }
         }
     }
-
-    Err(AuthError::OAuthFailed(
-        "No valid callback received".to_string(),
-    ))
 }
 
 fn handle_callback_request(

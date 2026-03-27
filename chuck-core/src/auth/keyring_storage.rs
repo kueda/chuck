@@ -28,17 +28,26 @@ impl KeyringStorage {
 
     fn get_entry(&self) -> Result<Entry, AuthError> {
         Entry::new(self.service_name, self.account_name)
-            .map_err(|e| AuthError::OAuthFailed(format!("Keyring unavailable: {e}")))
+            .map_err(|e| {
+                log::error!("Keyring entry creation failed: {e}");
+                AuthError::OAuthFailed(format!("Keyring unavailable: {e}"))
+            })
     }
 }
 
 impl TokenStorage for KeyringStorage {
     fn save_token(&self, token: &AuthToken) -> Result<(), AuthError> {
+        log::info!("Saving token to keychain");
         let token_json = serde_json::to_string(token)
             .map_err(AuthError::JsonError)?;
 
         self.get_entry()?.set_password(&token_json)
-            .map_err(|e| AuthError::OAuthFailed(format!("Failed to save to keyring: {e}")))
+            .map_err(|e| {
+                log::error!("Failed to save to keyring: {e}");
+                AuthError::OAuthFailed(format!("Failed to save to keyring: {e}"))
+            })?;
+        log::info!("Token saved to keychain");
+        Ok(())
     }
 
     fn load_token(&self) -> Result<Option<AuthToken>, AuthError> {

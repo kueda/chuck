@@ -21,26 +21,40 @@ struct UserResult {
 
 /// Internal helper to get auth status from cache
 async fn get_auth_status_from_cache(cache: &AuthCache) -> Result<AuthStatus, String> {
+    log::info!("Loading token from cache");
     match cache.load_token() {
         Ok(Some(token)) => {
-            // Fetch JWT to get username
+            log::info!("Token found, fetching JWT");
             let jwt = fetch_jwt(&token).await
-                .map_err(|e| format!("Failed to fetch JWT: {e}"))?;
+                .map_err(|e| {
+                    log::error!("Failed to fetch JWT: {e}");
+                    format!("Failed to fetch JWT: {e}")
+                })?;
 
             let username = fetch_username_from_api(&jwt)
                 .await
-                .map_err(|e| format!("Failed to fetch username: {e}"))?;
+                .map_err(|e| {
+                    log::error!("Failed to fetch username: {e}");
+                    format!("Failed to fetch username: {e}")
+                })?;
 
+            log::info!("Auth status: authenticated as {username}");
             Ok(AuthStatus {
                 authenticated: true,
                 username: Some(username),
             })
         }
-        Ok(None) => Ok(AuthStatus {
-            authenticated: false,
-            username: None,
-        }),
-        Err(e) => Err(format!("Failed to load token: {e}")),
+        Ok(None) => {
+            log::info!("No token in cache, user not authenticated");
+            Ok(AuthStatus {
+                authenticated: false,
+                username: None,
+            })
+        }
+        Err(e) => {
+            log::error!("Failed to load token from cache: {e}");
+            Err(format!("Failed to load token: {e}"))
+        }
     }
 }
 
@@ -49,10 +63,15 @@ async fn get_auth_status_from_cache(cache: &AuthCache) -> Result<AuthStatus, Str
 pub async fn inat_authenticate(
     cache: State<'_, AuthCache>
 ) -> Result<AuthStatus, String> {
+    log::info!("iNat authentication started");
     // Authenticate and save token
     authenticate_user(cache.inner()).await
-        .map_err(|e| format!("Authentication failed: {e}"))?;
+        .map_err(|e| {
+            log::error!("Authentication failed: {e}");
+            format!("Authentication failed: {e}")
+        })?;
 
+    log::info!("Token saved, fetching auth status");
     // Return auth status
     get_auth_status_from_cache(cache.inner()).await
 }
