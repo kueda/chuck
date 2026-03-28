@@ -20,6 +20,11 @@ use tauri::RunEvent;
 /// The frontend retrieves this once on startup via the `get_opened_file` command.
 struct OpenedFile(Mutex<Option<String>>);
 
+/// Holds a cached ZipArchive for fast photo extraction.
+/// Parsing the central directory of a large ZIP is expensive; keeping one open
+/// means we only pay that cost once instead of on every photo request.
+pub(crate) struct ZipState(pub Mutex<Option<zip::ZipArchive<std::fs::File>>>);
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -85,6 +90,9 @@ pub fn run() {
         .setup(|app| {
             // Initialize auth cache (lazy - won't access keychain until first use)
             app.manage(AuthCache::new());
+
+            // Initialize zip state (populated on first archive open or photo request)
+            app.manage(ZipState(Mutex::new(None)));
 
             // Check CLI args for a file path (Windows/Linux file association)
             let opened_file = std::env::args()
