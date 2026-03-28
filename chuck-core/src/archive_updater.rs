@@ -821,15 +821,15 @@ mod tests {
         use crate::darwin_core::meta::Metadata;
         use crate::darwin_core::archive::ArchiveBuilder;
 
+        let tmp = tempfile::NamedTempFile::new().unwrap();
         let metadata = Metadata::default();
         let builder = ArchiveBuilder::new(
             vec![DwcaExtension::SimpleMultimedia, DwcaExtension::Identifications],
             metadata,
-            &std::env::temp_dir(),
+            tmp.path(),
         ).unwrap();
-        let tmp = tempfile::NamedTempFile::new().unwrap();
         let path = tmp.path().to_str().unwrap().to_string();
-        builder.build(&path).await.unwrap();
+        builder.build().await.unwrap();
 
         let exts = infer_extensions(&path).unwrap();
         assert!(exts.contains(&DwcaExtension::SimpleMultimedia));
@@ -843,11 +843,11 @@ mod tests {
         use crate::darwin_core::meta::Metadata;
         use crate::darwin_core::archive::ArchiveBuilder;
 
-        let metadata = Metadata::default();
-        let builder = ArchiveBuilder::new(vec![], metadata, &std::env::temp_dir()).unwrap();
         let tmp = tempfile::NamedTempFile::new().unwrap();
+        let metadata = Metadata::default();
+        let builder = ArchiveBuilder::new(vec![], metadata, tmp.path()).unwrap();
         let path = tmp.path().to_str().unwrap().to_string();
-        builder.build(&path).await.unwrap();
+        builder.build().await.unwrap();
 
         assert!(!archive_has_media(&path).unwrap());
     }
