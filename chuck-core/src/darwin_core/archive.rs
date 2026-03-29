@@ -112,14 +112,18 @@ impl ArchiveBuilder {
         &mut self,
         rel_zip_path: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let local_path = self.temp_dir.path().join(rel_zip_path);
+        // ZIP spec requires forward slashes; normalize Windows backslashes.
+        // Using the normalized form for the local path too ensures this works cross-platform
+        // (on non-Windows, Path::join does not treat backslashes as separators).
+        let normalized = rel_zip_path.replace('\\', "/");
+        let local_path = self.temp_dir.path().join(&normalized);
         if !local_path.exists() {
             return Ok(());
         }
         let zip_opts: FileOptions<()> = FileOptions::default()
             .compression_method(CompressionMethod::Stored)
             .unix_permissions(0o644);
-        self.zip.start_file(rel_zip_path, zip_opts)?;
+        self.zip.start_file(&normalized, zip_opts)?;
         let mut file = File::open(&local_path)?;
         std::io::copy(&mut file, &mut self.zip)?;
         std::fs::remove_file(&local_path)?;
@@ -442,6 +446,31 @@ mod tests {
         let mut archive = ZipArchive::new(file).unwrap();
         let mut entry = archive.by_name("media/2024/01/15/99999.jpg")
             .expect("media entry missing from zip");
+        let mut contents = vec![];
+        std::io::Read::read_to_end(&mut entry, &mut contents).unwrap();
+        assert_eq!(contents, b"fake image data");
+    }
+
+    #[tokio::test]
+    async fn test_add_media_from_temp_normalizes_backslash_paths() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let mut builder = ArchiveBuilder::new(vec![], Metadata::default(), tmp.path()).unwrap();
+
+        let media_dir = builder.media_dir();
+        std::fs::create_dir_all(media_dir.join("2024/01/15")).unwrap();
+        let staged = media_dir.join("2024/01/15/99999.jpg");
+        std::fs::write(&staged, b"fake image data").unwrap();
+
+        // Simulate what happens on Windows: rel_zip_path has backslash separators
+        builder.add_media_from_temp(r"media\2024\01\15\99999.jpg").unwrap();
+
+        builder.build().await.unwrap();
+
+        let file = std::fs::File::open(tmp.path()).unwrap();
+        let mut archive = ZipArchive::new(file).unwrap();
+        // The entry must be stored with forward slashes so extract_single_file can find it
+        let mut entry = archive.by_name("media/2024/01/15/99999.jpg")
+            .expect("media entry should be stored with forward slashes");
         let mut contents = vec![];
         std::io::Read::read_to_end(&mut entry, &mut contents).unwrap();
         assert_eq!(contents, b"fake image data");
