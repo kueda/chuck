@@ -146,6 +146,7 @@ pub async fn fetch_observations(
                     }
                 }
                 chuck_core::downloader::DownloadStage::Building => {}
+                chuck_core::downloader::DownloadStage::Merging { .. } => {}
             }
         };
         return update_archive(zip_path, progress_callback, None, None).await;
@@ -257,6 +258,7 @@ pub async fn fetch_observations(
                     chuck_core::downloader::DownloadStage::Building => {
                         // Building message already shown by progress bar completion
                     }
+                    chuck_core::downloader::DownloadStage::Merging { .. } => {}
                 }
             };
 

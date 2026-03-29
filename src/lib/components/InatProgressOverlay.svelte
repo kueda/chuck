@@ -10,6 +10,8 @@ interface Props {
   mediaIsEstimate?: boolean;
   message?: string;
   estimatedTimeRemaining?: string;
+  mergeCurrent?: number;
+  mergeTotal?: number;
   onCancel: () => void;
 }
 
@@ -22,6 +24,8 @@ const {
   mediaIsEstimate = true,
   message,
   estimatedTimeRemaining,
+  mergeCurrent,
+  mergeTotal,
   onCancel,
 }: Props = $props();
 
@@ -101,8 +105,16 @@ function fmtNumber(val: number | undefined) {
       {/if}
     {:else if stage === 'building' && message}
       <div class="mb-4">
-        <div class="text-sm mb-2">{message}</div>
-        <Progress value={undefined} class="w-full">
+        <div class="text-sm mb-2 flex justify-between">
+          <div>{message}</div>
+          {#if mergeTotal}
+            <div>{fmtNumber(mergeCurrent)} / {fmtNumber(mergeTotal)}</div>
+          {/if}
+        </div>
+        <Progress
+          value={mergeTotal ? ((mergeCurrent ?? 0) / mergeTotal) * 100 : undefined}
+          class="w-full"
+        >
           <Progress.Track>
             <Progress.Range />
           </Progress.Track>

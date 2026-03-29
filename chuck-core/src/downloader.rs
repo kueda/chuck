@@ -30,6 +30,8 @@ pub enum DownloadStage {
     Fetching,
     DownloadingMedia,
     Building,
+    /// Emitted during archive merge: re-writing existing archive with updates.
+    Merging { current: usize, total: usize },
 }
 
 /// Centralized downloader for iNaturalist observations to DarwinCore Archive

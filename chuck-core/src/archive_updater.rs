@@ -14,7 +14,7 @@ use crate::darwin_core::{
     identification::Identification,
     comment::Comment,
 };
-use crate::downloader::{Downloader, DownloadProgress};
+use crate::downloader::{Downloader, DownloadProgress, DownloadStage};
 use crate::merge::{merge_csv_streams, merge_extension_csv_streams};
 use crate::DwcaExtension;
 
@@ -228,9 +228,10 @@ where
     let updates_tmp = tempfile::NamedTempFile::new()?;
     let updates_path = updates_tmp.path().to_str().unwrap().to_string();
     let downloader = Downloader::new(params, extensions, fetch_media, jwt);
+    let callback_for_merge = progress_callback.clone();
     downloader.execute(&updates_path, progress_callback, cancel_token).await?;
 
-    merge_archive_into(zip_path, &updates_path, zip_path, &original_inat_query)?;
+    merge_archive_into(zip_path, &updates_path, zip_path, &original_inat_query, &callback_for_merge)?;
 
     Ok(())
 }
@@ -252,6 +253,7 @@ fn merge_archive_into(
     updates_zip: &str,
     output_path: &str,
     original_inat_query: &str,
+    progress_callback: &impl Fn(DownloadProgress),
 ) -> Result<(), Box<dyn std::error::Error>> {
     use std::io::Write;
     use zip::write::{FileOptions, ZipWriter};
@@ -306,7 +308,15 @@ fn merge_archive_into(
     {
         let existing_file = std::fs::File::open(existing_zip)?;
         let mut existing_archive = zip::ZipArchive::new(existing_file)?;
-        for i in 0..existing_archive.len() {
+        let total = existing_archive.len();
+        // Emit at start and every ~1% of entries so the UI stays responsive
+        // without flooding the event channel.
+        let step = (total / 100).max(1);
+        progress_callback(DownloadProgress {
+            stage: DownloadStage::Merging { current: 0, total },
+            ..Default::default()
+        });
+        for i in 0..total {
             let mut entry = existing_archive.by_index(i)?;
             let name = entry.name().to_string();
             if name == "chuck.json" {
@@ -335,6 +345,14 @@ fn merge_archive_into(
                 std::io::copy(&mut entry, &mut zip_out)?;
             }
             // media superseded by updates and unknown entries are skipped
+
+            let processed = i + 1;
+            if processed % step == 0 || processed == total {
+                progress_callback(DownloadProgress {
+                    stage: DownloadStage::Merging { current: processed, total },
+                    ..Default::default()
+                });
+            }
         }
     }
 
@@ -602,7 +620,7 @@ mod tests {
             "2026-03-24",
         );
 
-        merge_archive_into(&existing_path, &updates_path, &output_path, "taxon_id=47790")
+        merge_archive_into(&existing_path, &updates_path, &output_path, "taxon_id=47790", &|_| {})
             .unwrap();
 
         let rows = read_occ_rows(&output_path);
@@ -658,7 +676,7 @@ mod tests {
             ),
         );
 
-        merge_archive_into(&existing_path, &updates_path, &output_path, "taxon_id=1")
+        merge_archive_into(&existing_path, &updates_path, &output_path, "taxon_id=1", &|_| {})
             .unwrap();
 
         let rows = read_csv_rows_from_zip(&output_path, Multimedia::FILENAME);
@@ -713,7 +731,7 @@ mod tests {
             ],
         );
 
-        merge_archive_into(&existing_path, &updates_path, &output_path, "taxon_id=1")
+        merge_archive_into(&existing_path, &updates_path, &output_path, "taxon_id=1", &|_| {})
             .unwrap();
 
         let media = read_media_from_zip(&output_path);
@@ -759,7 +777,7 @@ mod tests {
             "2026-01-02",
         );
 
-        merge_archive_into(&existing_path, &updates_path, &output_path, "taxon_id=1")
+        merge_archive_into(&existing_path, &updates_path, &output_path, "taxon_id=1", &|_| {})
             .unwrap();
 
         let eml = read_eml_from_zip(&output_path);
@@ -800,7 +818,7 @@ mod tests {
         );
 
         // output_path == existing_zip (in-place)
-        merge_archive_into(&existing_path, &updates_path, &existing_path, "taxon_id=1")
+        merge_archive_into(&existing_path, &updates_path, &existing_path, "taxon_id=1", &|_| {})
             .unwrap();
 
         let rows = read_occ_rows(&existing_path);
@@ -835,7 +853,7 @@ mod tests {
             "2020-01-02",
         );
 
-        merge_archive_into(&existing_path, &updates_path, &output_path, "taxon_id=1")
+        merge_archive_into(&existing_path, &updates_path, &output_path, "taxon_id=1", &|_| {})
             .unwrap();
 
         let eml = read_eml_from_zip(&output_path);
@@ -931,6 +949,43 @@ mod tests {
         let preview = read_archive_preview(path).unwrap();
         assert!(preview.has_media);
         assert!(preview.extensions.is_empty());
+    }
+
+    #[test]
+    fn test_merge_emits_merging_progress_events() {
+        use std::sync::{Arc, Mutex};
+
+        let existing_tmp = tempfile::NamedTempFile::new().unwrap();
+        let updates_tmp = tempfile::NamedTempFile::new().unwrap();
+        let output_tmp = tempfile::NamedTempFile::new().unwrap();
+
+        build_test_zip(existing_tmp.path().to_str().unwrap(), "id\n1\n2\n", "taxon_id=1", "2025-01-01");
+        build_test_zip(updates_tmp.path().to_str().unwrap(), "id\n1\n", "taxon_id=1", "2025-02-01");
+
+        let events: Arc<Mutex<Vec<DownloadProgress>>> = Arc::new(Mutex::new(Vec::new()));
+        let events_clone = Arc::clone(&events);
+        let callback = move |p: DownloadProgress| {
+            events_clone.lock().unwrap().push(p);
+        };
+
+        merge_archive_into(
+            existing_tmp.path().to_str().unwrap(),
+            updates_tmp.path().to_str().unwrap(),
+            output_tmp.path().to_str().unwrap(),
+            "taxon_id=1",
+            &callback,
+        ).unwrap();
+
+        let captured = events.lock().unwrap();
+        assert!(!captured.is_empty(), "no progress events emitted");
+        assert!(captured.iter().all(|p| matches!(
+            p.stage, DownloadStage::Merging { .. }
+        )));
+        // First event must be current=0
+        assert!(matches!(captured[0].stage, DownloadStage::Merging { current: 0, .. }));
+        // Last event must have current == total
+        let last = captured.last().unwrap();
+        assert!(matches!(last.stage, DownloadStage::Merging { current, total } if current == total));
     }
 
     #[test]

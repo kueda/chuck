@@ -150,6 +150,7 @@ pub enum InatProgress {
     Fetching { current: usize, total: usize },
     DownloadingMedia { current: usize, total: usize },
     Building { message: String },
+    Merging { current: usize, total: usize },
     Complete,
 }
 
@@ -235,6 +236,8 @@ pub async fn generate_inat_archive(
             DownloadStage::Building => InatProgress::Building {
                 message: "Finalizing archive...".to_string()
             },
+            // Merging only occurs during updates, not initial creation
+            DownloadStage::Merging { .. } => return,
         };
 
         let _ = app_clone.emit("inat-progress", event);
@@ -376,6 +379,7 @@ pub async fn update_inat_archive(
             DownloadStage::Building => InatProgress::Building {
                 message: "Merging records...".to_string(),
             },
+            DownloadStage::Merging { current, total } => InatProgress::Merging { current, total },
         };
         let _ = app_clone.emit("inat-progress", event);
     };

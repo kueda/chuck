@@ -20,7 +20,13 @@ import { formatETR } from './format-etr';
 import UpdateArchiveTab from './UpdateArchiveTab.svelte';
 
 interface InatProgress {
-  stage: 'fetching' | 'downloadingMedia' | 'building' | 'complete' | 'error';
+  stage:
+    | 'fetching'
+    | 'downloadingMedia'
+    | 'building'
+    | 'merging'
+    | 'complete'
+    | 'error';
   current?: number;
   total?: number;
   message?: string;
@@ -41,6 +47,8 @@ let observationsTotal = $state<number | undefined>(undefined);
 let mediaCurrent = $state<number | undefined>(undefined);
 let mediaTotal = $state<number | undefined>(undefined);
 let progressMessage = $state<string | undefined>(undefined);
+let mergeCurrent = $state<number | undefined>(undefined);
+let mergeTotal = $state<number | undefined>(undefined);
 
 // ETR state
 let downloadStartTime = $state<number | null>(null);
@@ -226,6 +234,11 @@ onMount(() => {
     } else if (progress.stage === 'building') {
       progressStage = 'building';
       progressMessage = progress.message;
+    } else if (progress.stage === 'merging') {
+      progressStage = 'building';
+      progressMessage = 'Merging records...';
+      mergeCurrent = progress.current;
+      mergeTotal = progress.total;
     } else if (progress.stage === 'complete') {
       progressStage = 'complete';
       progressMessage =
@@ -327,6 +340,8 @@ onMount(() => {
     mediaIsEstimate={true}
     message={progressMessage}
     estimatedTimeRemaining={formatETR(estimatedSecondsRemaining)}
+    mergeCurrent={mergeCurrent}
+    mergeTotal={mergeTotal}
     onCancel={handleCancelDownload}
   />
 {/if}
