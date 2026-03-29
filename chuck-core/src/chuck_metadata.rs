@@ -38,14 +38,17 @@ pub fn read_pub_date(
     };
     let mut contents = String::new();
     std::io::Read::read_to_string(&mut eml_entry, &mut contents)?;
+    Ok(parse_pub_date_from_xml(&contents))
+}
+
+/// Extract the `<pubDate>` value from EML XML content.
+/// Returns `None` if no `<pubDate>` element is present.
+pub fn parse_pub_date_from_xml(xml: &str) -> Option<String> {
     let tag = "<pubDate>";
-    if let Some(start) = contents.find(tag) {
-        let rest = &contents[start + tag.len()..];
-        if let Some(end) = rest.find("</pubDate>") {
-            return Ok(Some(rest[..end].trim().to_string()));
-        }
-    }
-    Ok(None)
+    xml.find(tag).and_then(|start| {
+        let rest = &xml[start + tag.len()..];
+        rest.find("</pubDate>").map(|end| rest[..end].trim().to_string())
+    })
 }
 
 #[cfg(test)]

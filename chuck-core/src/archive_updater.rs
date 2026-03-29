@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::{Arc, atomic::AtomicBool};
 use chrono::NaiveDate;
 
-use crate::chuck_metadata::{read_chuck_metadata, read_pub_date};
+use crate::chuck_metadata::{ChuckMetadata, parse_pub_date_from_xml};
 use crate::api::params::parse_url_params;
 use crate::darwin_core::{
     meta::generate_eml,
@@ -32,11 +32,16 @@ use crate::DwcaExtension;
 /// but would trust the manifest over the actual contents.
 pub fn infer_extensions(zip_path: &str) -> Result<Vec<DwcaExtension>, Box<dyn std::error::Error>> {
     let file = std::fs::File::open(zip_path)?;
-    let mut archive = zip::ZipArchive::new(file)?;
-    let names: HashSet<String> = (0..archive.len())
-        .map(|i| archive.by_index(i).map(|e| e.name().to_string()))
-        .collect::<Result<_, _>>()?;
+    let archive = zip::ZipArchive::new(file)?;
+    Ok(extensions_from_zip(&archive))
+}
 
+/// Infer extensions from an already-open ZipArchive using the central directory.
+/// Uses `file_names()` to avoid seeking to each local file header.
+fn extensions_from_zip<R: std::io::Read + std::io::Seek>(
+    archive: &zip::ZipArchive<R>,
+) -> Vec<DwcaExtension> {
+    let names: HashSet<&str> = archive.file_names().collect();
     let mut extensions = Vec::new();
     if names.contains(Multimedia::FILENAME) {
         extensions.push(DwcaExtension::SimpleMultimedia);
@@ -50,19 +55,61 @@ pub fn infer_extensions(zip_path: &str) -> Result<Vec<DwcaExtension>, Box<dyn st
     if names.contains(Comment::FILENAME) {
         extensions.push(DwcaExtension::Comments);
     }
-    Ok(extensions)
+    extensions
 }
 
 /// Returns true if the ZIP archive contains any files under `media/`.
 pub fn archive_has_media(zip_path: &str) -> Result<bool, Box<dyn std::error::Error>> {
     let file = std::fs::File::open(zip_path)?;
+    let archive = zip::ZipArchive::new(file)?;
+    Ok(archive.file_names().any(|name| name.starts_with("media/")))
+}
+
+/// All metadata needed by the update UI, read in a single zip open.
+pub struct ArchivePreview {
+    pub inat_query: Option<String>,
+    pub pub_date: Option<String>,
+    pub extensions: Vec<DwcaExtension>,
+    pub has_media: bool,
+}
+
+/// Read all archive metadata needed to populate the update UI in a single zip
+/// open. Uses `file_names()` to scan the central directory without seeking to
+/// each local file header, which is critical for large archives with many media
+/// files.
+pub fn read_archive_preview(
+    zip_path: &str,
+) -> Result<ArchivePreview, Box<dyn std::error::Error>> {
+    let file = std::fs::File::open(zip_path)?;
     let mut archive = zip::ZipArchive::new(file)?;
-    for i in 0..archive.len() {
-        if archive.by_index(i)?.name().starts_with("media/") {
-            return Ok(true);
+
+    // Collect names from the central directory (already in memory after
+    // ZipArchive::new). This avoids the per-entry seeks that by_index() causes.
+    let extensions = extensions_from_zip(&archive);
+    let has_media = archive.file_names().any(|name| name.starts_with("media/"));
+
+    let inat_query = match archive.by_name("chuck.json") {
+        Ok(mut entry) => {
+            let mut contents = String::new();
+            std::io::Read::read_to_string(&mut entry, &mut contents)?;
+            let meta: ChuckMetadata = serde_json::from_str(&contents)?;
+            meta.inat_query
         }
-    }
-    Ok(false)
+        Err(zip::result::ZipError::FileNotFound) => None,
+        Err(e) => return Err(e.into()),
+    };
+
+    let pub_date = match archive.by_name("eml.xml") {
+        Ok(mut entry) => {
+            let mut contents = String::new();
+            std::io::Read::read_to_string(&mut entry, &mut contents)?;
+            parse_pub_date_from_xml(&contents)
+        }
+        Err(zip::result::ZipError::FileNotFound) => None,
+        Err(e) => return Err(e.into()),
+    };
+
+    Ok(ArchivePreview { inat_query, pub_date, extensions, has_media })
 }
 
 /// Read a CSV stream into a `HashMap<id_at_col, row>` (one row per id).
@@ -164,15 +211,14 @@ where
     F: Fn(DownloadProgress) + Send + Sync + Clone + 'static,
 {
     // --- Read archive metadata ---
-    let chuck_meta = read_chuck_metadata(zip_path)?
-        .ok_or("Not a Chuck archive: chuck.json not found")?;
-    let original_inat_query = chuck_meta.inat_query
-        .ok_or("chuck.json is missing inat_query")?;
-    let pub_date = read_pub_date(zip_path)?
+    let preview = read_archive_preview(zip_path)?;
+    let original_inat_query = preview.inat_query
+        .ok_or("Not a Chuck archive: chuck.json not found or missing inat_query")?;
+    let pub_date = preview.pub_date
         .ok_or("eml.xml is missing pubDate")?;
     let updated_since = updated_since_from_pub_date(&pub_date)?;
-    let extensions = infer_extensions(zip_path)?;
-    let fetch_media = archive_has_media(zip_path)?;
+    let extensions = preview.extensions;
+    let fetch_media = preview.has_media;
 
     // --- Build update params ---
     let mut params = parse_url_params(&original_inat_query);
@@ -850,5 +896,65 @@ mod tests {
         builder.build().await.unwrap();
 
         assert!(!archive_has_media(&path).unwrap());
+    }
+
+    #[test]
+    fn test_read_archive_preview_returns_all_fields() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        build_test_zip_with_extra_csv(
+            path,
+            "id\n1\n",
+            "taxon_id=47792",
+            "2025-01-15",
+            Multimedia::FILENAME,
+            "coreid\n1\n",
+        );
+        let preview = read_archive_preview(path).unwrap();
+        assert_eq!(preview.inat_query, Some("taxon_id=47792".to_string()));
+        assert_eq!(preview.pub_date, Some("2025-01-15".to_string()));
+        assert!(preview.extensions.contains(&DwcaExtension::SimpleMultimedia));
+        assert!(!preview.has_media);
+    }
+
+    #[test]
+    fn test_read_archive_preview_detects_media() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        build_test_zip_with_media(
+            path,
+            "id\n1\n",
+            "taxon_id=47792",
+            "2025-01-15",
+            &[("media/photo.jpg", b"fake-jpeg")],
+        );
+        let preview = read_archive_preview(path).unwrap();
+        assert!(preview.has_media);
+        assert!(preview.extensions.is_empty());
+    }
+
+    #[test]
+    fn test_read_archive_preview_no_chuck_json() {
+        use std::io::Write;
+        use zip::CompressionMethod;
+        use zip::write::FileOptions;
+
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+
+        let file = std::fs::File::create(path).unwrap();
+        let mut zip = zip::write::ZipWriter::new(file);
+        let opts: FileOptions<()> =
+            FileOptions::default().compression_method(CompressionMethod::Stored);
+        let eml = "<eml><dataset><pubDate>2025-06-01</pubDate></dataset></eml>";
+        zip.start_file("eml.xml", opts).unwrap();
+        zip.write_all(eml.as_bytes()).unwrap();
+        zip.finish().unwrap();
+
+        let preview = read_archive_preview(path).unwrap();
+        assert_eq!(preview.inat_query, None);
+        assert_eq!(preview.pub_date, Some("2025-06-01".to_string()));
+        assert!(preview.extensions.is_empty());
+        assert!(!preview.has_media);
     }
 }

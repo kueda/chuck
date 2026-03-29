@@ -295,20 +295,18 @@ pub struct ChuckArchiveInfo {
 
 #[tauri::command]
 pub async fn read_chuck_archive_info(path: String) -> Result<ChuckArchiveInfo, String> {
-    use chuck_core::archive_updater::{archive_has_media, infer_extensions};
-    use chuck_core::chuck_metadata::{read_chuck_metadata, read_pub_date};
+    use chuck_core::archive_updater::read_archive_preview;
 
-    let chuck_meta = read_chuck_metadata(&path).map_err(|e| e.to_string())?;
-    let inat_query = chuck_meta.and_then(|m| m.inat_query);
-    let raw_extensions = infer_extensions(&path).map_err(|e| e.to_string())?;
-    let extensions: Vec<String> = raw_extensions
-        .iter()
-        .map(|e| format!("{e:?}"))
-        .collect();
-    let has_media = archive_has_media(&path).map_err(|e| e.to_string())?;
+    let preview = read_archive_preview(&path).map_err(|e| e.to_string())?;
+    let extensions: Vec<String> = preview.extensions.iter().map(|e| format!("{e:?}")).collect();
     let file_size_bytes = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
-    let pub_date = read_pub_date(&path).map_err(|e| e.to_string())?;
-    Ok(ChuckArchiveInfo { inat_query, extensions, has_media, file_size_bytes, pub_date })
+    Ok(ChuckArchiveInfo {
+        inat_query: preview.inat_query,
+        extensions,
+        has_media: preview.has_media,
+        file_size_bytes,
+        pub_date: preview.pub_date,
+    })
 }
 
 #[tauri::command]
