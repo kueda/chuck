@@ -575,6 +575,7 @@ fn merge_archive_append(
 ///
 /// The output is written atomically: a temp file in the same directory as
 /// `output_path` is used, then renamed over the target.
+#[allow(dead_code)]
 fn merge_archive_into(
     existing_zip: &str,
     updates_zip: &str,
