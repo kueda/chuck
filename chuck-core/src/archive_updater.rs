@@ -231,7 +231,334 @@ where
     let callback_for_merge = progress_callback.clone();
     downloader.execute(&updates_path, progress_callback, cancel_token).await?;
 
-    merge_archive_into(zip_path, &updates_path, zip_path, &original_inat_query, &callback_for_merge)?;
+    merge_archive_append(zip_path, &updates_path, &original_inat_query, &callback_for_merge)?;
+
+    Ok(())
+}
+
+/// Append-based merge: rewrites only CSVs and metadata, keeping existing media
+/// local file entries in place by truncating the old central directory and writing
+/// a new one.
+///
+/// This is O(update_size + CSV_size) I/O rather than O(archive_size), making it
+/// much faster for large archives where only a small fraction of observations changed.
+///
+/// How it works:
+/// 1. Read CSV updates into memory (small).
+/// 2. Collect central-directory metadata for every existing media/meta.xml entry
+///    (no media data is read — only the CD record, already in RAM after
+///    `ZipArchive::new`).
+/// 3. Seek to `central_directory_start`, truncating the old CD in place.
+/// 4. Write new local file entries for merged CSVs, fresh eml.xml/chuck.json,
+///    and any new media from the updates.
+/// 5. Write a combined central directory: existing media entries (original offsets,
+///    untouched) + new entries (new offsets).
+/// 6. Write the End-of-Central-Directory record.
+///
+/// Known limitations vs `merge_archive_into`:
+/// - Not atomic: modifies the file in place (no temp-file + rename).
+/// - Dead space accumulates: old CSV local entries are unreachable but remain in
+///   the file, growing it slightly with each update.
+/// - Superseded media (re-uploaded photo for an existing observation) keeps its
+///   old local entry as dead space; only the CSV reference changes.
+fn merge_archive_append(
+    zip_path: &str,
+    updates_zip: &str,
+    original_inat_query: &str,
+    progress_callback: &impl Fn(DownloadProgress),
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::{Seek, SeekFrom, Write};
+
+    // ---- Binary helpers (non-ZIP64; assumes sizes < 4 GiB) ----
+
+    fn write_local_header(
+        w: &mut impl Write,
+        name_bytes: &[u8],
+        method: u16,
+        crc32: u32,
+        compressed: u32,
+        uncompressed: u32,
+    ) -> std::io::Result<()> {
+        // DOS timestamp: 2000-01-01 00:00:00
+        let dos_date: u16 = 0x2821;
+        let dos_time: u16 = 0x0000;
+        w.write_all(&0x04034b50u32.to_le_bytes())?; // signature
+        w.write_all(&20u16.to_le_bytes())?;          // version needed
+        w.write_all(&0u16.to_le_bytes())?;           // flags
+        w.write_all(&method.to_le_bytes())?;
+        w.write_all(&dos_time.to_le_bytes())?;
+        w.write_all(&dos_date.to_le_bytes())?;
+        w.write_all(&crc32.to_le_bytes())?;
+        w.write_all(&compressed.to_le_bytes())?;
+        w.write_all(&uncompressed.to_le_bytes())?;
+        w.write_all(&(name_bytes.len() as u16).to_le_bytes())?;
+        w.write_all(&0u16.to_le_bytes())?; // extra len
+        w.write_all(name_bytes)?;
+        Ok(())
+    }
+
+    /// Returns the number of bytes written.
+    fn write_cd_entry(
+        w: &mut impl Write,
+        name_bytes: &[u8],
+        method: u16,
+        crc32: u32,
+        compressed: u32,
+        uncompressed: u32,
+        local_offset: u32,
+    ) -> std::io::Result<usize> {
+        let dos_date: u16 = 0x2821;
+        let dos_time: u16 = 0x0000;
+        w.write_all(&0x02014b50u32.to_le_bytes())?; // signature
+        w.write_all(&20u16.to_le_bytes())?;          // version made by
+        w.write_all(&20u16.to_le_bytes())?;          // version needed
+        w.write_all(&0u16.to_le_bytes())?;           // flags
+        w.write_all(&method.to_le_bytes())?;
+        w.write_all(&dos_time.to_le_bytes())?;
+        w.write_all(&dos_date.to_le_bytes())?;
+        w.write_all(&crc32.to_le_bytes())?;
+        w.write_all(&compressed.to_le_bytes())?;
+        w.write_all(&uncompressed.to_le_bytes())?;
+        w.write_all(&(name_bytes.len() as u16).to_le_bytes())?;
+        w.write_all(&0u16.to_le_bytes())?; // extra len
+        w.write_all(&0u16.to_le_bytes())?; // comment len
+        w.write_all(&0u16.to_le_bytes())?; // disk start
+        w.write_all(&0u16.to_le_bytes())?; // internal attrs
+        // External attrs: regular file, rw-r--r--
+        w.write_all(&(0o100644u32 << 16).to_le_bytes())?;
+        w.write_all(&local_offset.to_le_bytes())?;
+        w.write_all(name_bytes)?;
+        Ok(46 + name_bytes.len())
+    }
+
+    fn write_eocd(
+        w: &mut impl Write,
+        num_entries: u16,
+        cd_size: u32,
+        cd_offset: u32,
+    ) -> std::io::Result<()> {
+        w.write_all(&0x06054b50u32.to_le_bytes())?; // signature
+        w.write_all(&0u16.to_le_bytes())?;           // disk number
+        w.write_all(&0u16.to_le_bytes())?;           // disk with start of CD
+        w.write_all(&num_entries.to_le_bytes())?;    // entries on this disk
+        w.write_all(&num_entries.to_le_bytes())?;    // total entries
+        w.write_all(&cd_size.to_le_bytes())?;
+        w.write_all(&cd_offset.to_le_bytes())?;
+        w.write_all(&0u16.to_le_bytes())?; // comment len
+        Ok(())
+    }
+
+    // Metadata for an existing entry to preserve in the new CD (no data read).
+    struct PreservedEntry {
+        name: Vec<u8>,
+        method: u16,
+        crc32: u32,
+        compressed_size: u32,
+        uncompressed_size: u32,
+        local_offset: u32,
+    }
+
+    // Metadata for a newly written entry.
+    struct NewEntry {
+        name: Vec<u8>,
+        crc32: u32,
+        size: u32,
+        local_offset: u32,
+    }
+
+    let csv_filenames: HashSet<&str> = [
+        Occurrence::FILENAME,
+        Multimedia::FILENAME,
+        Audiovisual::FILENAME,
+        Identification::FILENAME,
+        Comment::FILENAME,
+    ]
+    .into_iter()
+    .collect();
+
+    // ---- Phase 1: Read CSV updates from the updates ZIP ----
+    progress_callback(DownloadProgress {
+        stage: DownloadStage::Merging { current: 0, total: 3 },
+        ..Default::default()
+    });
+
+    let mut occ_map: HashMap<String, Vec<String>> = HashMap::new();
+    let mut ext_maps: HashMap<String, GroupedMap> = HashMap::new();
+    let mut new_media: Vec<(Vec<u8>, Vec<u8>)> = Vec::new(); // (name_bytes, data)
+    {
+        let updates_file = std::fs::File::open(updates_zip)?;
+        let mut updates_archive = zip::ZipArchive::new(updates_file)?;
+        for i in 0..updates_archive.len() {
+            let mut entry = updates_archive.by_index(i)?;
+            let name = entry.name().to_string();
+            if name == Occurrence::FILENAME {
+                occ_map = read_updates_map_from_reader(&mut entry, 0)?;
+            } else if csv_filenames.contains(name.as_str()) {
+                ext_maps.insert(name, read_grouped_updates_from_reader(&mut entry, 0)?);
+            } else if name.starts_with("media/") {
+                let mut data = Vec::new();
+                std::io::Read::read_to_end(&mut entry, &mut data)?;
+                new_media.push((name.into_bytes(), data));
+            }
+        }
+    }
+
+    progress_callback(DownloadProgress {
+        stage: DownloadStage::Merging { current: 1, total: 3 },
+        ..Default::default()
+    });
+
+    // ---- Phase 2: Read existing archive; collect preserved entries + merge CSVs ----
+    // Build a set of media filenames present in the updates so we can exclude them
+    // from `preserved` — an existing entry superseded by an update must not appear
+    // twice in the central directory.
+    let new_media_names: HashSet<&[u8]> = new_media.iter().map(|(n, _)| n.as_slice()).collect();
+
+    let mut preserved: Vec<PreservedEntry> = Vec::new();
+    let mut merged_csvs: Vec<(Vec<u8>, Vec<u8>)> = Vec::new(); // (name_bytes, data)
+    let eml_abstract_lines;
+    let cd_start;
+    {
+        let existing_file = std::fs::File::open(zip_path)?;
+        let mut archive = zip::ZipArchive::new(existing_file)?;
+        cd_start = archive.central_directory_start();
+
+        for i in 0..archive.len() {
+            // Use by_index_raw first to get name and metadata without decompressing.
+            let (name, is_preserve) = {
+                let entry = archive.by_index_raw(i)?;
+                let name = entry.name().to_string();
+                // Preserve media/meta.xml unless superseded by the update.
+                let keep = (name.starts_with("media/") || name == "meta.xml")
+                    && !new_media_names.contains(entry.name().as_bytes());
+                if keep {
+                    preserved.push(PreservedEntry {
+                        name: entry.name().as_bytes().to_vec(),
+                        method: match entry.compression() {
+                            zip::CompressionMethod::Deflated => 8,
+                            _ => 0, // Stored
+                        },
+                        crc32: entry.crc32(),
+                        compressed_size: entry.compressed_size() as u32,
+                        uncompressed_size: entry.size() as u32,
+                        local_offset: entry.header_start() as u32,
+                    });
+                }
+                (name, keep)
+            };
+            if is_preserve {
+                continue;
+            }
+            // Decompressed access for entries we need to read.
+            if name == Occurrence::FILENAME {
+                let mut entry = archive.by_index(i)?;
+                let mut buf = Vec::new();
+                merge_csv_streams(&mut entry, &mut buf, &occ_map, 0)?;
+                merged_csvs.push((name.into_bytes(), buf));
+            } else if csv_filenames.contains(name.as_str()) {
+                let empty_map = HashMap::new();
+                let updates = ext_maps.get(&name).unwrap_or(&empty_map);
+                let mut entry = archive.by_index(i)?;
+                let mut buf = Vec::new();
+                merge_extension_csv_streams(&mut entry, &mut buf, updates, 0)?;
+                merged_csvs.push((name.into_bytes(), buf));
+            }
+            // eml.xml and chuck.json are skipped here; fresh versions written below.
+        }
+
+        eml_abstract_lines = match archive.by_name("eml.xml") {
+            Ok(entry) => read_abstract_lines_from_reader(entry),
+            Err(_) => vec![],
+        };
+    }
+
+    progress_callback(DownloadProgress {
+        stage: DownloadStage::Merging { current: 2, total: 3 },
+        ..Default::default()
+    });
+
+    // ---- Phase 3: Truncate at cd_start and write new local entries ----
+    let mut file = std::fs::OpenOptions::new().read(true).write(true).open(zip_path)?;
+    file.seek(SeekFrom::Start(cd_start))?;
+
+    let mut write_pos: u64 = cd_start;
+    let mut new_entries: Vec<NewEntry> = Vec::new();
+
+    // Write one STORED (uncompressed) local entry; update write_pos and new_entries.
+    let mut write_stored = |name_bytes: &[u8], data: &[u8]| -> Result<(), Box<dyn std::error::Error>> {
+        let crc = crc32fast::hash(data);
+        let size = data.len() as u32;
+        let offset = write_pos as u32;
+        write_local_header(&mut file, name_bytes, 0, crc, size, size)?;
+        file.write_all(data)?;
+        write_pos += 30 + name_bytes.len() as u64 + size as u64;
+        new_entries.push(NewEntry {
+            name: name_bytes.to_vec(),
+            crc32: crc,
+            size,
+            local_offset: offset,
+        });
+        Ok(())
+    };
+
+    for (name_bytes, data) in &merged_csvs {
+        write_stored(name_bytes, data)?;
+    }
+
+    let new_metadata = Metadata {
+        abstract_lines: eml_abstract_lines,
+        inat_query: Some(original_inat_query.to_string()),
+    };
+    let eml_bytes = generate_eml(&new_metadata).into_bytes();
+    write_stored(b"eml.xml", &eml_bytes)?;
+
+    let chuck_json = serde_json::json!({ "inat_query": original_inat_query })
+        .to_string()
+        .into_bytes();
+    write_stored(b"chuck.json", &chuck_json)?;
+
+    for (name_bytes, data) in &new_media {
+        write_stored(name_bytes, data)?;
+    }
+
+    // ---- Phase 4: Write combined central directory ----
+    let new_cd_start = write_pos;
+    let mut cd_size: u32 = 0;
+
+    for e in &preserved {
+        cd_size += write_cd_entry(
+            &mut file,
+            &e.name,
+            e.method,
+            e.crc32,
+            e.compressed_size,
+            e.uncompressed_size,
+            e.local_offset,
+        )? as u32;
+    }
+    for e in &new_entries {
+        cd_size += write_cd_entry(
+            &mut file,
+            &e.name,
+            0, // STORED
+            e.crc32,
+            e.size,
+            e.size,
+            e.local_offset,
+        )? as u32;
+    }
+
+    let total_entries = (preserved.len() + new_entries.len()) as u16;
+    write_eocd(&mut file, total_entries, cd_size, new_cd_start as u32)?;
+
+    // Truncate to exact final size (handles case where new content is shorter).
+    let final_size = new_cd_start + cd_size as u64 + 22;
+    file.set_len(final_size)?;
+
+    progress_callback(DownloadProgress {
+        stage: DownloadStage::Merging { current: 3, total: 3 },
+        ..Default::default()
+    });
 
     Ok(())
 }
@@ -1011,5 +1338,101 @@ mod tests {
         assert_eq!(preview.pub_date, Some("2025-06-01".to_string()));
         assert!(preview.extensions.is_empty());
         assert!(!preview.has_media);
+    }
+
+    #[test]
+    fn test_merge_append_updates_occurrence_csv() {
+        let existing_tmp = tempfile::NamedTempFile::new().unwrap();
+        let updates_tmp = tempfile::NamedTempFile::new().unwrap();
+        let existing_path = existing_tmp.path().to_str().unwrap();
+        let updates_path = updates_tmp.path().to_str().unwrap();
+
+        build_test_zip(existing_path, "id,name\n1,Alice\n2,Bob\n", "taxon_id=1", "2025-01-01");
+        build_test_zip(updates_path, "id,name\n2,Robert\n3,Carol\n", "taxon_id=1", "2025-02-01");
+
+        merge_archive_append(existing_path, updates_path, "taxon_id=1", &|_| {}).unwrap();
+
+        let rows = read_csv_rows_from_zip(existing_path, Occurrence::FILENAME);
+        assert!(rows.contains(&"1,Alice".to_string()), "row 1 should be preserved");
+        assert!(rows.contains(&"2,Robert".to_string()), "row 2 should be updated");
+        assert!(rows.contains(&"3,Carol".to_string()), "row 3 should be appended");
+        assert_eq!(rows.len(), 3);
+    }
+
+    #[test]
+    fn test_merge_append_preserves_existing_media() {
+        let existing_tmp = tempfile::NamedTempFile::new().unwrap();
+        let updates_tmp = tempfile::NamedTempFile::new().unwrap();
+        let existing_path = existing_tmp.path().to_str().unwrap();
+        let updates_path = updates_tmp.path().to_str().unwrap();
+
+        build_test_zip_with_media(
+            existing_path,
+            "id\n1\n",
+            "taxon_id=1",
+            "2025-01-01",
+            &[("media/old.jpg", b"old-jpeg")],
+        );
+        build_test_zip_with_media(
+            updates_path,
+            "id\n2\n",
+            "taxon_id=1",
+            "2025-02-01",
+            &[("media/new.jpg", b"new-jpeg")],
+        );
+
+        merge_archive_append(existing_path, updates_path, "taxon_id=1", &|_| {}).unwrap();
+
+        let media = read_media_from_zip(existing_path);
+        assert!(media.contains_key("media/old.jpg"), "existing media should be preserved");
+        assert!(media.contains_key("media/new.jpg"), "new media should be appended");
+        assert_eq!(media["media/old.jpg"], b"old-jpeg");
+        assert_eq!(media["media/new.jpg"], b"new-jpeg");
+    }
+
+    #[test]
+    fn test_merge_append_superseded_media_uses_new_version() {
+        // When the same media filename exists in both archives, the updated version
+        // should win and there must be exactly one CD entry for that filename
+        // (no duplicate that would make the ZIP invalid).
+        let existing_tmp = tempfile::NamedTempFile::new().unwrap();
+        let updates_tmp = tempfile::NamedTempFile::new().unwrap();
+        let existing_path = existing_tmp.path().to_str().unwrap();
+        let updates_path = updates_tmp.path().to_str().unwrap();
+
+        build_test_zip_with_media(
+            existing_path,
+            "id\n1\n",
+            "taxon_id=1",
+            "2025-01-01",
+            &[("media/photo.jpg", b"old-bytes")],
+        );
+        build_test_zip_with_media(
+            updates_path,
+            "id\n1\n",
+            "taxon_id=1",
+            "2025-02-01",
+            &[("media/photo.jpg", b"new-bytes")],
+        );
+
+        merge_archive_append(existing_path, updates_path, "taxon_id=1", &|_| {}).unwrap();
+
+        let media = read_media_from_zip(existing_path);
+        assert_eq!(
+            media["media/photo.jpg"].as_slice(),
+            b"new-bytes",
+            "superseded media should use the updated version"
+        );
+
+        // Ensure no duplicate filenames in the central directory.
+        let file = std::fs::File::open(existing_path).unwrap();
+        let archive = zip::ZipArchive::new(file).unwrap();
+        let names: Vec<&str> = archive.file_names().collect();
+        let unique: std::collections::HashSet<&str> = names.iter().copied().collect();
+        assert_eq!(
+            names.len(),
+            unique.len(),
+            "duplicate filenames in central directory: {names:?}"
+        );
     }
 }
