@@ -119,9 +119,6 @@ async function handlePickUpdateFile() {
     >
       {updateArchiveInfo?.inat_query ? 'Choose different file' : 'Choose archive…'}
     </button>
-    {#if updateFilePath}
-      <p class="text-sm mt-2 text-gray-600 break-all">{updateFilePath}</p>
-    {/if}
   </div>
 
   {#if updateArchiveError}
@@ -129,34 +126,58 @@ async function handlePickUpdateFile() {
       {updateArchiveError}
     </div>
   {:else if updateArchiveInfo}
-    <div class="p-3 border rounded space-y-2 text-sm">
-      <div class="flex flex-row items-center gap-1">
-        <span class="font-medium">Filters:</span>
-        {#if updateArchiveInfo.inat_query}
-          <code class="break-all text-xs">{updateArchiveInfo.inat_query}</code>
-        {:else}
-          <span class="badge preset-filled-error-400-600">
-            <AlertCircle size={16} />
-            <span>Archive does not specify filters</span>
-          </span>
-        {/if}
-      </div>
-      <div class="flex flex-row gap-1">
-        <span class="font-medium">Extensions:</span>
-        {#if updateArchiveInfo.extensions.length > 0}
-          <span>{updateArchiveInfo.extensions.join(', ')}</span>
-        {:else}
-          <span class="text-gray-500">none</span>
-        {/if}
-      </div>
-      <div class="flex flex-row gap-1">
-        <span class="font-medium">Media included:</span>
-        <span>{updateArchiveInfo.has_media ? 'Yes' : 'No'}</span>
-      </div>
-      <div class="flex flex-row gap-1">
-        <span class="font-medium">Current size:</span>
-        <span>{formatBytes(updateArchiveInfo.file_size_bytes)}</span>
-      </div>
+    <div class="p-3 border rounded text-sm">
+      <table class="table">
+        <tbody>
+          <tr>
+            <td class="font-semibold">Location</td>
+            <td>
+              <span class="break-all">{updateFilePath}</span>
+            </td>
+          </tr>
+          <tr>
+            <td class="font-semibold">Filters</td>
+            <td>
+              {#if updateArchiveInfo.inat_query}
+                <code class="break-all">{updateArchiveInfo.inat_query}</code>
+              {:else}
+                <span class="badge preset-filled-error-400-600">
+                  <AlertCircle size={16} />
+                  <span>Archive does not specify filters</span>
+                </span>
+              {/if}
+            </td>
+          </tr>
+          <tr>
+            <td class="font-semibold">Extensions</td>
+            <td>
+              {#if updateArchiveInfo.extensions.length > 0}
+                <span>{updateArchiveInfo.extensions.join(', ')}</span>
+              {:else}
+                <span class="text-gray-500">none</span>
+              {/if}
+            </td>
+          </tr>
+          <tr>
+            <td class="font-semibold">Media included</td>
+            <td>{updateArchiveInfo.has_media ? 'Yes' : 'No'}</td>
+          </tr>
+          <tr>
+            <td class="font-semibold">Current size</td>
+            <td>{formatBytes(updateArchiveInfo.file_size_bytes)}</td>
+          </tr>
+          <tr>
+            <td class="font-semibold">Last updated</td>
+            <td>
+              {
+                updateArchiveInfo.pub_date
+                  ? new Intl.DateTimeFormat(undefined, { dateStyle: "full" }).format(Date.parse(updateArchiveInfo.pub_date))
+                  : "Unknown"
+              }
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     {#if updateArchiveInfo.inat_query}
