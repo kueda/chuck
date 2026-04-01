@@ -946,3 +946,102 @@ async fn test_downloader_downloads_sound_files() {
         "multimedia.csv should reference local sound file"
     );
 }
+
+#[tokio::test]
+#[serial]
+async fn test_downloader_no_duplicate_zip_entry_when_photo_appears_in_two_batches() {
+    // Regression: when the same photo_id appears in two different API pages (e.g. the same
+    // photo is attached to two different observations), the downloader must not write it to
+    // the ZIP twice. A duplicate ZIP entry causes `ZipArchive::new` to fail with
+    // "Invalid Zip archive: Duplicate filename".
+    let server = MockServer::start();
+
+    let config = chuck_core::api::client::create_config_with_base_url_and_jwt(
+        server.base_url(),
+        Some("test_jwt".to_string()),
+    );
+
+    // Page 3: empty, stops pagination
+    let _observations_page3_mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/observations")
+            .query_param("id_below", "200");
+        then.status(200)
+            .header("content-type", "application/json")
+            .json_body(observations_response_json(2, vec![]));
+    });
+
+    // Page 2: observation 200 — same photo_id 9999 as page 1
+    let _observations_page2_mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/observations")
+            .query_param("id_below", "300");
+        then.status(200)
+            .header("content-type", "application/json")
+            .json_body(observations_response_json(
+                2,
+                vec![observation_json(200, &server.base_url(), &[9999])],
+            ));
+    });
+
+    // Page 1: observation 300 with photo_id 9999
+    let _observations_page1_mock = server.mock(|when, then| {
+        when.method(GET).path("/observations");
+        then.status(200)
+            .header("content-type", "application/json")
+            .json_body(observations_response_json(
+                2,
+                vec![observation_json(300, &server.base_url(), &[9999])],
+            ));
+    });
+
+    let _taxa_mock = server.mock(|when, then| {
+        when.method(GET).path_contains("/taxa");
+        then.status(200)
+            .header("content-type", "application/json")
+            .json_body(taxa_response_json());
+    });
+
+    // Photo 9999 will be requested once per batch — twice total
+    let _photo_mock = server.mock(|when, then| {
+        when.method(GET).path("/photo9999.jpg");
+        then.status(200)
+            .header("content-type", "image/jpeg")
+            .body(MINIMAL_PNG);
+    });
+
+    let temp_dir = TempDir::new().unwrap();
+    let output_path = temp_dir.path().join("test.zip");
+
+    let params = observations_api::ObservationsGetParams {
+        taxon_id: Some(vec!["47126".to_string()]),
+        per_page: Some("1".to_string()),
+        ..chuck_core::api::params::DEFAULT_GET_PARAMS.clone()
+    };
+
+    let downloader = Downloader::with_config(
+        params,
+        vec![DwcaExtension::SimpleMultimedia],
+        true,
+        config,
+    );
+
+    let result = downloader.execute(output_path.to_str().unwrap(), |_| {}, None).await;
+    assert!(result.is_ok(), "Download should succeed: {:?}", result.err());
+
+    // Opening the archive must not fail with "Duplicate filename"
+    let zip_data = std::fs::read(&output_path).unwrap();
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(zip_data))
+        .expect("ZipArchive::new should succeed — no duplicate entries");
+
+    let photo_entries: Vec<_> = (0..zip.len())
+        .map(|i| zip.by_index(i).unwrap().name().to_string())
+        .filter(|n| n.contains("9999"))
+        .collect();
+
+    assert_eq!(
+        photo_entries.len(),
+        1,
+        "expected exactly one ZIP entry for photo 9999, got: {photo_entries:?}"
+    );
+}

@@ -128,6 +128,12 @@ impl Downloader {
         let mut progress = DownloadProgress::default();
         let mut cumulative_media_seen: usize = 0;
 
+        // Track photo/sound IDs already committed to the ZIP so that photos shared
+        // across observations (and therefore present in multiple API pages) are not
+        // written twice, which would produce an invalid archive.
+        let mut added_photo_ids: std::collections::HashSet<i32> = std::collections::HashSet::new();
+        let mut added_sound_ids: std::collections::HashSet<i32> = std::collections::HashSet::new();
+
         // Track pending media download from previous batch
         #[allow(clippy::type_complexity)]
         let mut pending_media: Option<(
@@ -184,9 +190,10 @@ impl Downloader {
                     self.process_extensions(
                         &observations, &mut archive, &photo_mapping, &sound_mapping, &taxa_hash
                     ).await?;
-                    for rel_path in photo_mapping.values().chain(sound_mapping.values()) {
-                        archive.add_media_from_temp(rel_path)?;
-                    }
+                    commit_media(
+                        &mut archive, &photo_mapping, &sound_mapping,
+                        &mut added_photo_ids, &mut added_sound_ids,
+                    )?;
                 }
                 break;
             }
@@ -241,9 +248,10 @@ impl Downloader {
                 self.process_extensions(
                     &observations, &mut archive, &photo_mapping, &sound_mapping, &prev_taxa_hash
                 ).await?;
-                for rel_path in photo_mapping.values().chain(sound_mapping.values()) {
-                    archive.add_media_from_temp(rel_path)?;
-                }
+                commit_media(
+                    &mut archive, &photo_mapping, &sound_mapping,
+                    &mut added_photo_ids, &mut added_sound_ids,
+                )?;
             }
 
             // Start media downloads for current batch in background
@@ -505,6 +513,35 @@ impl Downloader {
 
         Ok(())
     }
+}
+
+/// Add media files from a batch to the archive, skipping any photo or sound IDs already
+/// committed in a previous batch. For skipped duplicates, removes the re-downloaded file
+/// without writing it to the ZIP.
+fn commit_media(
+    archive: &mut crate::darwin_core::ArchiveBuilder,
+    photo_mapping: &HashMap<i32, String>,
+    sound_mapping: &HashMap<i32, String>,
+    added_photo_ids: &mut std::collections::HashSet<i32>,
+    added_sound_ids: &mut std::collections::HashSet<i32>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for (id, rel_path) in photo_mapping {
+        if added_photo_ids.insert(*id) {
+            archive.add_media_from_temp(rel_path)?;
+        } else {
+            let local = archive.media_dir().join(rel_path.replace('\\', "/"));
+            let _ = std::fs::remove_file(local);
+        }
+    }
+    for (id, rel_path) in sound_mapping {
+        if added_sound_ids.insert(*id) {
+            archive.add_media_from_temp(rel_path)?;
+        } else {
+            let local = archive.media_dir().join(rel_path.replace('\\', "/"));
+            let _ = std::fs::remove_file(local);
+        }
+    }
+    Ok(())
 }
 
 /// Compute an updated photo count estimate using a running average across observed batches.
